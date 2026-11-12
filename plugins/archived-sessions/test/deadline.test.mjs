@@ -18,8 +18,15 @@
  *   5. timeoutMs: 0 disables the deadline (used by callers that want the old
  *      unbounded behaviour).
  */
-import test from 'node:test'
+import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
+
+// The real host has referenced server handles. Model that lifetime explicitly:
+// the production deadline is unref'ed, so Node 22 may otherwise exit mid-test.
+// The outer test runner still enforces a 60-second hard process deadline.
+let hostLifetime
+before(() => { hostLifetime = setInterval(() => {}, 1000) })
+after(() => { clearInterval(hostLifetime) })
 
 import { DEFAULT_DELETE_TIMEOUT_MS, deleteArchived, deleteOrphans, withDeadline } from '../lib/index.js'
 import { reason } from '../lib/reasons.js'
