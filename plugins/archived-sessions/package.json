@@ -1,0 +1,45 @@
+{
+  "name": "dsh-plugin-archived-sessions",
+  "version": "0.5.1",
+  "type": "module",
+  "description": "设置中的已归档会话管理：恢复、安全删除与超期自动清理",
+  "main": "lib/index.js",
+  "private": true,
+  "files": [
+    "lib",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node --check lib/index.js && node --check lib/client.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  }
+}

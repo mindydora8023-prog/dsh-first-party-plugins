@@ -1,0 +1,14 @@
+{
+  "name": "dsh-first-party-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "First-party DeepSeek Harness plugins.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node tools/test.mjs"
+  }
+}

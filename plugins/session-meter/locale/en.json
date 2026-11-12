@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session meter",
+    "description": "Shows under the input box whether DeepSeek is in a peak or off-peak window, plus this session's estimated cost at official DeepSeek pricing"
+  }
+}

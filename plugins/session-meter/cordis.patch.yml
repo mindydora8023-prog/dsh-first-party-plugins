@@ -1,0 +1,10 @@
+# Bundle patch for dsh-plugin-session-meter.
+#
+# The plugin is a pure Client decoration: it registers one entry into
+# `conversation.composer.dock` (the row under the input box, next to the
+# shipped speed/cache pills). The Host half is an inert module so the bundle
+# rides the normal plugin install path; nothing here needs configuration.
+- insert:
+    - id: session-meter
+      name: 'dsh-plugin-session-meter'
+      config: {}
