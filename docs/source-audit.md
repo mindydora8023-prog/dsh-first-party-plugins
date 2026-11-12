@@ -11,7 +11,6 @@
 | gmail | 本地 IMAP/SMTP、MIME 与工具接线，工具助手为宿主兼容移植 | 加 DeepSeek MIT；只发布插件，排除独立 Python CLI 与本机启动器；收录 |
 | ops-lite | 自开发读取集成，完整性和失败策略有明确 dsh-ops 改编标记，工具助手含宿主移植 | 保留 DeepSeek、T-Auto MIT 与模块映射；修正 bundle 打包缺项；收录 |
 | next-say | 宿主集成、补全与输入层为本地开发；预测辅助模块与 dsh-prompt-predict 存在实质对应 | 将 predict.js 按上游改编处理，保留 ferrisching MIT；补生成器完整性检查；收录 |
-| sauce-theme | 自开发 DSH 样式接线，实际使用 Catppuccin Latte 配色 | 保留 Catppuccin MIT；对齐单浅色主题描述；收录 |
 | task-radar | 通知发动机主干改编自 Pasumao；少量助手保守保留 chenchao 声明 | 0.3.0 批次已加完整 MIT、重绘图标及可复现生成器，修复打包、测试和文档；收录，见[专项记录](task-radar-audit.md) |
 
 archived-sessions、session-meter 为首批已收录插件，继续保留。第三方 dsh-purge-community 不在本次发布范围。codex-quota 与 session-title-first-round 已退役，本次只记录状态，未新增溯源结论。
@@ -40,11 +39,11 @@ ops-lite 的 compact.js 注明改编 ranges.ts/file-batching.md；outcome.js 注
 
 ## 配色、图标与字体
 
-主题八个色值与 [Catppuccin Latte 1.8.0](https://github.com/catppuccin/palette/blob/07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd/palette.json)一致，保留 [Catppuccin MIT](https://github.com/catppuccin/palette/blob/07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd/LICENSE)。OpenCode 的风格描述本身不证明复制其代码，未发现其代码或 logo 被直接带入。
+OpenCode 的风格描述本身不证明复制其代码，未发现其代码或 logo 被直接带入。
 
 原 github 图标有 Invertocat 长路径，并与背景及虚线圈组合。参考 [GitHub 品牌规则](https://brand.github.com/foundations/logo)后，发布副本以新写的分支节点 SVG 替代，并将 SVG 自身作为创作源稿。
 
-其余图标是内联几何 SVG，没有链接或嵌入第三方图片。未查得完整早期绘制记录，文档只声明实际观察，不承诺已证明全部创作历史。主题只列系统字体回退名称，没有捆绑字体程序。
+其余图标是内联几何 SVG，没有链接或嵌入第三方图片。未查得完整早期绘制记录，文档只声明实际观察，不承诺已证明全部创作历史。
 
 ## 测试样例
 
