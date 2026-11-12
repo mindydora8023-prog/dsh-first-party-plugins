@@ -23,3 +23,4 @@ jobs:
       - run: npm test
       - run: node plugins/next-say/tools/check-client.mjs
       - run: node plugins/filekit/test/make-office-fixtures.mjs --check
+      - run: node plugins/task-radar/tools/build-icons.mjs --check

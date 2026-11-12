@@ -1,0 +1,57 @@
+{
+  "name": "dsh-plugin-task-radar",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "description": "任务雷达：任务运行/结束时发系统通知——Windows 原生 Toast + 浏览器系统通知双通道，正文标注「工作区 · 会话」，按事件类型（完成/中止/出错/等你选择）开关，全部规则可在设置页配置",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "locale",
+    "icon.svg",
+    "assets",
+    "tools/build-icons.mjs",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/config.js && node --check lib/state-dir.js",
+    "test": "node --test --test-timeout=20000 test/*.test.mjs",
+    "check:icons": "node tools/build-icons.mjs --check"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
+  },
+  "license": "MIT"
+}

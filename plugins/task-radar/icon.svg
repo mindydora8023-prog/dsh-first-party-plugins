@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Task Radar">
+  <rect width="256" height="256" rx="40" fill="#142b38"/>
+  <path d="M128 128L184 72L204 110Z" fill="#315c60"/>
+  <circle cx="128" cy="128" r="80" fill="none" stroke="#81d8bc" stroke-width="5"/>
+  <circle cx="128" cy="128" r="48" fill="none" stroke="#81d8bc" stroke-width="5"/>
+  <circle cx="128" cy="128" r="16" fill="none" stroke="#81d8bc" stroke-width="5"/>
+  <path d="M128 128L184 72" fill="none" stroke="#81d8bc" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="184" cy="72" r="10" fill="#f1bd6a"/>
+</svg>

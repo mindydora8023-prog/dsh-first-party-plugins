@@ -44,6 +44,7 @@ for (const name of names) {
     const rel = normal(path.relative(dir, file));
     if (rel.startsWith('licenses/') && !covered(pkg.files || [], rel)) problems.push(name + ': omitted license: ' + rel);
     if (rel.startsWith('lib/') && !covered(pkg.files || [], rel)) problems.push(name + ': omitted runtime module: ' + rel);
+    if (rel.startsWith('assets/') && !covered(pkg.files || [], rel)) problems.push(name + ': omitted runtime asset: ' + rel);
   });
 }
 walk(root, (file) => {

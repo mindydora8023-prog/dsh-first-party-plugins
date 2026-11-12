@@ -2,7 +2,28 @@
 
 日期：2026-11-12。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
-## 0.2.0 范围
+## 0.3.0：加入 task-radar 0.1.1
+
+仓库现收录九款插件。task-radar 按社区改编作品分发，保留 Pasumao 和 chenchao 两份完整 MIT，明确 ltao 为尚未确认代码复制的功能参考，详见[来源与整改记录](docs/task-radar-audit.md)。
+
+本次完成：
+
+- 以新编写的几何源稿同时生成 SVG/PNG，删除来源未核实旧素材；源码、图标和 --check 随包提供。
+- files 白名单补齐 assets、生成器、主许可证和两份上游许可；根检查器新增 assets 覆盖检查。
+- 清理未实现的 Webhook/HMAC/自定义音效宣传，明确测试按钮仅提交 Windows 通道请求，submitted 不等于已显示。
+- 添加通知发送器依赖注入，替换会发送真实 Toast 的旧测试；默认 PowerShell 子进程限制为 10 秒，并记录异常退出。
+
+验证结果：task-radar 37 条离线测试全部通过，覆盖事件、冷却/开关、journal、浏览器权限/去重/点击/卸载、EncodedCommand、环境过滤、默认图标和失败日志。所有进程及浏览器通知均为替身，没有发送真实系统通知。
+
+配置 Python 和兼容宿主检出后的全仓验证为 **550 条通过，0 失败、0 跳过**。主题另外通过入口语法检查；图标、词典/客户端和 OOXML 生成检查通过。公开 CI 未提供宿主检出时，仍有上批保留的 16 条真实宿主契约用例明确跳过。
+
+实际构建 dsh-plugin-task-radar-0.1.1.tgz：16 个文件，包含 PNG/SVG、生成器、bundle、来源声明及两份上游 MIT。解包后图标生成 --check、入口语法和注入发送器 smoke 均通过；发送器实际解析打包后的默认 PNG 并携带 10 秒超时参数，未启动 PowerShell。打包后的运行代码与图标已与发布源码逐字节对比。
+
+GitHub Actions 在四组 Windows/Linux、Node.js 22/24 环境执行测试与生成检查。系统通知中心真实显示和实际浏览器权限/后台调度是手动验证边界，自动测试不冒充该验证。
+
+活动安装源码及用户配置未修改。下文保留 0.2.0 的历史记录。
+
+## 历史：0.2.0 范围
 
 在首批 archived-sessions、session-meter 的基础上，新增 filekit、github、gmail、ops-lite、next-say、dsh-plugin-sauce-theme，共八款。此版本号表示仓库发布整理版本，各插件清单版本另行保留。
 

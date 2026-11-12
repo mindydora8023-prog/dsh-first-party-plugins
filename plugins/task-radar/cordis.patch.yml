@@ -1,0 +1,7 @@
+# Bundle patch for dsh-plugin-task-radar.
+# Native Windows toast plus a bounded journal polled by the browser notifier.
+# Settings configure events and both channels. No webhook or custom audio engine.
+- insert:
+    - id: task-radar
+      name: 'dsh-plugin-task-radar'
+      config: {}
