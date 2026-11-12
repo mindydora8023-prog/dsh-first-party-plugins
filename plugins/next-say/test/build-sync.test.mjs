@@ -19,12 +19,20 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import test from 'node:test';
+import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// Staleness probes rename and edit modules. Use a private copy so parallel
+// watchdog/import tests never observe a temporarily missing production module.
+const ROOT = mkdtempSync(join(tmpdir(), 'next-say-build-sync-'));
+for (const entry of ['lib', 'tools', 'client']) {
+  cpSync(join(SOURCE_ROOT, entry), join(ROOT, entry), { recursive: true });
+}
+after(() => rmSync(ROOT, { recursive: true, force: true }));
 const SCRIPT = join(ROOT, 'tools', 'build-client.py');
 const OUTPUT = join(ROOT, 'lib', 'client.js');
 const MATCH = join(ROOT, 'lib', 'match.js');
