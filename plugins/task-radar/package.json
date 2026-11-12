@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-task-radar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "任务雷达：任务运行/结束时发系统通知——Windows 原生 Toast + 浏览器系统通知双通道，正文标注「工作区 · 会话」，按事件类型（完成/中止/出错/等你选择）开关，全部规则可在设置页配置",

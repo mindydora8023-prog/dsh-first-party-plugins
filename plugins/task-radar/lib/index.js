@@ -34,6 +34,7 @@ import { statePath } from './state-dir.js';
 import { DEFAULT_CONFIG, KIND_LABELS, normalizeConfig } from './config.js';
 
 export const name = 'dsh-plugin-task-radar';
+export const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 /** `webServer` is optional (route registered when present). */
 export const inject = ['webServer'];
@@ -92,28 +93,32 @@ function sanitizedEnv(extra, parentEnv = process.env) {
   return Object.assign(env, extra);
 }
 
-const TOAST_SCRIPT = [
-  '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null',
-  '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null',
-  'function XmlEscape([string]$s) { return $s.Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace(\'"\',"&quot;").Replace("\'","&apos;") }',
-  '$title = [string]$env:TR_TITLE',
-  '$body = [string]$env:TR_BODY',
-  '$location = [string]$env:TR_LOCATION',
-  '$icon = [string]$env:TR_ICON',
-  '$persist = [string]$env:TR_PERSIST',
-  '$aumid = [string]$env:TR_AUMID',
-  '$iconPart = ""',
-  'if ($icon -and (Test-Path $icon)) { $u = "file:///" + ($icon.Replace("\\","/")); $iconPart = "<image placement=\"appLogoOverride\" src=\"" + (XmlEscape $u) + "\" hint-crop=\"circle\"/>" }',
-  '$locPart = ""',
-  'if ($location) { $locPart = "<text>" + (XmlEscape $location) + "</text>" }',
-  '$scenario = ""',
-  'if ($persist -eq "1") { $scenario = " scenario=\"reminder\"" }',
-  '$xmlText = "<toast" + $scenario + " activationType=\"background\"><visual><binding template=\"ToastGeneric\">" + $iconPart + "<text>" + (XmlEscape $title) + "</text><text>" + (XmlEscape $body) + "</text>" + $locPart + "</binding></visual></toast>"',
-  '$xml = New-Object Windows.Data.Xml.Dom.XmlDocument',
-  '$xml.LoadXml($xmlText)',
-  '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)',
-  '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)',
-].join('\n');
+const TOAST_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+function XmlEscape([string]$s) { return [System.Security.SecurityElement]::Escape($s) }
+$title = [string]$env:TR_TITLE
+$body = [string]$env:TR_BODY
+$location = [string]$env:TR_LOCATION
+$icon = [string]$env:TR_ICON
+$persist = [string]$env:TR_PERSIST
+$aumid = [string]$env:TR_AUMID
+$iconPart = ''
+if ($icon -and (Test-Path -LiteralPath $icon)) {
+  $u = [System.Uri]::new($icon).AbsoluteUri
+  $iconPart = '<image placement="appLogoOverride" src="' + (XmlEscape $u) + '" hint-crop="circle"/>'
+}
+$locPart = ''
+if ($location) { $locPart = '<text>' + (XmlEscape $location) + '</text>' }
+$scenario = ''
+if ($persist -eq '1') { $scenario = ' scenario="reminder"' }
+$xmlText = '<toast' + $scenario + ' activationType="background"><visual><binding template="ToastGeneric">' + $iconPart + '<text>' + (XmlEscape $title) + '</text><text>' + (XmlEscape $body) + '</text>' + $locPart + '</binding></visual></toast>'
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($xmlText)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)
+`.trim();
 
 const DEFAULT_AUMID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';
 
@@ -494,7 +499,7 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
 
     try {
       if (path === PROFILE + '/radar' && (method === 'GET' || method === 'HEAD')) {
-        json(res, 200, { ok: true, journal: journal.slice(), config: getCfg() });
+        json(res, 200, { ok: true, version, journal: journal.slice(), config: getCfg() });
         return;
       }
       if (path === PROFILE + '/config' && method === 'POST') {

@@ -3,6 +3,7 @@
  * No real server, no real network, no OS side effects.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { __internals, createHandler } from '../lib/index.js';
@@ -76,6 +77,7 @@ test('handler serves radar with the current config', async () => {
   assert.equal(res.status, 200);
   const payload = JSON.parse(res.body);
   assert.equal(payload.ok, true);
+  assert.equal(payload.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
   assert.equal(payload.config.enabled, true);
   assert.deepEqual(payload.journal, []);
 });

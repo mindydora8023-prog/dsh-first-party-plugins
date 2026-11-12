@@ -12,7 +12,7 @@
 | [ops-lite](plugins/ops-lite/README.md) | 0.1.0 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.1.0 | 下一句预测、历史补全、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [sauce-theme](plugins/dsh-plugin-sauce-theme/README.md) | 0.7.1 | 浅色对话主题、等宽字体范围 | [Catppuccin Latte 配色](plugins/dsh-plugin-sauce-theme/THIRD_PARTY_NOTICES.md) |
-| [task-radar](plugins/task-radar/README.md) | 0.1.1 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [task-radar](plugins/task-radar/README.md) | 0.1.2 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 

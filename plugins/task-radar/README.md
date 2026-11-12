@@ -1,6 +1,6 @@
 # 任务雷达
 
-为 DeepSeek Harness 提供任务通知：Windows 原生 Toast 与浏览器系统通知两条通道，可分别开关。版本 0.1.1。
+为 DeepSeek Harness 提供任务通知：Windows 原生 Toast 与浏览器系统通知两条通道，可分别开关。版本 0.1.2。
 
 插件包含 Pasumao 通知引擎的改编与本工作区的配置、浏览器 journal、设置集成等开发。来源与适用 MIT 原文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，不声明全包独立原创。
 
@@ -24,7 +24,7 @@ Windows 通道由宿主调用 PowerShell 5.1/WinRT，不要求浏览器页面保
 
 ## 安装与设置
 
-参见[仓库安装说明](../../README.md)。包名为 `dsh-plugin-task-radar`。安装并重启宿主、刷新页面后，在设置中的“任务雷达”配置总开关、事件、通道、根会话过滤、冷却、摘要长度、标题前缀、图标及常驻选项。
+参见[仓库安装说明](https://github.com/mindydora8023-prog/dsh-first-party-plugins#安装)。包名为 `dsh-plugin-task-radar`。安装并重启宿主、刷新页面后，在设置中的“任务雷达”配置总开关、事件、通道、根会话过滤、冷却、摘要长度、标题前缀、图标及常驻选项。
 
 修改设置后点保存。配置默认写入用户状态目录的 `dsh-plugins/task-radar/config.json`，可用 `DSH_PLUGIN_STATE_DIR` 或 `TASK_RADAR_CONFIG_FILE` 覆盖，不写入源码目录。
 
@@ -42,7 +42,9 @@ npm run build
 npm run check:icons
 ```
 
-测试使用临时目录、宿主与浏览器替身、可替换的通知发送器，不发送真实系统通知，不访问真实账户或网络。实际 Windows 通知中心与真实浏览器显示属于手动验证，不由替身测试冒充。
+测试使用临时目录、宿主与浏览器替身、可替换的通知发送器，不发送真实系统通知，不访问真实账户或网络。Windows 另有真实 PowerShell 语法解析测试，仅解析脚本而不执行通知；其他平台明确跳过该用例。实际 Windows 通知中心与真实浏览器显示属于手动验证，不由替身测试冒充。
+
+0.1.2 修复原生脚本把 JavaScript 的引号转义误用到 PowerShell XML 字符串的问题，改用 PowerShell 单引号拼接和 SecurityElement XML 转义，并开启遇错终止，使进程退出日志可以反映执行失败。
 
 图标源稿与重建入口：
 

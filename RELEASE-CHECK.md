@@ -2,7 +2,13 @@
 
 日期：2026-11-12。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
-## 0.3.0：加入 task-radar 0.1.1
+## 0.3.1：task-radar 原生脚本修复
+
+本机同步验证发现 0.1.1 的 JavaScript 引号转义没有形成合法的 PowerShell XML 字符串。task-radar 因此发布为 0.1.2：使用原始脚本与 PowerShell 单引号 XML 拼接、SecurityElement 转义，开启遇错终止；radar 只读接口增加实际加载版本字段。新增真实 Windows PowerShell 解析器回归测试，并用原先错误引号作为反例；此测试不显示通知，非 Windows 环境明确跳过。
+
+本地原生执行验证使用已保存配置，严格脚本退出码为 0，CLIXML 无 Error 流（初始化 Progress 流另行区分），同时完成一次真实发送。用户配置保持字节一致。此结论表示系统 API 执行成功，不等同于确认用户屏幕可见横幅。既有用户配置与 profile 链接无需迁移。
+
+## 历史：0.3.0：加入 task-radar 0.1.1
 
 仓库现收录九款插件。task-radar 按社区改编作品分发，保留 Pasumao 和 chenchao 两份完整 MIT，明确 ltao 为尚未确认代码复制的功能参考，详见[来源与整改记录](docs/task-radar-audit.md)。
 
