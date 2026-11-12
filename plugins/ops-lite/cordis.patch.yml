@@ -1,0 +1,24 @@
+# Bundle patch for dsh-plugin-ops-lite.
+#
+# One row, one tool. It never replaces an official tool, never mounts a
+# discovery/PTC projection, and never registers a shell -- see the README for
+# why those dsh-ops features are deliberately absent.
+- insert:
+    - id: ops-lite
+      name: 'dsh-plugin-ops-lite'
+      config:
+        # Hard caps. A larger number here is clamped to the documented maximum
+        # rather than trusted, because these are context-safety bounds.
+        maxFiles: 32              # files per call
+        defaultLimit: 400         # default lines per file
+        maxLimit: 2000            # maximum lines per file
+        maxLineLength: 2000       # characters kept per line before it is clipped and marked
+        maxOutputBytes: 51200     # per-file window byte cap
+        callMaxBytes: 204800      # whole-call output byte cap
+        maxFileBytes: 33554432    # refuse individual files larger than 32 MiB
+        textBudget: 65536         # model-visible text budget, in ESCAPED bytes
+        # Refuse credential material (keys, token stores, .env) even under
+        # danger-full-access. Set false only if that fence is genuinely unwanted.
+        denyCredentialReads: true
+        # Inject the short usage guidance into the system prompt.
+        promptGuidance: true

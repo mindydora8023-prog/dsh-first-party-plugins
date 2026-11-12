@@ -12,3 +12,6 @@ attachments/
 coverage/
 .DS_Store
 Thumbs.db
+app_password.txt
+watch_state.json
+.host-checkout/

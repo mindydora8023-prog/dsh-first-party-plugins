@@ -1,0 +1,1 @@
+{"meta": {"title": "Multi-file read", "description": "Bounded multi-file reads: structured failure contract, escaped-byte budgets, compact rendering, and two-level completeness (one read-only tool only; no discovery/PTC/shell)"}}

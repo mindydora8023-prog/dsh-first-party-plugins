@@ -1,0 +1,49 @@
+# Bundle patch for dsh-plugin-github.
+#
+# Applied when a profile lists this package in `dsh.profile.bundles` (the normal
+# install path). Every key below is optional; the values shown are the defaults
+# that lib/config.js falls back to.
+- insert:
+    - id: github
+      name: 'dsh-plugin-github'
+      config:
+        # REST API root. Only change it for a GitHub Enterprise host.
+        apiBaseUrl: 'https://api.github.com'
+        # Credential sources, tried in this order:
+        #   1. token below
+        #   2. GITHUB_TOKEN / GH_TOKEN
+        #   3. credentialsFile
+        #   4. `git credential fill` for github.com -- reads a login that Git
+        #      Credential Manager already stored; it never opens a window
+        #      (GCM_INTERACTIVE=never is forced in lib/auth.js)
+        #   5. `gh auth token` -- the portable gh at ~/.dsh/tools/gh/gh.exe is
+        #      found automatically; never prompts (GH_PROMPT_DISABLED=1)
+        # token: 'ghp_...'
+        useGitCredential: true
+        useGhCli: true
+        # credentialsFile: ''   # default: <plugin dir>/credentials.json
+        # tokenCacheSeconds: 300
+        # Proxy. Node's built-in fetch ignores the Windows Internet Settings
+        # proxy, so without this a direct connection to api.github.com times
+        # out behind a firewall. Order: proxyUrl -> HTTPS_PROXY/HTTP_PROXY ->
+        # the Windows system proxy from the registry. An explicit proxyUrl
+        # accepts ${env:NAME}; leaving everything unset still uses the system
+        # proxy, which is what this machine relies on.
+        # proxyUrl: '${env:HTTPS_PROXY}'
+        proxyFromEnv: true
+        proxyFromSystem: true
+        # Optional default repository for tools that omit `repo`.
+        # defaultRepo: 'owner/name'
+        perPage: 25
+        maxChars: 20000
+        maxFiles: 30
+        timeoutMs: 30000
+        retries: 1
+        # With no token at all, public reads still work against the anonymous
+        # quota (60 requests per hour per address). Writes always need a token.
+        allowAnonymous: true
+        # Expose github_create_issue / github_comment. Set false for a read-only
+        # setup; the two tools are then not registered at all.
+        allowWrite: true
+        # statusFile: ''        # default: <plugin dir>/github-status.json
+        # killSwitch: ''        # default: <plugin dir>/dsh-github.disabled

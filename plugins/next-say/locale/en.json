@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Next-say suggestions",
+    "description": "Predicts your next message after each finished turn, and completes a draft from local history. Tab fills the draft without sending."
+  }
+}

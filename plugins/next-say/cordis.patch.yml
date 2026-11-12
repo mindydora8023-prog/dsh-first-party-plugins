@@ -1,0 +1,12 @@
+# Bundle patch for dsh-plugin-next-say.
+#
+# One row: the Host half (turn boundary bookkeeping + the same-origin /next-say
+# routes) and the Client half (the suggestion row above the composer and the
+# settings page) are the same package, so a single entry mounts both.
+#
+# Everything below is an INITIAL value. Settings saved from the settings page
+# live in $DSH_HOME/next-say/settings.json and win over these.
+- insert:
+    - id: next-say
+      name: 'dsh-plugin-next-say'
+      config: {}

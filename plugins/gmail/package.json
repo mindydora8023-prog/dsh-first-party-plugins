@@ -1,0 +1,41 @@
+{
+  "name": "dsh-plugin-gmail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Gmail 原生工具：IMAP 搜索/读取/线程总结 + SMTP 发信 + 标签归档（应用专用密码）",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "locale",
+    "icon.svg",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/imap.js && node --check lib/smtp.js && node --check lib/mime.js && node --check lib/reader.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/define.js",
+    "test": "node --test test/*.test.mjs",
+    "test:static": "node --test test/define-parity.test.mjs test/inject-guard.test.mjs test/encoding-guard.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

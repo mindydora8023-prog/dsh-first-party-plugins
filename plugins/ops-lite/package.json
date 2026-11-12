@@ -1,0 +1,43 @@
+{
+  "name": "dsh-plugin-ops-lite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "有界多文件读取：结构化失败契约 + 转义后字节预算 + 紧凑渲染 + 两级完整性（只加一个只读工具，不碰 discovery/PTC/shell）",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "cordis.patch.yml",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/access.js && node --check lib/text.js && node --check lib/escape.js && node --check lib/compact.js && node --check lib/render.js && node --check lib/outcome.js && node --check lib/define.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  }
+}

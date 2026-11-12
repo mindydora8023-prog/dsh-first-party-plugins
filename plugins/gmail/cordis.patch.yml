@@ -1,0 +1,22 @@
+# Bundle patch for dsh-plugin-gmail.
+#
+# Applied when a profile lists this package in `dsh.profile.bundles` (the normal
+# install path). Optional per-plugin configuration lives on the inserted row.
+- insert:
+    - id: gmail
+      name: 'dsh-plugin-gmail'
+      # config:
+      #   credentialsPath: ''          # explicit credentials.json; empty = probe plugin dir -> profile dir -> DSH_HOME
+      #   address: ''                  # may also be written here (not recommended; a credentials file is easier to rotate)
+      #   appPassword: ''              # same as above; GMAIL_ADDRESS / GMAIL_APP_PASSWORD env vars work too
+      #   imapHost: 'imap.gmail.com'
+      #   imapPort: 993
+      #   smtpHost: 'smtp.gmail.com'
+      #   smtpPort: 465
+      #   timeoutMs: 30000
+      #   attachmentsDir: ''           # attachment directory; empty = <plugin dir>/attachments
+      #   stateFile: ''                # gmail_new cursor file; empty = <plugin dir>/gmail-state.json
+      #   maxResults: 25               # gmail_search default result count (max 200)
+      #   allowSend: true              # expose gmail_send at all
+      #   allowWrite: true             # allow gmail_mark / gmail_label / gmail_archive
+      #   killSwitch: ''               # kill-switch sentinel file; empty = <plugin dir>/dsh-gmail.disabled

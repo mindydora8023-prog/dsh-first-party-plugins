@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitHub",
+    "description": "Search and read repositories, files, issues, pull requests, commits and CI runs over the GitHub REST API, reusing the browser login."
+  }
+}

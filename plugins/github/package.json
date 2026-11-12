@@ -1,0 +1,40 @@
+{
+  "name": "dsh-plugin-github",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub 原生工具：仓库/代码/Issue/PR 搜索与读取、提交与分支、CI 运行状态，复用浏览器登录（Git Credential Manager）",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "locale/*.json",
+    "icon.svg",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/auth.js && node --check lib/api.js && node --check lib/tools.js && node --check lib/define.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

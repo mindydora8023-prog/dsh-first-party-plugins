@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Repository tools">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#102534"/>
+  <path d="M21 17v30m0-15h13c6 0 9-4 9-9v-6" fill="none" stroke="#80d9c2" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#102534" stroke="#f3cc81" stroke-width="3">
+    <circle cx="21" cy="17" r="5"/><circle cx="21" cy="47" r="5"/><circle cx="43" cy="17" r="5"/>
+  </g>
+</svg>

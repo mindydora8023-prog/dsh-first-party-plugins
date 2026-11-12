@@ -1,0 +1,55 @@
+{
+  "name": "dsh-plugin-next-say",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "输入框内的下一句建议：回合结束后预测下一句话，输入时用本地历史补全，Tab 只填入草稿",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "locale",
+    "icon.svg",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/predict.js && node --check lib/match.js && node --check lib/ghost.js && node --check lib/config.js",
+    "check:client": "node tools/check-client.mjs",
+    "test": "node --test --test-timeout=20000 test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
+  },
+  "license": "MIT"
+}

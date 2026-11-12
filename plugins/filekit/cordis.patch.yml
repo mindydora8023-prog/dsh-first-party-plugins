@@ -1,0 +1,26 @@
+# Bundle patch for dsh-plugin-filekit.
+#
+# Adds four bounded, read-only document tools. It never replaces an official
+# tool, never enables a discovery/PTC layer, and never registers a shell.
+- insert:
+    - id: filekit
+      name: 'dsh-plugin-filekit'
+      config:
+        # Hard caps. Every value is clamped to the documented maximum, so a
+        # larger number here is ignored rather than trusted.
+        maxFiles: 32              # filekit_read: files per call
+        defaultLimit: 400         # filekit_read: default lines per file
+        maxLimit: 2000            # filekit_read: maximum lines per file
+        maxLineLength: 2000       # characters kept per line before truncation
+        maxOutputBytes: 51200     # per-file / per-block output byte cap
+        callMaxBytes: 204800      # filekit_read: whole-call output byte cap
+        maxFileBytes: 33554432    # refuse individual files larger than this
+        scanMaxBytes: 67108864    # cap on decompressed/scan buffers
+        docDefaultLimit: 200      # table rows / docx blocks default page size
+        docMaxLimit: 1000         # table rows / docx blocks page cap
+        maxCellLength: 500        # table / docx cell length cap
+        pdfDefaultPages: 10       # filekit_read_pdf default page count
+        pdfMaxPages: 32           # filekit_read_pdf page cap
+        # Refuse credential material (keys, token stores, .env) even in
+        # danger-full-access. Set false only if you really want that fence off.
+        denyCredentialReads: true
