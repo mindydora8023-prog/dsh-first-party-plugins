@@ -164,7 +164,7 @@ def check() -> int:
         print(f"{OUTPUT.relative_to(ROOT)} is missing; run tools/build-client.py", file=sys.stderr)
         return 1
 
-    actual = OUTPUT.read_text(encoding="utf-8")
+    actual = OUTPUT.read_bytes().decode("utf-8")
     if actual == expected:
         print(
             f"{OUTPUT.relative_to(ROOT)} is up to date "
