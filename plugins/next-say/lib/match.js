@@ -14,6 +14,17 @@
 const NORMALIZE_STRIP = /[\s\u3000]+/g;
 
 /**
+ * Bounded memo for normalizeForMatch.
+ *
+ * historyCompletion runs on every keystroke and normalizes every history
+ * candidate; those candidate strings do not change between keystrokes, so
+ * re-normalizing them 200x per keypress is pure waste. Keyed by the raw string
+ * (results are pure), FIFO-evicted so it can never grow without bound.
+ */
+const NORMALIZE_CACHE = new Map();
+const NORMALIZE_CACHE_LIMIT = 1024;
+
+/**
  * Comparison key for a draft or candidate.
  *
  * Width, case and internal whitespace differences are typing accidents, so they
@@ -21,7 +32,10 @@ const NORMALIZE_STRIP = /[\s\u3000]+/g;
  * the text shown to the user is always the candidate's original bytes.
  */
 export function normalizeForMatch(text) {
-  return String(text ?? '')
+  const key = String(text ?? '');
+  const hit = NORMALIZE_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const value = key
     .toLowerCase()
     .replace(NORMALIZE_STRIP, '')
     .replace(/[\u2018\u2019\u201c\u201d]/g, '"')
@@ -32,6 +46,12 @@ export function normalizeForMatch(text) {
     .replace(/\uff1f/g, '?')
     .replace(/\uff01/g, '!')
     .replace(/[\uff01-\uff5e]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+  if (NORMALIZE_CACHE.size >= NORMALIZE_CACHE_LIMIT) {
+    const oldest = NORMALIZE_CACHE.keys().next().value;
+    if (oldest !== undefined) NORMALIZE_CACHE.delete(oldest);
+  }
+  NORMALIZE_CACHE.set(key, value);
+  return value;
 }
 
 /**

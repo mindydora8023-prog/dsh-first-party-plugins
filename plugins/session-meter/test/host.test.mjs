@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -24,7 +24,7 @@ const CATALOG = {
 };
 
 /** One local server standing in for both upstream endpoints. */
-async function withUpstream(body) {
+async function withUpstream(body, options = {}) {
   const server = createServer((req, res) => {
     res.setHeader('content-type', 'application/json; charset=utf-8');
     if ((req.url ?? '').startsWith('/catalog')) res.end(JSON.stringify(CATALOG));
@@ -33,7 +33,7 @@ async function withUpstream(body) {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const scratch = mkdtempSync(join(tmpdir(), 'session-meter-host-'));
-  const statusFile = join(scratch, 'status.json');
+  const statusFile = join(scratch, options.statusRel ?? 'status.json');
   // Isolate BOTH files: the machine's real price cache would make the plugin
   // serve yesterday's catalog instead of the fake upstream below.
   const cacheFile = join(scratch, 'prices.json');
@@ -168,6 +168,16 @@ test('the status file records what happened, for the next "why unpriced" report'
       rmSync(statusFile, { force: true });
     });
   });
+});
+
+test('the status file directory is created on first write', async () => {
+  // A clean profile has no %LOCALAPPDATA%/dsh-plugins/session-meter directory.
+  // writeStatus must create it, or the diagnostic file silently never appears.
+  await withUpstream(async ({ statusFile }) => {
+    await withPlugin(async () => {
+      assert.equal(existsSync(statusFile), true, 'status file must be created inside a fresh nested dir');
+    });
+  }, { statusRel: join('nested', 'deep', 'status.json') });
 });
 
 test('a non-GET request is refused without touching the catalog', async () => {

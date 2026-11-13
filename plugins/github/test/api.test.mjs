@@ -230,6 +230,22 @@ test('a 5xx on a write is also unknown, because GitHub can fail after applying',
   }
 })
 
+test('a 5xx on a read is retried once (and a write is not)', async () => {
+  let calls = 0
+  const stub = stubFetch(() => {
+    calls += 1
+    return calls === 1 ? { status: 503, body: '{}' } : { status: 200, body: JSON.stringify({ ok: true }) }
+  })
+  const retried = readConfig({ retries: 1, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  try {
+    const result = await request(retried, authInfo, { method: 'GET', path: '/rate_limit' })
+    assert.equal(result.status, 200)
+    assert.equal(stub.calls.length, 2, 'a 503 on a GET is retried once')
+  } finally {
+    stub.restore()
+  }
+})
+
 test('a write rejected with a 4xx reports no effect and stays retryable after a fix', async () => {
   // 422 is the server refusing to act, so the effect is genuinely `none` and
   // telling the model "never retry" would be wrong.

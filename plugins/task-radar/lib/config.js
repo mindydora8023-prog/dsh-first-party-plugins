@@ -67,6 +67,18 @@ function objectAt(value) {
   return typeof value === 'object' && value !== null ? value : {};
 }
 
+/**
+ * Clamp the cooldown, but keep an explicit 0 meaningful (0 = no cooldown).
+ * `... || DEFAULT` used to swallow 0 into the default 4000ms; a negative or
+ * non-numeric value still falls back to the default.
+ */
+function cooldown(value) {
+  if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.cooldownMs;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_CONFIG.cooldownMs;
+  return Math.floor(n);
+}
+
 /** Merge an arbitrary stored/input value over the defaults and sanitize it. */
 export function normalizeConfig(value) {
   const source = objectAt(value);
@@ -76,7 +88,7 @@ export function normalizeConfig(value) {
   return {
     enabled: bool(source.enabled, DEFAULT_CONFIG.enabled),
     rootsOnly: bool(source.rootsOnly, DEFAULT_CONFIG.rootsOnly),
-    cooldownMs: Math.max(0, Math.floor(Number(source.cooldownMs) || 0)) || DEFAULT_CONFIG.cooldownMs,
+    cooldownMs: cooldown(source.cooldownMs),
     summaryMaxChars: Math.max(1, Math.floor(Number(source.summaryMaxChars) || DEFAULT_CONFIG.summaryMaxChars)),
     titlePrefix: str(source.titlePrefix).trim().slice(0, 32) || DEFAULT_CONFIG.titlePrefix,
     events: {

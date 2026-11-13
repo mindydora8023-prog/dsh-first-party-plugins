@@ -1,13 +1,6 @@
 /**
  * Pure prompt-prediction logic for dsh-plugin-next-say.
  *
- * Prediction helpers adapted from ferrisching/dsh-prompt-predict (MIT),
- * commit ded6c292b4347a47825520ef54b5b20ca53e8bd7.
- * Copyright (c) 2026 ferrisching.
- * Adapted areas include prompt wording, language voting, token estimates,
- * history trimming, output normalization and request framing/routing.
- * See ../THIRD_PARTY_NOTICES.md and ../licenses/dsh-prompt-predict-MIT.txt.
- *
  * Everything in this module is deterministic and side-effect free, so the whole
  * decision surface (what we send, how long, which language, how we clean up the
  * reply) is unit-testable without a Host, a model, or a session.
@@ -171,15 +164,17 @@ export function detectConversationLanguage(history, sample = 5) {
   const pool = (users.length > 0 ? users : items).slice(-sample);
 
   const votes = new Map();
+  const scripts = [];
   for (const item of pool) {
     const script = detectScript(item.text);
+    scripts.push(script);
     votes.set(script, (votes.get(script) ?? 0) + 1);
   }
 
   let best = 'Latin';
   let bestCount = -1;
-  for (const item of pool) {
-    const script = detectScript(item.text);
+  for (let index = 0; index < pool.length; index += 1) {
+    const script = scripts[index];
     const count = votes.get(script) ?? 0;
     if (count >= bestCount) {
       best = script;

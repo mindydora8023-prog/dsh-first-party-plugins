@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
     };
 
     /* ------------------------------------------------------------ watcher */
-    const watcher = { timer: null, lastAt: 0, cfg: null, inFlight: false, system: true };
+    const watcher = { timer: null, lastAt: 0, cfg: null, inFlight: false, system: true, seeded: false };
     let appCtx = null;
 
     /**
@@ -164,7 +164,7 @@ window.__ModuleLoader__.load({
       try {
         if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
         const text = location ? body + '\n' + location : body;
-        const note = new Notification(title, { body: text, tag: 'task-radar-' + kind, renotify: true, silent: false });
+        const note = new Notification(title, { body: text, tag: 'task-radar-' + kind + '-' + (sessionId || 'nosession'), renotify: true, silent: false });
         note.onclick = () => {
           try { window.focus(); } catch { /* ignore */ }
           openSessionById(sessionId);
@@ -195,6 +195,19 @@ window.__ModuleLoader__.load({
         watcher.cfg = cfg;
         watcher.system = !!(cfg.system && cfg.system.enabled === true);
         const journal = Array.isArray(payload.journal) ? payload.journal : [];
+        // The host journal is in-memory and survives page reloads / new tabs, so
+        // the FIRST successful poll only seeds the watermark. Replaying it would
+        // re-toast up to JOURNAL_LIMIT events that predate this page -- and the
+        // native toast already covered them when they happened.
+        if (watcher.seeded !== true) {
+          let newest = 0;
+          for (const entry of journal) {
+            if (entry && typeof entry.at === 'number' && entry.at > newest) newest = entry.at;
+          }
+          watcher.lastAt = newest;
+          watcher.seeded = true;
+          return;
+        }
         for (const entry of journal) {
           if (!entry || typeof entry.at !== 'number') continue;
           if (entry.at <= watcher.lastAt) continue;
@@ -204,10 +217,6 @@ window.__ModuleLoader__.load({
           }
           if (watcher.system) showSystemNotification(entry.kind, entry.title, entry.body, entry.location, entry.session);
           watcher.lastAt = Math.max(watcher.lastAt, entry.at);
-        }
-        if (journal.length > 0 && watcher.lastAt === 0) {
-          const newest = journal.reduce((m, e) => (e && typeof e.at === 'number' && e.at > m ? e.at : m), 0);
-          watcher.lastAt = newest;
         }
       } catch { /* offline is fine */ } finally {
         watcher.inFlight = false;

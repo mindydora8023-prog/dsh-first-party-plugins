@@ -67,13 +67,20 @@ function refuseReason(ctx, childId, header, archived, members) {
 }
 
 function rules(ctx, headers) {
-  return { archived: new Set(ctx.workspaceRegistry.archivedSessionIds), members: workspaceMembers(ctx.workspaceRegistry), headers }
+  return {
+    archived: new Set(ctx.workspaceRegistry.archivedSessionIds),
+    members: workspaceMembers(ctx.workspaceRegistry),
+    headers,
+    // Built once per snapshot and reused by every planDeletion call in a batch,
+    // so inspecting N archived ids is O(N + headers), not O(N * headers).
+    childIndex: childIndex(headers),
+  }
 }
 
 /** Walk the parentSession closure below one archived session. */
 function planDeletion(ctx, id, headers, shared) {
   const { archived, members } = shared ?? rules(ctx, headers)
-  const childrenOf = childIndex(headers)
+  const childrenOf = shared?.childIndex ?? childIndex(headers)
   const order = [], refused = [], seen = new Set([id]), queue = [{ id, depth: 0 }]
   while (queue.length) {
     const current = queue.shift()
@@ -268,19 +275,22 @@ async function runRemoval(ctx, targets, options) {
     const state = registry.requireState()
     await registry.setState({ ...state, pinnedSessionIds: state.pinnedSessionIds.filter(value => !removed.has(value)), archivedSessionIds: state.archivedSessionIds.filter(value => !removed.has(value)) })
   } catch (error) {
-    // Failed metadata cleanup must not silently destroy the only remaining log.
-    if (moved.length) {
-      try {
-        for (const { target, isolated } of moved) await rename(isolated, target.location.path)
-        for (const [key, value] of prior) {
-          const [kind, sessionId] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
-          if (kind === 'header') registry.headers?.set(sessionId, value)
-          if (kind === 'path') registry.sessionPaths?.set(sessionId, value)
-          if (kind === 'invalid') registry.invalidSessionPaths?.set(sessionId, value)
-        }
-        for (const [workspace, ids] of detached) await workspace.mutate(record => ({ ...record, sessionIds: ids }))
-      } catch { throw fail(t('delete-incomplete'), 500) }
-    }
+    // Failed metadata cleanup must not leave a half-deleted state. Restore the
+    // in-memory metadata even when nothing was moved to quarantine: a pure ghost
+    // batch (no log on disk, moved.length === 0) still detached workspaces and
+    // deleted registry entries before registry.setState threw; skipping this
+    // would leave the workspace membership removed while the archive record
+    // remains -- exactly the half-state this transaction must avoid.
+    try {
+      for (const { target, isolated } of moved) await rename(isolated, target.location.path)
+      for (const [key, value] of prior) {
+        const [kind, sessionId] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+        if (kind === 'header') registry.headers?.set(sessionId, value)
+        if (kind === 'path') registry.sessionPaths?.set(sessionId, value)
+        if (kind === 'invalid') registry.invalidSessionPaths?.set(sessionId, value)
+      }
+      for (const [workspace, ids] of detached) await workspace.mutate(record => ({ ...record, sessionIds: ids }))
+    } catch { throw fail(t('delete-incomplete'), 500) }
     throw error
   } finally { for (const lease of leases) await lease.release() }
   // Metadata is committed (a failure above threw before reaching here). Announce the

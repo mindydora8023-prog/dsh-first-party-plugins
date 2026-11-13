@@ -236,6 +236,35 @@ test('failed metadata write restores fixture log and workspace membership', asyn
     assert.deepEqual(removedIds(f.ctx), [])
   } finally { assert.ok(f.base.startsWith(join(tmpdir(), 'dsh-archive-test-'))); await rm(f.base, { recursive: true, force: true }) }
 })
+test('failed metadata write on a ghost-only batch restores workspace membership and registry entries', async () => {
+  // A "ghost" has an archive record but no log on disk, so nothing is moved to
+  // quarantine (moved.length === 0). The metadata steps (detach workspace,
+  // delete registry entries) still run, and if registry.setState then throws the
+  // rollback must still restore them -- otherwise the workspace membership is
+  // gone while the archive record survives (a half-deleted state).
+  const f = await fixture()
+  f.ctx.sessionPersistence.findLog = async () => undefined
+  f.ctx.workspaceRegistry.setState = async () => { throw Error('fixture metadata failure') }
+  try {
+    await assert.rejects(deleteArchived(f.ctx, 'session-a'), /fixture metadata failure/)
+    assert.deepEqual(f.workspace.sessionIds, ['session-a'])
+    assert.deepEqual(f.ctx.workspaceRegistry.archivedSessionIds, ['session-a'])
+    assert.equal(f.ctx.workspaceRegistry.headers.has('session-a'), true)
+  } finally { assert.ok(f.base.startsWith(join(tmpdir(), 'dsh-archive-test-'))); await rm(f.base, { recursive: true, force: true }) }
+})
+
+test('a log path that resolves outside the sessions root is refused as storage-invalid', async () => {
+  const f = await fixture()
+  const outside = join(f.base, 'outside.jsonl')
+  await writeFile(outside, 'outside')
+  f.ctx.sessionPersistence.findLog = async () => ({ currentPath: outside })
+  try {
+    await assert.rejects(deleteArchived(f.ctx, 'session-a'), reasonRegex('storage-invalid'))
+    // Nothing on disk or in metadata may change when a path fails validation.
+    assert.equal(await readFile(join(f.dir, 'v4.jsonl'), 'utf8'), 'fixture-only')
+    assert.deepEqual(f.workspace.sessionIds, ['session-a'])
+  } finally { assert.ok(f.base.startsWith(join(tmpdir(), 'dsh-archive-test-'))); await rm(f.base, { recursive: true, force: true }) }
+})
 
 async function treeFixture({ ghost = false } = {}) {
   const base = await mkdtemp(join(tmpdir(), 'dsh-archive-test-'))

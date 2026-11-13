@@ -311,6 +311,8 @@ window.__ModuleLoader__.load({
 		const ROUTE = "/session-meter/prices";
 		/** How long a failed lookup waits before trying again. */
 		const LIVE_RETRY_MS = 60000;
+		/** Bound one price request; a hung request would leave inFlight stuck. */
+		const LIVE_TIMEOUT_MS = 15000;
 
 		function liveSubscribe(listener) {
 			live.listeners.add(listener);
@@ -352,7 +354,16 @@ window.__ModuleLoader__.load({
 			unknown.sort();
 			const key = unknown.join(",");
 			live.inFlight = true;
-			fetch(ROUTE + "?m=" + encodeURIComponent(key), { credentials: "same-origin" })
+			fetch(ROUTE + "?m=" + encodeURIComponent(key), {
+				credentials: "same-origin",
+				// Without a deadline a request that never settles leaves inFlight
+				// true forever, so no unpriced model on this page would ever be
+				// retried (the "pill stuck on unpriced" symptom after a host
+				// restart or half-open connection).
+				signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+					? AbortSignal.timeout(LIVE_TIMEOUT_MS)
+					: undefined,
+			})
 				.then((response) => {
 					if (!response.ok) throw new Error("HTTP " + response.status);
 					return response.json();

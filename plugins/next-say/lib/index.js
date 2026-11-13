@@ -468,8 +468,6 @@ function createHandler(ctx, state) {
         return;
       }
 
-      // TEMP OBSERVABILITY: lets a local run answer "is the client half alive and
-      // what did it say?" without a browser console. Removed before delivery.
       if (path === `${ROUTE}/settings` && request.method === 'POST') {
         const body = await readJsonBody(request);
         if (body.reset === true) {
@@ -563,7 +561,6 @@ function createHandler(ctx, state) {
       if (path === `${ROUTE}/predict` && request.method === 'POST') {
         const body = await readJsonBody(request);
         const settings = state.settings;
-        // TEMP OBSERVABILITY (removed before delivery).
         if (settings.enabled !== true) {
           json(response, 200, { ok: false, reason: 'disabled' });
           return;
@@ -620,7 +617,6 @@ function createHandler(ctx, state) {
           } else {
             attempts.set(key, used);
           }
-        } else {
         }
         json(response, 200, result);
         return;

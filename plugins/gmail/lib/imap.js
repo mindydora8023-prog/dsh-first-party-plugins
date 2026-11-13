@@ -285,6 +285,26 @@ export class Imap {
     return response
   }
 
+  /**
+   * Expunge ONLY the given UIDs (RFC 4315 UIDPLUS, supported by Gmail).
+   *
+   * `expunge()` sends a bare EXPUNGE, which permanently removes EVERY message
+   * flagged \Deleted in the mailbox. When the intent is to remove one message we
+   * just archived, a bare EXPUNGE could delete unrelated messages the user had
+   * marked for deletion but not yet expunged. UID EXPUNGE is scoped to the set.
+   *
+   * @param {string[]|number[]} uids - uids to expunge.
+   * @param {{mailbox?: string}} [options]
+   */
+  async uidExpunge(uids, { mailbox = 'INBOX' } = {}) {
+    const set = (Array.isArray(uids) ? uids : [uids]).map((uid) => String(uid).trim()).filter(Boolean)
+    if (set.length === 0) return { status: 'OK', statusText: 'nothing to expunge', text: '' }
+    await this.select(mailbox, { readonly: false })
+    const response = await this.command('UID EXPUNGE', set.join(','))
+    if (response.status !== 'OK') throw new Error(`UID EXPUNGE failed: ${response.statusText}`)
+    return response
+  }
+
   async selectWritable(mailbox) {
     return this.select(mailbox, { readonly: false })
   }

@@ -70,6 +70,7 @@ test('notification click focuses the window, opens its session and closes itself
   h.mod.__internals.showSystemNotification('finished', 'Done', 'Body', 'Location', 'session-123');
   assert.equal(h.notes.length, 1);
   assert.equal(h.notes[0].options.body, 'Body\nLocation');
+  assert.match(h.notes[0].options.tag, /finished-session-123$/, 'tag must be scoped per session so one session cannot swallow another');
   h.notes[0].onclick();
   assert.deepEqual(h.opened, ['session-123']);
   assert.equal(h.focusCount(), 1);
@@ -104,24 +105,33 @@ test('permission is requested on a user gesture and listeners are removed on dis
   assert.equal(h.listeners.get('keydown').size, 0);
 });
 
-test('journal entries are notified once and event/global/channel switches are respected', async (t) => {
+test('the first poll seeds the watermark without replaying old journal entries', async (t) => {
   const entry = (at, kind = 'finished') => ({ at, kind, title: 'Done', body: 'Body', session: 's1' });
   const h = harness(t, { payload: { ok: true, config: { enabled: true, system: { enabled: true } }, journal: [entry(1), entry(2)] } });
+  // A page opened after the fact must NOT re-toast the events already in the
+  // host journal; the first poll only records where the watermark is.
   await h.mod.__internals.tick();
+  assert.equal(h.notes.length, 0, 'a fresh page must not replay pre-existing journal entries');
   await h.mod.__internals.tick();
-  assert.equal(h.notes.length, 2, 'repeated polls never redisplay consumed journal entries');
+  assert.equal(h.notes.length, 0);
+  // A genuinely new entry after the watermark is shown exactly once.
+  h.setPayload({ ok: true, config: { enabled: true, system: { enabled: true } }, journal: [entry(1), entry(2), entry(3)] });
+  await h.mod.__internals.tick();
+  assert.equal(h.notes.length, 1);
+  await h.mod.__internals.tick();
+  assert.equal(h.notes.length, 1, 'repeated polls never redisplay consumed journal entries');
   for (const config of [
     { enabled: false, system: { enabled: true } },
     { enabled: true, system: { enabled: false } },
     { enabled: true, system: { enabled: true }, events: { finished: false } },
   ]) {
     const at = h.mod.__internals.watcher.lastAt + 1;
-    h.setPayload({ ok: true, config, journal: [entry(at)] });
+    h.setPayload({ ok: true, config, journal: [entry(1), entry(2), entry(3), entry(at)] });
     await h.mod.__internals.tick();
-    assert.equal(h.notes.length, 2);
+    assert.equal(h.notes.length, 1);
     assert.equal(h.mod.__internals.watcher.lastAt, at);
   }
-  h.setPayload({ ok: true, config: { enabled: true, system: { enabled: true } }, journal: [entry(6)] });
+  h.setPayload({ ok: true, config: { enabled: true, system: { enabled: true } }, journal: [entry(h.mod.__internals.watcher.lastAt + 1)] });
   await h.mod.__internals.tick();
-  assert.equal(h.notes.length, 3);
+  assert.equal(h.notes.length, 2);
 });

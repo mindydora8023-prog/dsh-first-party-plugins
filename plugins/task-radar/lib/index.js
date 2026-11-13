@@ -295,12 +295,21 @@ export function apply(ctx, options = {}) {
 
   const journal = [];
   const states = new Map();
+  // Cap per-agent state so a long-lived host that never fires agent/disposed for
+  // some sessions cannot grow this Map without bound. Evict the oldest entry
+  // that is not currently running.
+  const MAX_STATES = 500;
 
   function stateFor(id) {
     let state = states.get(id);
     if (!state) {
       state = { running: false, turnStarted: false, lastReason: null, lastPrompt: '', waiting: false, waitingCallId: null, waitingText: '', session: null, lastAt: {} };
       states.set(id, state);
+      if (states.size > MAX_STATES) {
+        for (const [key, value] of states) {
+          if (key !== id && value.running !== true) { states.delete(key); break; }
+        }
+      }
     }
     return state;
   }

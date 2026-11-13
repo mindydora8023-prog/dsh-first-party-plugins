@@ -55,6 +55,17 @@ def strip_exports(source: str) -> str:
     source = re.sub(r"^export\s+(async\s+)?(function|const|class|let|var)\s", r"\1\2 ", source, flags=re.M)
     source = re.sub(r"^export\s+\{[^}]*\};?\s*$", "", source, flags=re.M)
     source = re.sub(r"^import\s+.*?;\s*$", "", source, flags=re.M)
+    # Guard: if a source module grows an `export default` or a multi-line export,
+    # the patterns above leave it in the factory body -> a browser syntax error
+    # while every unit test (which imports the source directly) stays green.
+    # Fail the build instead of shipping a bundle that cannot load.
+    leftover = re.search(r"^\s*export\b", source, flags=re.M)
+    if leftover is not None:
+        raise BuildError(
+            "a source module still has an `export` after inlining (export default or "
+            "multi-line export?); keep exports to single-line `export function|const|class` "
+            "or `export { ... }`"
+        )
     return source.strip()
 
 
@@ -153,7 +164,7 @@ def check() -> int:
         print(f"{OUTPUT.relative_to(ROOT)} is missing; run tools/build-client.py", file=sys.stderr)
         return 1
 
-    actual = OUTPUT.read_bytes().decode("utf-8")
+    actual = OUTPUT.read_text(encoding="utf-8")
     if actual == expected:
         print(
             f"{OUTPUT.relative_to(ROOT)} is up to date "

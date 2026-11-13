@@ -21,6 +21,14 @@
 import { readZipEntry, looksLikeZip } from './zip.js'
 import { unescapeXml } from './docx.js'
 
+/**
+ * Hard cap on columns per row. A single malformed/far reference (e.g. r="XFD1"
+ * => column 16383) would otherwise build a huge sparse row that the hole-fill
+ * loop and the renderer expand to every row, blowing up memory and output for a
+ * whole sheet. Cells past the cap are dropped, keeping one cell bounded.
+ */
+const MAX_COLUMNS = 1024
+
 /** Excel column letters ("A", "AB") to a 0-based index. */
 export function columnIndex(ref) {
   let n = 0
@@ -32,9 +40,17 @@ export function columnIndex(ref) {
   return n - 1
 }
 
+/** Compiled per-attribute regexes, so a big sheet does not build one per cell. */
+const ATTR_RE_CACHE = new Map()
+
 /** Read an attribute value from a start tag string, e.g. r="A1". */
 function attr(tag, name) {
-  const m = new RegExp(`${name}="([^"]*)"`).exec(tag)
+  let re = ATTR_RE_CACHE.get(name)
+  if (re === undefined) {
+    re = new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}="([^"]*)"`)
+    ATTR_RE_CACHE.set(name, re)
+  }
+  const m = re.exec(tag)
   return m === null ? undefined : m[1]
 }
 
@@ -125,9 +141,12 @@ export function parseSheet(sheetXml, sharedStrings, dateStyles, caps = {}) {
       const tag = c[1]
       const inner = c[2] ?? ''
       const type = attr(tag, 't')
-      const styleIndex = attr(tag, 's') === undefined ? -1 : Number(attr(tag, 's'))
+      const styleRaw = attr(tag, 's')
+      const styleIndex = styleRaw === undefined ? -1 : Number(styleRaw)
       const ref = attr(tag, 'r')
       const col = ref === undefined ? row.length : columnIndex(ref)
+      // Drop absurd far columns instead of growing the row to that width.
+      if (col >= MAX_COLUMNS) continue
 
       let value = ''
       if (type === 's') {

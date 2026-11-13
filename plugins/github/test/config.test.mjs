@@ -9,8 +9,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { DEFAULT_API_BASE, readConfig, parseRepo } from '../lib/config.js'
+import { statePath } from '../lib/state-dir.js'
 
-const dirs = { pluginDir: '/fixture/github', profileDir: '', home: '' }
+const dirs = { pluginDir: 'E:/Dsh web/github', profileDir: '', home: '' }
 
 test('defaults are applied when the row has no config', () => {
   const config = readConfig(undefined, dirs)
@@ -19,7 +20,10 @@ test('defaults are applied when the row has no config', () => {
   assert.equal(config.maxChars, 20000)
   assert.equal(config.allowWrite, true)
   assert.equal(config.useGitCredential, true)
-  assert.equal(config.credentialsFile, join(dirs.pluginDir, 'credentials.json'))
+  // Credentials must default to the per-user state directory, never the source
+  // tree (which is mirrored to git and may be read-only).
+  assert.equal(config.credentialsFile, statePath('github', 'credentials.json'))
+  assert.notEqual(config.credentialsFile, join(dirs.pluginDir, 'credentials.json'))
   assert.equal(config.killSwitch, join(dirs.pluginDir, 'dsh-github.disabled'))
 })
 

@@ -23,6 +23,7 @@
  * ASCII only: user-visible text is rendered by the client locale dictionary.
  */
 
+import { randomUUID } from 'node:crypto'
 import { readFile, writeFile, rename, mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
@@ -79,10 +80,29 @@ export async function loadCleanup(file = cleanupFile()) {
   return { config, lastRun }
 }
 
+/**
+ * Per-file promise chain that serialises read-modify-write sequences.
+ *
+ * saveCleanupConfig and saveLastRun both do load -> merge -> write. A background
+ * sweep (saveLastRun) and a settings change (saveCleanupConfig) can run at the
+ * same time, so without a lock the second write can overwrite the first's field:
+ * a user's just-saved config, or the latest sweep summary, silently disappears.
+ */
+const WRITE_CHAINS = new Map()
+function withFileLock(file, fn) {
+  const tail = WRITE_CHAINS.get(file) ?? Promise.resolve()
+  const next = tail.then(() => fn())
+  // Store a settled-safe tail so one rejection never poisons the next waiter.
+  WRITE_CHAINS.set(file, next.catch(() => {}))
+  return next
+}
+
 /** Atomic write: tmp then rename, so a crash never leaves a half file. */
 async function writeState(file, value) {
   await mkdir(dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
+  // The tmp name carries a random suffix so two concurrent writers (different
+  // pids, or the same pid before serialisation kicks in) never collide on it.
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
   await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8')
   await rename(tmp, file)
 }
@@ -94,10 +114,12 @@ async function writeState(file, value) {
  * @returns {Promise<{ enabled: boolean, days: number }>} the saved, normalized config.
  */
 export async function saveCleanupConfig(patch, file = cleanupFile()) {
-  const state = await loadCleanup(file)
-  const config = normalizeCleanup({ ...state.config, ...(patch && typeof patch === 'object' ? patch : {}) })
-  await writeState(file, { version: 1, config, lastRun: state.lastRun })
-  return config
+  return withFileLock(file, async () => {
+    const state = await loadCleanup(file)
+    const config = normalizeCleanup({ ...state.config, ...(patch && typeof patch === 'object' ? patch : {}) })
+    await writeState(file, { version: 1, config, lastRun: state.lastRun })
+    return config
+  })
 }
 
 /**
@@ -106,8 +128,10 @@ export async function saveCleanupConfig(patch, file = cleanupFile()) {
  * @param {string} [file]
  */
 export async function saveLastRun(lastRun, file = cleanupFile()) {
-  const state = await loadCleanup(file)
-  await writeState(file, { version: 1, config: state.config, lastRun })
+  return withFileLock(file, async () => {
+    const state = await loadCleanup(file)
+    await writeState(file, { version: 1, config: state.config, lastRun })
+  })
 }
 
 /** The activity time to compare against the cutoff, or undefined when unknown. */

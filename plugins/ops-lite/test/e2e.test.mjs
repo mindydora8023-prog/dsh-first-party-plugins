@@ -274,6 +274,40 @@ test('the first entry always fits, even when it alone exceeds the cap', async ()
   }
 })
 
+test('a large file read at a small window is not charged for the whole file', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'small.txt'), 'small\n', 'utf8')
+    const big = `${'x'.repeat(99)}\n`
+    writeFileSync(join(space.root, 'src', 'big.txt'), big.repeat(2000), 'utf8') // ~200 KB
+    // The whole-file estimate (~600 KB) exceeds the cap, but a 2-line window does
+    // not: charging by whole-file size would push big.txt to pending forever.
+    const { definition } = tool(space.ctx, { callMaxBytes: 30000 })
+    const value = await definition.execute(
+      { files: [{ path: 'src/small.txt' }, { path: 'src/big.txt', offset: 1, limit: 2 }] },
+      space.exec,
+    )
+    assert.equal(value.pending, 0, 'a windowed read of a big file must not be pushed to pending')
+    assert.equal(value.nextIndex, 2)
+    assert.equal(space.host.observed.length, 2)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('offset past the physical end is OFFSET_OUT_OF_RANGE even with a trailing newline', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'two.txt'), 'a\nb\n', 'utf8')
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute({ files: [{ path: 'src/two.txt', offset: 3 }] }, space.exec)
+    assert.equal(value.failed, 1)
+    assert.match(value.text, /OFFSET_OUT_OF_RANGE/)
+  } finally {
+    space.cleanup()
+  }
+})
+
 test('an empty files array fails with a repair instruction', async () => {
   const space = workspace()
   try {

@@ -187,6 +187,11 @@ test('docx: unescapeXml handles named and numeric entities', () => {
   assert.equal(unescapeXml('a &amp; b &#65; &#x42;'), 'a & b A B')
 })
 
+test('docx: unescapeXml replaces an out-of-range numeric reference instead of throwing', () => {
+  assert.equal(unescapeXml('&#x110000;'), '\uFFFD')
+  assert.equal(unescapeXml('&#999999999;'), '\uFFFD')
+})
+
 test('docx: parseDocumentXml orders paragraphs and tables in the body', () => {
   const blocks = parseDocumentXml(DOC_XML)
   assert.equal(blocks.length, 4)

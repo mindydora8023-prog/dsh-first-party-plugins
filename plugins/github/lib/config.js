@@ -55,7 +55,9 @@ export function readConfig(raw, dirs) {
     // (or the browser login already stored by Git Credential Manager) is the
     // path that keeps the secret out of the profile patch.
     token: asText(source.token, ''),
-    credentialsFile: asText(source.credentialsFile, join(dirs.pluginDir, 'credentials.json')),
+    // Default goes to the per-user state directory, NOT the source tree: that
+    // tree is mirrored to git and may be read-only, exactly like statusFile.
+    credentialsFile: asText(source.credentialsFile, statePath('github', 'credentials.json')),
     // `git credential fill` reads the token Git Credential Manager stored when
     // the user signed in to github.com from a browser. GCM_INTERACTIVE=never is
     // forced in auth.js, so this can never open a sign-in window; when nothing

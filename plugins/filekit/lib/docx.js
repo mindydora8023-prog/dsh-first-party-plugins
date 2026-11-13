@@ -21,12 +21,19 @@ const XML_ENTITIES = {
   '&apos;': "'",
 }
 
+/** Map one numeric character reference to a character; out-of-range -> U+FFFD. */
+function codePointChar(codePoint) {
+  return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : '\uFFFD'
+}
+
 /** Decode XML entities, including numeric character references. */
 export function unescapeXml(text) {
   return text
     .replace(/&(amp|lt|gt|quot|apos);/g, (m) => XML_ENTITIES[m])
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => codePointChar(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => codePointChar(parseInt(dec, 10)))
 }
 
 /** Extract the visible text of one `w:p` fragment (runs, tabs, breaks). */
@@ -119,7 +126,12 @@ export function readDocx(buffer, req) {
   } catch (error) {
     throw new Error(`not a readable DOCX: ${error?.message ?? String(error)}`)
   }
-  const blocks = parseDocumentXml(xmlBuf.toString('utf8'))
+  let blocks
+  try {
+    blocks = parseDocumentXml(xmlBuf.toString('utf8'))
+  } catch (error) {
+    throw new Error(`not a readable DOCX: ${error?.message ?? String(error)}`)
+  }
   const totalBlocks = blocks.length
   const maxCellLength = Number.isFinite(req.maxCellLength) ? req.maxCellLength : 500
   const maxBytes = Number.isFinite(req.maxBytes) ? req.maxBytes : 50 * 1024

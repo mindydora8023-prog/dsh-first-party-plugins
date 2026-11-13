@@ -132,8 +132,4 @@ export function renderReadFiles(args, value, options = {}) {
 export const READ_RECOVERY = 'Repeat the same file entry with a smaller limit or a byte range; '
   + 'do not advance past undisplayed content.'
 
-/** Recovery advice for a mutation: never replay a possible write. */
-export const WRITE_RECOVERY = 'Inspect the current file state before another mutation; '
-  + 'do not repeat the write to recover undisplayed receipts.'
-
 export { DEFAULT_TEXT_BUDGET, quote }

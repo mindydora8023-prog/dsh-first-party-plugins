@@ -25,6 +25,10 @@ test('normalizeConfig clamps cooldownMs and summaryMaxChars', () => {
   assert.equal(cfg2.summaryMaxChars, 80);
 });
 
+test('an explicit cooldownMs of 0 means "no cooldown" and is preserved', () => {
+  assert.equal(normalizeConfig({ cooldownMs: 0 }).cooldownMs, 0);
+});
+
 test('normalizeConfig round-trips the system channel toggle', () => {
   assert.equal(normalizeConfig({ system: { enabled: true } }).system.enabled, true);
   assert.equal(normalizeConfig({ system: { enabled: false } }).system.enabled, false);

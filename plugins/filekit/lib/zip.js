@@ -18,6 +18,16 @@ const EOCD_SIG = 0x06054b50
 const CEN_SIG = 0x02014b50
 const LOC_SIG = 0x04034b50
 
+/**
+ * Parsed central directories, keyed by the ZIP Buffer object.
+ *
+ * Reading one XLSX walks the central directory once per entry it needs
+ * (workbook, rels, sheet, sharedStrings, styles = 5 times) even though the
+ * directory never changes for a given buffer. A WeakMap makes the repeat walks
+ * O(1) without changing any call site, and the key dies with the buffer.
+ */
+const CENTRAL_DIRECTORY = new WeakMap()
+
 /** Find the EOCD record, scanning backwards over a possible archive comment. */
 function findEocd(buf) {
   const maxComment = 65535
@@ -34,6 +44,8 @@ function findEocd(buf) {
  * @returns {Array<{name:string, method:number, compressedSize:number, size:number, localOffset:number}>}
  */
 export function listZipEntries(buf) {
+  const cached = CENTRAL_DIRECTORY.get(buf)
+  if (cached !== undefined) return cached
   const eocd = findEocd(buf)
   const count = buf.readUInt16LE(eocd + 10)
   const cdOffset = buf.readUInt32LE(eocd + 16)
@@ -57,6 +69,7 @@ export function listZipEntries(buf) {
     entries.push({ name, method, compressedSize, size, localOffset })
     p += 46 + nameLen + extraLen + commentLen
   }
+  CENTRAL_DIRECTORY.set(buf, entries)
   return entries
 }
 

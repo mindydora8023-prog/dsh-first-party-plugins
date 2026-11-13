@@ -142,6 +142,34 @@ test('cleanup state persists config and lastRun outside the source tree', async 
   }
 })
 
+test('concurrent config and lastRun writes do not lose each other', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'dsh-cleanup-race-'))
+  const file = cleanupFileFor(base)
+  const previous = process.env['ARCHIVED_SESSIONS_CLEANUP_FILE']
+  process.env['ARCHIVED_SESSIONS_CLEANUP_FILE'] = file
+  try {
+    // A background sweep (saveLastRun) and a settings change (saveCleanupConfig)
+    // can land together; without a per-file write lock the later one clobbers the
+    // other's field. Exercise several interleaved rounds.
+    for (let round = 0; round < 5; round += 1) {
+      await Promise.all([
+        saveCleanupConfig({ enabled: true, days: 4 + (round % 3) }, file),
+        saveLastRun({ at: 100 + round, scanned: round, deleted: round }, file),
+        saveCleanupConfig({ enabled: true, days: 4 + ((round + 1) % 3) }, file),
+      ])
+    }
+    const final = await loadCleanup(file)
+    assert.equal(typeof final.config.days, 'number')
+    assert.ok(final.config.days >= 1)
+    assert.notEqual(final.lastRun, null, 'a concurrent config write must not drop lastRun')
+    assert.equal(typeof final.lastRun.at, 'number')
+  } finally {
+    if (previous === undefined) delete process.env['ARCHIVED_SESSIONS_CLEANUP_FILE']
+    else process.env['ARCHIVED_SESSIONS_CLEANUP_FILE'] = previous
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
 test('cleanup endpoints report, save settings and run a sweep', async () => {
   const base = await mkdtemp(join(tmpdir(), 'dsh-cleanup-route-'))
   const previous = process.env['ARCHIVED_SESSIONS_CLEANUP_FILE']

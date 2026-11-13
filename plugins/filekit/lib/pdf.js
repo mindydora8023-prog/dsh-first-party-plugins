@@ -354,8 +354,8 @@ function nameListOf(doc, v) {
 // Classic cross-reference table
 // ---------------------------------------------------------------------------
 
-function parseClassicXref(buf) {
-  const text = buf.toString('latin1');
+function parseClassicXref(buf, text) {
+  text = text ?? buf.toString('latin1');
   let searchFrom = text.length;
   let startIdx = -1;
   for (let guard = 0; guard < 32; guard++) {
@@ -435,8 +435,8 @@ function parseClassicXref(buf) {
 // Scan fallback: find every "N G obj" definition
 // ---------------------------------------------------------------------------
 
-function scanObjects(buf) {
-  const text = buf.toString('latin1');
+function scanObjects(buf, text) {
+  text = text ?? buf.toString('latin1');
   const re = /(\d+)\s+(\d+)\s+obj\b/g;
   const offsets = new Map();
   let m;
@@ -451,8 +451,8 @@ function scanObjects(buf) {
   return offsets;
 }
 
-function findTrailerDict(buf) {
-  const text = buf.toString('latin1');
+function findTrailerDict(buf, text) {
+  text = text ?? buf.toString('latin1');
   let idx = text.length;
   for (let guard = 0; guard < 100; guard++) {
     if (idx <= 0) break;
@@ -1168,8 +1168,13 @@ export function extractPdfText(buffer, options = {}) {
   let trailer = null;
   let usedXrefStream = false;
 
+  // One latin1 view of the whole file, reused by the classic-xref parser and the
+  // scan fallback. Each of them used to build its own full-file copy, so a
+  // fallback path could materialise the file three times.
+  const latin1 = buf.toString('latin1');
+
   try {
-    const classic = parseClassicXref(buf);
+    const classic = parseClassicXref(buf, latin1);
     if (classic && classic.xrefStream) usedXrefStream = true;
     else if (classic && classic.offsets && classic.offsets.size) {
       offsets = classic.offsets;
@@ -1181,9 +1186,9 @@ export function extractPdfText(buffer, options = {}) {
   }
 
   if (!offsets) {
-    offsets = scanObjects(buf);
+    offsets = scanObjects(buf, latin1);
     if (offsets.size) {
-      trailer = findTrailerDict(buf);
+      trailer = findTrailerDict(buf, latin1);
       if (usedXrefStream) {
         warnings.push(
           'this PDF uses cross-reference streams (PDF 1.5+); object offsets were recovered by scanning the file'

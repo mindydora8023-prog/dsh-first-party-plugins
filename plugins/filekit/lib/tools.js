@@ -15,7 +15,6 @@
  * the result reads the same as the host `read` tool.
  */
 
-import { buildWindow, formatWindow, decodeUtf8 } from './text.js'
 import { resolvePath, statTarget, readBytes } from './access.js'
 import { isCredentialPath, credentialDenied } from './guard.js'
 import {

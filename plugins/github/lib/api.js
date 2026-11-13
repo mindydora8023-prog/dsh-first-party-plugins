@@ -99,11 +99,16 @@ export function clearProxyCache() {
 function httpFetch(url, init, config) {
   const proxy = proxyOf(config)
   if (proxy === '') return fetch(url, init)
-  return tunnelledFetch(url, init, proxy)
+  return tunnelledFetch(url, init, proxy, config)
 }
 
+/** Redirect statuses the tunnel may follow (replay-safe methods only). */
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308])
+/** Bound on redirect hops so a redirect loop cannot hang the call. */
+const MAX_REDIRECTS = 3
+
 /** Build the Response-shaped object the rest of this file expects. */
-async function tunnelledFetch(url, init, proxy) {
+async function tunnelledFetch(url, init, proxy, config, hop = 0) {
   const target = new URL(url)
   const proxyUrl = new URL(proxy.includes('://') ? proxy : `http://${proxy}`)
   if (target.protocol !== 'https:') throw new Error(`proxy support covers https only, got ${target.protocol}`)
@@ -124,7 +129,7 @@ async function tunnelledFetch(url, init, proxy) {
         Host: `${target.hostname}:${target.port || 443}`,
         ...(proxyAuth === '' ? {} : { 'Proxy-Authorization': proxyAuth }),
       },
-      timeout: 20000,
+      timeout: Number.isFinite(config?.timeoutMs) ? config.timeoutMs : 20000,
     })
     request.once('connect', (response, socket) => {
       if (response.statusCode !== 200) {
@@ -140,12 +145,13 @@ async function tunnelledFetch(url, init, proxy) {
   })
 
   // 2. TLS over the tunnel, then one HTTP request.
+  let response
   try {
     const body = init.body === undefined ? null : Buffer.from(String(init.body), 'utf8')
     const headers = { ...init.headers }
     if (body !== null) headers['Content-Length'] = String(body.length)
 
-    return await new Promise((resolve, reject) => {
+    response = await new Promise((resolve, reject) => {
       const request = httpsRequest(
         {
           host: target.hostname,
@@ -179,6 +185,26 @@ async function tunnelledFetch(url, init, proxy) {
     // closing it here cannot truncate anything.
     tunnel.destroy()
   }
+
+  // 3. Follow a same-host redirect for a replay-safe method, mirroring the
+  //    direct fetch() path's `redirect: 'follow'`. A renamed/transferred repo
+  //    answers 301; without this the tunnelled path (the only path on a
+  //    proxy-only network) would report it as a hard failure. We never follow a
+  //    redirect for a write (that would re-issue a POST) and never forward the
+  //    token to another host.
+  if (REDIRECT_STATUS.has(response.status) && hop < MAX_REDIRECTS) {
+    const location = response.headers.get('location')
+    if (location !== null && location !== '') {
+      const method = (init.method ?? 'GET').toUpperCase()
+      if (method !== 'GET' && method !== 'HEAD') {
+        throw new Error(`proxy request was redirected (HTTP ${response.status}); refusing to replay a ${method}`)
+      }
+      const next = new URL(location, target)
+      if (next.protocol !== 'https:') throw new Error(`proxy support covers https only, got ${next.protocol}`)
+      if (next.host === target.host) return tunnelledFetch(next.toString(), init, proxy, config, hop + 1)
+    }
+  }
+  return response
 }
 
 /** Turn a fetch failure (which hides the cause in `error.cause`) into one line. */
@@ -364,6 +390,21 @@ export async function request(config, auth, spec) {
       throw lastError
     }
     clearTimeout(timer)
+
+    // Retry a transient server fault (5xx) or a secondary rate limit (429, or a
+    // 403 that carries Retry-After) for a replay-safe request. A write is never
+    // retried, whatever the status.
+    if (replaySafe && attempt + 1 < attempts) {
+      const retryAfter = Number(response.headers.get('retry-after') ?? '')
+      const transient = response.status === 502 || response.status === 503 || response.status === 504
+        || ((response.status === 429 || response.status === 403) && Number.isFinite(retryAfter) && retryAfter > 0)
+      if (transient) {
+        try { await response.text() } catch { /* drain the body before retrying */ }
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 400 * (attempt + 1)
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+        continue
+      }
+    }
 
     const rate = parseRate(response.headers)
     const text = await response.text()

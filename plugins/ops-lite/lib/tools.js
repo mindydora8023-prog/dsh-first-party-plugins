@@ -70,6 +70,33 @@ function estimatedCost(size) {
 }
 
 /**
+ * Upper bound on the bytes a WINDOWED read can render, so reading the top of a
+ * large log at a small `limit` is not charged as if the whole file were copied.
+ * Falls back to the whole-file estimate when the window is unknown.
+ */
+function estimatedReadCost(size, limit, maxLineLength) {
+  const whole = estimatedCost(size)
+  if (Number.isFinite(limit) && limit > 0 && Number.isFinite(maxLineLength) && maxLineLength > 0) {
+    const window = limit * (maxLineLength * 3 + 16) + 4096
+    return Math.min(whole, window)
+  }
+  return whole
+}
+
+/**
+ * Actual rendered byte cost of a per-file record: every row's escaped text plus
+ * its line-number prefix, plus the shared header/footer. This is what a call
+ * should subtract from its budget, so `spent` tracks real output rather than the
+ * whole file size.
+ */
+function renderedCost(record) {
+  if (record === null || typeof record !== 'object' || !Array.isArray(record.items)) return 512
+  let total = 512
+  for (const item of record.items) total += Buffer.byteLength(String(item?.text ?? ''), 'utf8') + 12
+  return total
+}
+
+/**
  * Read one file entry and return its per-file result record.
  *
  * Failures are returned, not thrown: one unreadable file must not hide the
@@ -100,25 +127,18 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
       }
     }
     const info = await statTarget(ctx, exec, resolved)
+    // Resolve the window BEFORE the budget check so a windowed read of a large
+    // file is charged for the window, not for the whole file.
+    const offset = boundedInt(entry.offset, 1, 1, Number.MAX_SAFE_INTEGER)
+    const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
     // Budget check happens here, before the bytes are read: an entry that does
     // not fit stays pending and must not appear in the observation table.
-    if (overrides.remainingBytes !== undefined && estimatedCost(info.size) > overrides.remainingBytes) {
+    if (overrides.remainingBytes !== undefined
+      && estimatedReadCost(info.size, limit, overrides.maxLineLength ?? config.maxLineLength) > overrides.remainingBytes) {
       return { skipped: true }
     }
     const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
     const body = decodeUtf8(buffer, resolved.displayPath)
-
-    const offset = boundedInt(entry.offset, 1, 1, Number.MAX_SAFE_INTEGER)
-    const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
-    if (offset > body.split('\n').length && body.length > 0 && offset !== 1) {
-      return {
-        path: resolved.displayPath,
-        ...failure('OFFSET_OUT_OF_RANGE', {
-          message: `offset ${offset} is past the end of a file with ${body.split('\n').length} line slots`,
-          nextAction: 'Re-read with a valid offset, or omit offset to read from the first line.',
-        }),
-      }
-    }
 
     const window = buildWindow(body, {
       offset,
@@ -126,6 +146,20 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
       maxLineLength: overrides.maxLineLength ?? config.maxLineLength,
       maxBytes: config.maxOutputBytes,
     })
+
+    // Compare against the window's PHYSICAL line count (1-based; a trailing LF
+    // adds no phantom line) instead of `body.split('\n').length`, which counted a
+    // trailing empty slot and made the out-of-range boundary drift with whether
+    // the file ended in a newline.
+    if (offset !== 1 && body.length > 0 && offset > window.lineCount) {
+      return {
+        path: resolved.displayPath,
+        ...failure('OFFSET_OUT_OF_RANGE', {
+          message: `offset ${offset} is past the end of a file with ${window.lineCount} lines`,
+          nextAction: 'Re-read with a valid offset, or omit offset to read from the first line.',
+        }),
+      }
+    }
 
     const record = {
       // `status` is what the compact renderer checks before trusting any of the
@@ -246,7 +280,7 @@ export function buildReadFilesTool(ctx, config) {
         const remaining = processed === 0 ? undefined : Math.max(0, config.callMaxBytes - spent)
         const record = await readOne(ctx, exec, config, entry, { ...overrides, remainingBytes: remaining })
         if (record.skipped === true) break
-        spent += estimatedCost(record.bytes)
+        spent += renderedCost(record)
         processed += 1
         if (record.error !== undefined) failed += 1
         items.push(record)

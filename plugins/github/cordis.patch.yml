@@ -21,7 +21,7 @@
         # token: 'ghp_...'
         useGitCredential: true
         useGhCli: true
-        # credentialsFile: ''   # default: <plugin dir>/credentials.json
+        # credentialsFile: ''   # default: <state dir>/dsh-plugins/github/credentials.json
         # tokenCacheSeconds: 300
         # Proxy. Node's built-in fetch ignores the Windows Internet Settings
         # proxy, so without this a direct connection to api.github.com times

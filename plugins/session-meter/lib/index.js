@@ -15,8 +15,8 @@
  * Nothing here is required for the pill to work: without the route the client
  * falls back to its built-in DeepSeek table.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { buildCatalog, classifyNames, selectModels, usdToCnyOf } from './prices.js';
@@ -95,6 +95,8 @@ export function apply(ctx) {
   /** models, when fetched, the conversion rate, and the last failure. */
   const state = { models: Object.create(null), fetchedAt: 0, usdToCny: FALLBACK_USD_TO_CNY, error: undefined };
   let inflight;
+  /** Cached catalog size so a request never Object.keys() ~11k models. */
+  let pricedCount = 0;
 
   const loadCache = () => {
     try {
@@ -142,7 +144,8 @@ export function apply(ctx) {
         status.last_refresh_at = new Date(state.fetchedAt).toISOString();
         status.cache_fetched_at = status.last_refresh_at;
         status.usd_to_cny = usdToCny;
-        status.priced_models = Object.keys(models).length;
+        pricedCount = Object.keys(models).length;
+        status.priced_models = pricedCount;
         status.last_error = null;
         writeStatus();
       } catch (error) {
@@ -189,16 +192,31 @@ export function apply(ctx) {
   };
   const writeStatus = () => {
     try {
+      // The per-user state directory may not exist on a clean machine; without
+      // this, every write throws ENOENT and the diagnostic file is missing from
+      // the very place README points a "why unpriced" investigation to.
+      mkdirSync(dirname(statusFile), { recursive: true });
       writeFileSync(statusFile, JSON.stringify(status, null, 2));
     } catch {
       // Diagnostics must never break pricing.
     }
   };
 
+  // Every open session pushes a price request every ~30s; a synchronous status
+  // write per request is wasted I/O on the host event loop. Throttle to ~1/s.
+  let lastStatusWrite = 0;
+  const writeStatusThrottled = () => {
+    const nowMs = Date.now();
+    if (nowMs - lastStatusWrite < 1000) return;
+    lastStatusWrite = nowMs;
+    writeStatus();
+  };
+
   loadCache();
+  pricedCount = Object.keys(state.models).length;
   status.cache_fetched_at = state.fetchedAt === 0 ? null : new Date(state.fetchedAt).toISOString();
   status.usd_to_cny = state.usdToCny;
-  status.priced_models = Object.keys(state.models).length;
+  status.priced_models = pricedCount;
   writeStatus();
 
   // Kick the first refresh off the apply path: boot must not wait on the network.
@@ -234,8 +252,8 @@ export function apply(ctx) {
     // split rather than leaving a bare empty array to be misread as "unpriced".
     status.last_request_priced = classifyNames(names, models);
     status.last_request_answered = state.fetchedAt > 0;
-    status.priced_models = Object.keys(state.models).length;
-    writeStatus();
+    status.priced_models = pricedCount;
+    writeStatusThrottled();
     const body = JSON.stringify({
       ok: state.fetchedAt > 0,
       fetchedAt: state.fetchedAt,

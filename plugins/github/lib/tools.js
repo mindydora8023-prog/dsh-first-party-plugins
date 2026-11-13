@@ -12,7 +12,7 @@
 
 import { existsSync } from 'node:fs'
 
-import { get, post } from './api.js'
+import { clearProxyCache, get, post } from './api.js'
 import { resolveToken } from './auth.js'
 import { encodeRef, parseRepo } from './config.js'
 
@@ -58,21 +58,6 @@ function positiveIntArg(value, label) {
 function trimTo(value, max) {
   if (typeof value !== 'string') return ''
   return value.length <= max ? value : `${value.slice(0, max)}\n... [truncated ${value.length - max} characters]`
-}
-
-/**
- * Drop every `undefined` from a tool result.
- *
- * The host validates tool output as lossless JSON, so one `undefined` value
- * (a missing optional API field, an omitted key set to undefined) fails the
- * whole call with "value is not lossless JSON" even though the data is fine.
- * A JSON round trip is the exact normalisation the host asks for: undefined
- * properties disappear, undefined array slots become null, and Dates already
- * are strings here.
- */
-function normalise(value) {
-  if (value === null || typeof value !== 'object') return value === undefined ? null : value
-  return JSON.parse(JSON.stringify(value))
 }
 
 function assertAlive(config) {
@@ -261,6 +246,10 @@ export function buildTools(config, logger) {
     isConcurrencySafe: () => true,
     async execute(args) {
       assertAlive(config)
+      // `refresh` should re-read every connection source, including the Windows
+      // system proxy, not just the token (the comment on clearProxyCache promised
+      // this but nothing called it).
+      if (args.refresh === true) clearProxyCache()
       const resolved = resolveToken(config, { refresh: args.refresh === true })
       const base = {
         ok: true,

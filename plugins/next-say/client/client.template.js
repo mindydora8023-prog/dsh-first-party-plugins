@@ -637,7 +637,7 @@ window.__ModuleLoader__.load({
         // composer pushed the text around and read as a stray widget.
         paintGhost(document, sessionId, ghostText, { prefix: ghostPrefix });
         return undefined;
-      });
+      }, [enabled, phase, sessionId, ghostText, ghostPrefix]);
 
       // Leaving this session, or unmounting, must not leave stale ghost text
       // floating over an empty composer.

@@ -134,8 +134,10 @@ export async function readBytes(ctx, exec, resolved, info, maxBytes) {
  */
 export function decodeUtf8(buffer, displayPath) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
-  const sample = bytes.subarray(0, Math.min(bytes.length, 8192))
-  if (sample.includes(0)) {
+  // Scan the WHOLE buffer, not just the first 8 KiB: a file whose text head is
+  // followed by binary content would otherwise slip through and be decoded with
+  // embedded U+0000. The one O(n) scan is negligible next to the decode below.
+  if (bytes.includes(0)) {
     const error = new Error(
       `cannot read "${displayPath}": binary content (NUL byte found). `
         + 'Use a document reader or the host hex reader instead of a text read.',

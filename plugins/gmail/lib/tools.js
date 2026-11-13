@@ -148,6 +148,45 @@ export function sendFailureRecord(error, envelope) {
 }
 
 /**
+ * Choose the UIDs to return for an incremental watch and the cursor to persist.
+ *
+ * `uids` is descending (newest first), which is what `Imap.search` returns. A
+ * burst larger than `limit` must NOT jump the cursor to the newest uid: doing so
+ * skips every message between the old cursor and the returned newest one, and
+ * those messages would never be reported. So:
+ *
+ *   - baseline run (first call or `reset`): sample the newest `limit` and set the
+ *     cursor to the newest uid, so the watch starts "now";
+ *   - later runs: return the OLDEST `limit` of the new set and advance the cursor
+ *     only to the newest uid actually returned, so the next call resumes exactly
+ *     where this one stopped and drains a burst across several calls.
+ *
+ * Pure function (no I/O) so the cursor contract is unit-testable.
+ *
+ * @param {string[]|number[]} uids - UIDs, descending (newest first).
+ * @param {number} previous - the stored cursor (highest uid already reported).
+ * @param {number} limit - max messages to return this call.
+ * @param {{baseline?: boolean}} [options]
+ * @returns {{fresh: string[], cursor: number}}
+ */
+export function selectNewMessages(uids, previous, limit, options = {}) {
+  const list = Array.isArray(uids) ? uids : []
+  const cap = Math.max(1, Math.trunc(Number(limit) || 1))
+  const floor = Number.isFinite(Number(previous)) ? Number(previous) : 0
+  const newer = list
+    .map((uid) => Number(uid))
+    .filter((uid) => Number.isFinite(uid) && uid > floor)
+  if (options.baseline === true) {
+    const sample = newer.slice(0, cap)
+    const cursor = newer.length > 0 ? newer[0] : floor
+    return { fresh: sample.map(String), cursor }
+  }
+  const windowed = newer.slice(Math.max(0, newer.length - cap))
+  const cursor = windowed.length > 0 ? windowed[0] : floor
+  return { fresh: windowed.map(String), cursor }
+}
+
+/**
  * Build all tool definitions.
  * @param config Normalized plugin config
  * @param logger Host logger
@@ -536,7 +575,9 @@ export function buildTools(config, logger) {
             // Fallback: copy to All Mail first, then delete from the inbox.
             await client.copy(uid, ALL_MAIL)
             await client.storeFlags([uid], '+', ['\\Deleted'], { mailbox: 'INBOX' })
-            await client.expunge({ mailbox: 'INBOX' })
+            // Targeted expunge: a bare EXPUNGE would delete EVERY \Deleted
+            // message in the inbox, not just this one.
+            await client.uidExpunge([uid], { mailbox: 'INBOX' })
             after = await client.labelsOf(uid, { mailbox })
           }
           if (after.some((label) => label.toLowerCase() === '\\inbox')) {
@@ -574,10 +615,12 @@ export function buildTools(config, logger) {
       return withImap(config, async (client) => {
         const state = readState(config)
         const previous = args.reset === true ? 0 : Number(state[key] ?? 0)
-        const uids = await client.search({ raw: query, mailbox })
-        const highest = uids.length > 0 ? Number(uids[0]) : previous
-        const fresh = uids.filter((uid) => Number(uid) > previous).slice(0, limit)
         const firstRun = previous === 0
+        const uids = await client.search({ raw: query, mailbox })
+        // Never jump the cursor past messages we did not return: a burst larger
+        // than `limit` used to advance the cursor to the newest uid, silently
+        // dropping every message between the old cursor and that newest one.
+        const { fresh, cursor } = selectNewMessages(uids, previous, limit, { baseline: firstRun })
         const entries = await collect(fresh, {
           mailbox,
           preview: args.preview !== false,
@@ -585,7 +628,7 @@ export function buildTools(config, logger) {
           exec,
           maxPreviewChars: 300,
         })
-        state[key] = Math.max(previous, highest)
+        state[key] = cursor
         writeState(config, state)
         return {
           baseline: firstRun,
