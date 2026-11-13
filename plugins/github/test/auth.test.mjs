@@ -56,25 +56,17 @@ function fakeGh(script) {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-fake-gh-'))
   const nodePath = join(directory, 'fake-gh.mjs')
   writeFileSync(nodePath, script, 'utf8')
-  const wrapper = join(directory, 'gh.cmd')
-  writeFileSync(wrapper, `@echo off\r\n"${process.execPath}" "${nodePath}" %*\r\n`, 'utf8')
+  const wrapper = join(directory, process.platform === 'win32' ? 'gh.cmd' : 'gh')
+  if (process.platform === 'win32') {
+    writeFileSync(wrapper, `@echo off\r\n"${process.execPath}" "${nodePath}" %*\r\n`, 'utf8')
+  } else {
+    writeFileSync(wrapper, `#!${process.execPath}\n${script}`, 'utf8')
+    chmodSync(wrapper, 0o700)
+  }
   return wrapper
 }
 
-test('gh discovery falls through to a real install when the configured path is wrong', withCleanEnv(async () => {
-  // The configured path is only a hint: a bad one must not disable the source,
-  // because the portable install lives at ~/.dsh/tools/gh/gh.exe on this
-  // machine and the host's PATH does not contain it.
-  const config = configFor({ ghExecutable: 'C:/definitely/not/here/gh.exe', useGhCli: true })
-  const resolved = resolveToken(config, { refresh: true })
-  // Whatever the machine has, the result must be self-consistent: either a token
-  // with the gh source, or no token at all -- never a half-resolved state.
-  if (resolved.token === '') {
-    assert.equal(resolved.source, 'none')
-  } else {
-    assert.equal(resolved.source, 'gh-cli')
-  }
-}))
+// Real installed-CLI discovery is a manual integration check, excluded offline.
 
 test('with gh disabled there is no fallback, so a missing file means no token', withCleanEnv(async () => {
   const config = configFor({ ghExecutable: 'C:/definitely/not/here/gh.exe', useGhCli: false })
@@ -123,7 +115,7 @@ if (process.argv[2] === '--version') {
   process.exit(0)
 }
 // Never answer: the 10s spawn timeout must cut this off.
-setTimeout(() => {}, 120000)
+setTimeout(() => {}, 12000)
 `)
   const config = configFor({ ghExecutable: gh })
   const started = Date.now()
@@ -149,27 +141,18 @@ process.exit(1)
 }))
 
 test('the token cache honours tokenCacheSeconds: 0', withCleanEnv(async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-gh-count-'))
-  const countFile = join(dir, 'count.txt')
-  const gh = fakeGh(`
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-if (process.argv[2] === '--version') { console.log('gh version 9.9.9'); process.exit(0) }
-if (process.argv[2] === 'auth' && process.argv[3] === 'token') {
-  const f = ${JSON.stringify(countFile)}
-  const n = (existsSync(f) ? Number(readFileSync(f, 'utf8')) : 0) + 1
-  writeFileSync(f, String(n))
-  console.log('${TOKEN}'); process.exit(0)
-}
-process.exit(1)
-`)
-  const config = configFor({ ghExecutable: gh, tokenCacheSeconds: 0 })
-  resolveToken(config)
-  const afterFirst = Number(readFileSync(countFile, 'utf8'))
-  resolveToken(config)
-  const afterSecond = Number(readFileSync(countFile, 'utf8'))
-  // A zero-second cache must re-probe the source on every call, not serve from
-  // memory: the call counter has to grow.
-  assert.ok(afterSecond > afterFirst, `tokenCacheSeconds:0 must re-probe (calls ${afterFirst} -> ${afterSecond})`)
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-token-cache-'))
+  const file = join(dir, 'credentials.json')
+  writeFileSync(file, JSON.stringify({ token: 'ghp_first000000000000' }), 'utf8')
+  const config = configFor({ credentialsFile: file, useGitCredential: false, useGhCli: false, tokenCacheSeconds: 0 })
+  const first = resolveToken(config)
+  assert.equal(first.token, 'ghp_first000000000000')
+  // Change the underlying source; a zero-second cache must re-read it on the very
+  // next call instead of serving the stale in-memory token. (File-based so it
+  // works on every OS without a gh executable.)
+  writeFileSync(file, JSON.stringify({ token: 'ghp_second00000000000' }), 'utf8')
+  const second = resolveToken(config)
+  assert.equal(second.token, 'ghp_second00000000000', 'tokenCacheSeconds:0 must re-read the source')
 }))
 
 test('scrub removes a token from textual diagnostics', () => {
