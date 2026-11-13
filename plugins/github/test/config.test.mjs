@@ -6,12 +6,13 @@
 
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { DEFAULT_API_BASE, readConfig, parseRepo } from '../lib/config.js'
 import { statePath } from '../lib/state-dir.js'
 
-const dirs = { pluginDir: 'E:/Dsh web/github', profileDir: '', home: '' }
+const dirs = { pluginDir: join(tmpdir(), 'dsh-github-config-test'), profileDir: '', home: '' }
 
 test('defaults are applied when the row has no config', () => {
   const config = readConfig(undefined, dirs)
