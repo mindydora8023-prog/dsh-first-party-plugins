@@ -13,7 +13,7 @@ import { readFile, mkdtemp, writeFile, utimes, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import { normalizeCleanup, loadCleanup, saveCleanupConfig, saveLastRun, runAutoCleanup, DEFAULT_CLEANUP } from '../lib/cleanup.js'
+import { normalizeCleanup, loadCleanup, saveCleanupConfig, saveLastRun, runAutoCleanup, mapLimited, STAT_CONCURRENCY, DEFAULT_CLEANUP } from '../lib/cleanup.js'
 import { apply } from '../lib/index.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -56,6 +56,22 @@ async function agesFixture() {
   }
   return { base, now, entries }
 }
+
+test('mapLimited keeps order and never exceeds the lane cap', async () => {
+  let active = 0
+  let peak = 0
+  const items = Array.from({ length: STAT_CONCURRENCY * 3 }, (_, index) => index)
+  const out = await mapLimited(items, STAT_CONCURRENCY, async (value) => {
+    active += 1
+    peak = Math.max(peak, active)
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    active -= 1
+    return value * 2
+  })
+  assert.equal(peak <= STAT_CONCURRENCY, true)
+  assert.equal(peak > 1, true)
+  assert.deepEqual(out, items.map((value) => value * 2))
+})
 
 test('normalizeCleanup applies defaults and clamps days', () => {
   assert.deepEqual(normalizeCleanup(undefined), { enabled: DEFAULT_CLEANUP.enabled, days: DEFAULT_CLEANUP.days })

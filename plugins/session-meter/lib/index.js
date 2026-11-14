@@ -135,7 +135,8 @@ export function apply(ctx) {
         ]);
         const usdToCny = usdToCnyOf(fxPayload) ?? FALLBACK_USD_TO_CNY;
         const models = buildCatalog(catalog, usdToCny);
-        if (Object.keys(models).length === 0) throw new Error('price catalog carried no priced models');
+        const keys = Object.keys(models);
+        if (keys.length === 0) throw new Error('price catalog carried no priced models');
         state.models = models;
         state.usdToCny = usdToCny;
         state.fetchedAt = Date.now();
@@ -144,7 +145,7 @@ export function apply(ctx) {
         status.last_refresh_at = new Date(state.fetchedAt).toISOString();
         status.cache_fetched_at = status.last_refresh_at;
         status.usd_to_cny = usdToCny;
-        pricedCount = Object.keys(models).length;
+        pricedCount = keys.length;
         status.priced_models = pricedCount;
         status.last_error = null;
         writeStatus();
@@ -236,7 +237,15 @@ export function apply(ctx) {
       return;
     }
     const url = new URL(req.url ?? '/', 'http://session-meter.invalid');
-    if (stale()) await refresh();
+    // A stale snapshot is still a valid answer. Waiting here used to pin the
+    // pill on the full models.dev download whenever the cache was older than
+    // the refresh window, including the refresh apply() had already started.
+    // Serve the snapshot and let that refresh finish in the background. Only
+    // an empty cache (first run, or a cache the loader rejected) has to wait.
+    if (stale()) {
+      const pending = refresh();
+      if (state.fetchedAt === 0) await pending;
+    }
     let names = [];
     const raw = url.searchParams.get('m');
     if (typeof raw === 'string' && raw.length > 0) {

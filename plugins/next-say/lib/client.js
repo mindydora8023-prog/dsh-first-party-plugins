@@ -901,9 +901,12 @@ window.__ModuleLoader__.load({
 
         let cancelled = false;
         let timer;
+        const hidden = () => {
+          try { return document.visibilityState === 'hidden'; } catch { return false; }
+        };
 
         const tick = async () => {
-          if (cancelled || !alive.current) return;
+          if (cancelled || !alive.current || hidden()) return;
           let turn = null;
           let predicted = null;
           try {
@@ -919,7 +922,7 @@ window.__ModuleLoader__.load({
           } catch {
             // A Host that is briefly unreachable is not an error worth showing.
           }
-          if (cancelled || !alive.current) return;
+          if (cancelled || !alive.current || hidden()) return;
           const alreadyDone = predicted !== null && turn !== null && turn <= predicted;
           if (turn === null || turn === undefined || alreadyDone) {
             timer = setTimeout(tick, 2000);
@@ -928,10 +931,20 @@ window.__ModuleLoader__.load({
           void predict({ manual: false, turn });
         };
 
-        timer = setTimeout(tick, 900);
+        // A hidden tab cannot show the ghost, so the 2s turn poll stops until
+        // the page is visible again. Becoming visible checks immediately.
+        const onVisibility = () => {
+          if (cancelled) return;
+          clearTimeout(timer);
+          if (!hidden()) timer = setTimeout(tick, 0);
+        };
+        try { document.addEventListener('visibilitychange', onVisibility); } catch { /* non-DOM host */ }
+
+        if (!hidden()) timer = setTimeout(tick, 900);
         return () => {
           cancelled = true;
           clearTimeout(timer);
+          try { document.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
         };
       }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy]);
 
@@ -1225,11 +1238,6 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (settingsStore.value === null) void loadSettings();
       }, []);
-      // Only needed to redraw the pause countdown.
-      React.useEffect(() => {
-        const timer = setInterval(() => setNow(Date.now()), 1000);
-        return () => clearInterval(timer);
-      }, []);
 
       const save = React.useCallback(async (patch) => {
         setStatus('saving');
@@ -1244,6 +1252,15 @@ window.__ModuleLoader__.load({
 
       const current = value || DEFAULT_SETTINGS;
       const paused = isPaused(current, now);
+      // The countdown is the only consumer of `now`. An open settings page that
+      // is not paused must not re-render once a second for as long as it stays
+      // mounted. The effect sits after `paused` so the interval tracks that
+      // boolean; other hooks stay above it and keep a stable order.
+      React.useEffect(() => {
+        if (!paused) return undefined;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+      }, [paused]);
       const remaining = paused ? Math.max(0, Math.ceil((Number(current.pausedUntil) - now) / 1000)) : 0;
       const countdown = remaining >= 60
         ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`

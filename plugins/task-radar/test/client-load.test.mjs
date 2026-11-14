@@ -17,6 +17,7 @@ function harness(t, { permission = 'granted', payload = { ok: false } } = {}) {
   const timers = new Map();
   const listeners = new Map();
   const disposers = [];
+  let visibilityState = 'visible';
   class FakeNotification {
     static permission = permission;
     static requestPermission() { grants += 1; this.permission = 'granted'; return Promise.resolve('granted'); }
@@ -31,6 +32,7 @@ function harness(t, { permission = 'granted', payload = { ok: false } } = {}) {
     setTimeout: () => 0,
   };
   const document = {
+    get visibilityState() { return visibilityState; },
     addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
     body: null,
@@ -55,7 +57,9 @@ function harness(t, { permission = 'granted', payload = { ok: false } } = {}) {
   return { mod, apply, notes, opened, timers, listeners, FakeNotification, dispose,
     focusCount: () => focused, grantCount: () => grants,
     setPayload: (value) => { currentPayload = value; },
-    gesture: (name) => { for (const fn of [...(listeners.get(name) || [])]) fn(); } };
+    gesture: (name) => { for (const fn of [...(listeners.get(name) || [])]) fn(); },
+    hide: () => { visibilityState = 'hidden'; },
+    show: () => { visibilityState = 'visible'; } };
 }
 
 test('client declares workspace and locale services', (t) => {
@@ -134,4 +138,20 @@ test('the first poll seeds the watermark without replaying old journal entries',
   h.setPayload({ ok: true, config: { enabled: true, system: { enabled: true } }, journal: [entry(h.mod.__internals.watcher.lastAt + 1)] });
   await h.mod.__internals.tick();
   assert.equal(h.notes.length, 2);
+});
+
+test('a hidden page stops polling and a visible page resumes', (t) => {
+  const h = harness(t);
+  h.apply();
+  assert.equal(h.timers.size, 1, 'a visible page polls');
+  assert.equal(h.listeners.get('visibilitychange').size, 1);
+  h.hide();
+  h.gesture('visibilitychange');
+  assert.equal(h.timers.size, 0, 'a hidden page must not keep the 2.5s timer');
+  h.show();
+  h.gesture('visibilitychange');
+  assert.equal(h.timers.size, 1, 'becoming visible arms the timer again');
+  h.dispose();
+  assert.equal(h.timers.size, 0);
+  assert.equal(h.listeners.get('visibilitychange').size, 0);
 });

@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
     };
 
     /* ------------------------------------------------------------ watcher */
-    const watcher = { timer: null, lastAt: 0, cfg: null, inFlight: false, system: true, seeded: false };
+    const watcher = { timer: null, lastAt: 0, cfg: null, inFlight: false, system: true, seeded: false, onVisible: null };
     let appCtx = null;
 
     /**
@@ -223,10 +223,34 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function startWatcher() {
+    function armWatcher() {
       if (watcher.timer !== null) return;
       void tick();
       watcher.timer = window.setInterval(() => { void tick(); }, 2500);
+    }
+
+    function disarmWatcher() {
+      if (watcher.timer === null) return;
+      window.clearInterval(watcher.timer);
+      watcher.timer = null;
+    }
+
+    /**
+     * Poll while the page can show a notification. A hidden tab cannot display
+     * one (the native toast already covered the event), so the 2.5 s timer is
+     * stopped until the page is visible again; the resume poll catches up.
+     */
+    function startWatcher() {
+      const hidden = () => {
+        try { return document.visibilityState === 'hidden'; } catch { return false; }
+      };
+      const sync = () => {
+        if (hidden()) disarmWatcher();
+        else armWatcher();
+      };
+      watcher.onVisible = sync;
+      try { document.addEventListener('visibilitychange', sync); } catch { /* non-DOM host */ }
+      sync();
     }
 
     /* ------------------------------------------------- settings primitives */
@@ -592,7 +616,11 @@ window.__ModuleLoader__.load({
       } catch { /* non-DOM host; the Settings button still works */ }
 
       ctx.effect(() => () => {
-        if (watcher.timer !== null) { window.clearInterval(watcher.timer); watcher.timer = null; }
+        disarmWatcher();
+        if (watcher.onVisible !== null) {
+          try { document.removeEventListener('visibilitychange', watcher.onVisible); } catch { /* ignore */ }
+          watcher.onVisible = null;
+        }
       }, 'task-radar watcher cleanup');
     }
 

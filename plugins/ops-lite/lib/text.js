@@ -38,7 +38,10 @@ export function buildWindow(body, request) {
   let truncatedByBytes = false
   let truncatedInLine
 
-  const emit = (raw) => {
+  // `start`/`end` bound one physical line inside `body`, excluding the LF.
+  // A trailing CR (CRLF) is not part of the line text. Lines outside the
+  // window are counted and never sliced.
+  const emitSpan = (start, end) => {
     lineCount += 1
     if (truncatedByBytes) return
     if (lineCount < offset) return
@@ -46,13 +49,10 @@ export function buildWindow(body, request) {
     // caller asked for this many lines and `nextOffset` says where to resume.
     // Conflating the two would mark every paged read as truncated.
     if (lines.length >= limit) return
-    const withoutCr = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-    let line = withoutCr
-    let clipped = false
-    if (line.length > maxLineLength) {
-      line = line.slice(0, maxLineLength)
-      clipped = true
-    }
+    const textEnd = end > start && body.charCodeAt(end - 1) === 13 ? end - 1 : end
+    const rawLength = textEnd - start
+    const clipped = rawLength > maxLineLength
+    const line = body.slice(start, clipped ? start + maxLineLength : textEnd)
     const cost = Buffer.byteLength(line, 'utf8') + (lines.length > 0 ? 1 : 0)
     if (bytes + cost > maxBytes) {
       truncatedByBytes = true
@@ -63,16 +63,26 @@ export function buildWindow(body, request) {
     if (clipped) {
       truncatedInLine = {
         line: lineCount,
-        charactersTotal: withoutCr.length,
-        charactersOmitted: withoutCr.length - maxLineLength,
+        charactersTotal: rawLength,
+        charactersOmitted: rawLength - maxLineLength,
       }
     }
   }
 
+  // Walk LF offsets instead of `split`. A paged read used to allocate one
+  // string per physical line of the whole file, including the prefix before
+  // `offset` and the tail after `limit`. Those lines are only counted.
   if (body.length > 0) {
-    const parts = body.split('\n')
-    if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
-    for (const part of parts) emit(part)
+    let start = 0
+    while (start < body.length) {
+      const nl = body.indexOf('\n', start)
+      if (nl === -1) {
+        emitSpan(start, body.length)
+        break
+      }
+      emitSpan(start, nl)
+      start = nl + 1
+    }
   }
 
   // The first line that did not fit is where the next window resumes.

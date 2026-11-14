@@ -59,6 +59,67 @@ async function openTls(host, port, timeoutMs) {
   })
 }
 
+/** Stop a hostile or broken peer from streaming forever or declaring a giant literal. */
+export const MAX_RESPONSE_LINES = 10000
+export const MAX_LITERAL_BYTES = 32 * 1024 * 1024
+export const MAX_LITERALS = 64
+
+/**
+ * Read one complete tagged IMAP response, stepping over literals.
+ *
+ * A `{n}` at the end of a line is n raw bytes, then the same logical line
+ * continues. Each literal becomes a `\0LIT<i>\0` placeholder in `text` and the
+ * raw bytes stay in `literals[i]`.
+ *
+ * @param {LineReader} reader
+ * @param {string} tag
+ * @param {{maxLines?: number, maxLiteralBytes?: number, maxLiterals?: number}} [limits]
+ */
+export async function readTaggedResponse(reader, tag, limits = {}) {
+  const maxLines = limits.maxLines ?? MAX_RESPONSE_LINES
+  const maxLiteralBytes = limits.maxLiteralBytes ?? MAX_LITERAL_BYTES
+  const maxLiterals = limits.maxLiterals ?? MAX_LITERALS
+  const texts = []
+  const literals = []
+  let lines = 0
+  const takeLine = async () => {
+    lines += 1
+    if (lines > maxLines) {
+      throw new Error(`IMAP response exceeded ${maxLines} lines without a tagged reply`)
+    }
+    return reader.readLine()
+  }
+  for (;;) {
+    let line = await takeLine()
+    for (;;) {
+      const match = /\{(\d+)\}$/.exec(line)
+      if (!match) break
+      const size = Number(match[1])
+      if (!Number.isSafeInteger(size) || size > maxLiteralBytes) {
+        throw new Error(`IMAP literal of ${match[1]} bytes exceeds the ${maxLiteralBytes}-byte limit`)
+      }
+      if (literals.length >= maxLiterals) {
+        throw new Error(`IMAP response exceeded ${maxLiterals} literals`)
+      }
+      texts.push(line)
+      literals.push(await reader.readBytes(size))
+      texts.push(`\u0000LIT${literals.length - 1}\u0000`)
+      line = await takeLine()
+    }
+    texts.push(line)
+    if (line.startsWith(`${tag} `) || line === tag) {
+      const rest = line.slice(tag.length).trim()
+      const status = (rest.split(/\s+/)[0] ?? '').toUpperCase()
+      return {
+        status,
+        statusText: rest.slice(status.length).trim(),
+        text: texts.join('\r\n'),
+        literals,
+      }
+    }
+  }
+}
+
 export class Imap {
   #reader = null
   #socket = null
@@ -84,7 +145,7 @@ export class Imap {
 
   async connect() {
     this.#socket = await openTls(this.host, this.port, this.timeoutMs)
-    this.#reader = new LineReader(this.#socket)
+    this.#reader = new LineReader(this.#socket, { idleMs: this.timeoutMs })
     const greeting = await this.#reader.readLine()
     if (!/^\* (OK|PREAUTH)/i.test(greeting)) throw new Error(`IMAP handshake failed: ${greeting}`)
   }
@@ -94,41 +155,9 @@ export class Imap {
     return `a${this.#tag}`
   }
 
-  /**
-   * Read one complete tagged response, stepping over literals.
-   *
-   * In a response a literal is marked by a trailing `{n}`, followed by n raw
-   * bytes, then the same logical line continues. In the returned `text` each
-   * literal is replaced by a `\0LIT<i>\0` placeholder and the raw bytes are
-   * kept in `literals[i]`, so callers can regex-parse metadata and still get
-   * the bytes.
-   */
+  /** Read one complete tagged response. See {@link readTaggedResponse}. */
   async #readResponse(tag) {
-    const texts = []
-    const literals = []
-    for (;;) {
-      let line = await this.#reader.readLine()
-      for (;;) {
-        const match = /\{(\d+)\}$/.exec(line)
-        if (!match) break
-        texts.push(line)
-        const size = Number(match[1])
-        literals.push(await this.#reader.readBytes(size))
-        texts.push(`\u0000LIT${literals.length - 1}\u0000`)
-        line = await this.#reader.readLine()
-      }
-      texts.push(line)
-      if (line.startsWith(`${tag} `) || line === tag) {
-        const rest = line.slice(tag.length).trim()
-        const status = (rest.split(/\s+/)[0] ?? '').toUpperCase()
-        return {
-          status,
-          statusText: rest.slice(status.length).trim(),
-          text: texts.join('\r\n'),
-          literals,
-        }
-      }
-    }
+    return readTaggedResponse(this.#reader, tag)
   }
 
   async command(name, args = '') {

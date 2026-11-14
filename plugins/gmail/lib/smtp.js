@@ -32,17 +32,20 @@ function clientName() {
   return cleaned === '' ? 'localhost' : cleaned
 }
 
+/** A continuation flood must not be read without a bound. */
+export const MAX_SMTP_LINES = 40
+
 /** Read one SMTP response (possibly multiline). */
-async function readReply(reader) {
+export async function readReply(reader) {
   const lines = []
   for (;;) {
+    if (lines.length >= MAX_SMTP_LINES) {
+      throw new Error(`SMTP response exceeded ${MAX_SMTP_LINES} lines`)
+    }
     const line = await reader.readLine()
     lines.push(line)
     const match = /^(\d{3})([ -]?)/.exec(line)
-    if (!match) {
-      if (lines.length > 40) throw new Error(`SMTP response could not be parsed: ${lines.join(' | ')}`)
-      continue
-    }
+    if (!match) continue
     if (match[2] === '-') continue
     return { code: match[1], text: lines.join('\n') }
   }
@@ -87,7 +90,7 @@ function smtpError(message, phase) {
  */
 export async function sendMail({ host = 'smtp.gmail.com', port = 465, user, password, from, recipients, message, timeoutMs = 90000 }) {
   const socket = await openTls(host, port, timeoutMs)
-  const reader = new LineReader(socket)
+  const reader = new LineReader(socket, { idleMs: timeoutMs })
   try {
     const greeting = await readReply(reader)
     if (!greeting.code.startsWith('2')) throw smtpError(`SMTP handshake failed: ${greeting.text}`, 'greeting')

@@ -311,6 +311,60 @@ test('parseNextPage extracts the page number from a Link header', () => {
   assert.equal(parseNextPage(undefined), null)
 })
 
+test('a response larger than the cap is cancelled instead of buffered', async () => {
+  const original = globalThis.fetch
+  let cancelled = false
+  globalThis.fetch = async () => {
+    const stream = new ReadableStream({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024 * 1024))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    await assert.rejects(
+      request(config, authInfo, { path: '/repos/octo/hello' }),
+      (error) => {
+        assert.ok(error instanceof GitHubError)
+        assert.equal(error.code, 'response-too-large')
+        assert.equal(error.retry, 'never')
+        return true
+      },
+    )
+    assert.equal(cancelled, true)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a retried GET discards an unbounded error body and still retries', async () => {
+  let calls = 0
+  const stub = stubFetch(() => {
+    calls += 1
+    if (calls === 1) {
+      const stream = new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(32 * 1024))
+        },
+      })
+      return { status: 503, body: stream, headers: { 'content-type': 'text/plain' } }
+    }
+    return { status: 200, body: JSON.stringify({ ok: true }) }
+  })
+  const retried = readConfig({ retries: 1, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  try {
+    const result = await request(retried, authInfo, { method: 'GET', path: '/rate_limit' })
+    assert.equal(result.data.ok, true)
+    assert.equal(calls, 2)
+  } finally {
+    stub.restore()
+  }
+})
+
 test('scrub removes a token wherever it appears', () => {
   const token = 'ghp_secretsecretsecret'
   assert.equal(scrub(`bearer ${token} rejected`, token), 'bearer [redacted] rejected')

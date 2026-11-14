@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -178,6 +178,61 @@ test('the status file directory is created on first write', async () => {
       assert.equal(existsSync(statusFile), true, 'status file must be created inside a fresh nested dir');
     });
   }, { statusRel: join('nested', 'deep', 'status.json') });
+});
+
+test('a stale cache answers immediately and refreshes behind the response', async () => {
+  await withUpstream(async ({ cacheFile }) => {
+    // Older than the 24 h window, so the route must treat it as stale.
+    const staleAt = Date.now() - 48 * 3600 * 1000;
+    writeFileSync(cacheFile, JSON.stringify({
+      version: 2,
+      fetchedAt: staleAt,
+      usdToCny: 7,
+      models: { 'cached-model': { input: 1, output: 2, cacheRead: 1, cacheWrite: 1 } },
+    }));
+    let catalogHits = 0;
+    let releaseCatalog;
+    const held = new Promise((resolve) => { releaseCatalog = resolve; });
+    const server = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      if ((req.url ?? '').startsWith('/catalog')) {
+        catalogHits += 1;
+        held.then(() => res.end(JSON.stringify(CATALOG)));
+      } else {
+        res.end(JSON.stringify({ rates: { CNY: 7 } }));
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    process.env.SESSION_METER_PRICES_URL = `${origin}/catalog`;
+    process.env.SESSION_METER_FX_URL = `${origin}/fx`;
+    try {
+      await withPlugin(async (captured) => {
+        attach(captured);
+        // Let the background refresh from apply() reach the held catalog first,
+        // so the assertion below is about the request path, not about boot.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const res = fakeResponse();
+        const pending = captured.route.handler({
+          method: 'GET',
+          url: '/session-meter/prices?m=cached-model',
+        }, res);
+        const settled = await Promise.race([
+          pending.then(() => 'answered'),
+          new Promise((resolve) => setTimeout(() => resolve('blocked'), 200)),
+        ]);
+        assert.equal(settled, 'answered', 'a stale snapshot must not wait on the refresh');
+        const payload = JSON.parse(res.body());
+        assert.equal(payload.models['cached-model'].input, 1);
+        assert.equal(catalogHits > 0, true, 'the refresh still starts');
+        releaseCatalog();
+        await pending;
+      });
+    } finally {
+      releaseCatalog();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
 });
 
 test('a non-GET request is refused without touching the catalog', async () => {

@@ -35,6 +35,36 @@ export const DEFAULT_CLEANUP = Object.freeze({ enabled: true, days: 5 })
 /** A day in milliseconds. */
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** How many log stats a sweep may have in flight. One stat per archived id, sequentially, made a large archive wait on the disk one file at a time. */
+export const STAT_CONCURRENCY = 8
+
+/**
+ * Run `worker` over `items` with at most `limit` calls in flight.
+ * Results keep the input order. A worker's rejection fails the whole call.
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+export async function mapLimited(items, limit, worker) {
+  const out = new Array(items.length)
+  if (items.length === 0) return out
+  const lanes = Math.min(Math.max(1, limit), items.length)
+  let cursor = 0
+  const lane = async () => {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      out[index] = await worker(items[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: lanes }, () => lane()))
+  return out
+}
+
 /**
  * Resolve the cleanup state file. Tests and alternate volumes can override it.
  * Default lives under the per-user plugin state directory, never the source tree.
@@ -179,10 +209,9 @@ export async function scanArchived(ctx, now, days) {
   }
   const registryHeaders = registry?.headers
 
-  const rows = []
-  for (const id of archived) {
+  const rows = await mapLimited(archived, STAT_CONCURRENCY, async (id) => {
     const live = Boolean(ctx.sessions?.get?.(id) ?? ctx.get?.('agents')?.get?.(id))
-    if (live) { rows.push({ id, state: 'live' }); continue }
+    if (live) return { id, state: 'live' }
 
     const header = headers.get(id) ?? (registryHeaders && typeof registryHeaders.get === 'function' ? registryHeaders.get(id) : undefined)
     const createdAt = typeof header?.createdAt === 'number' ? header.createdAt : undefined
@@ -194,10 +223,10 @@ export async function scanArchived(ctx, now, days) {
     }
 
     const lastActivity = lastActivityOf(createdAt, mtimeMs)
-    if (lastActivity === undefined) { rows.push({ id, state: 'unknown-age' }); continue }
-    if (lastActivity >= cutoff) { rows.push({ id, state: 'recent', lastActivity }); continue }
-    rows.push({ id, state: 'eligible', lastActivity })
-  }
+    if (lastActivity === undefined) return { id, state: 'unknown-age' }
+    if (lastActivity >= cutoff) return { id, state: 'recent', lastActivity }
+    return { id, state: 'eligible', lastActivity }
+  })
   return { rows }
 }
 

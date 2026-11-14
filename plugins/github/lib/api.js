@@ -235,6 +235,59 @@ export class GitHubError extends Error {
   }
 }
 
+/** Stop buffering a response the plugin will only trim or discard. */
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+const MAX_DRAIN_BYTES = 64 * 1024
+
+/**
+ * Read a response body up to `maxBytes`. A longer body is cancelled and refused
+ * instead of being concatenated into one string first.
+ *
+ * @param {Response} response
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
+async function readBody(response, maxBytes) {
+  const stream = response.body
+  if (stream && typeof stream.getReader === 'function') {
+    const reader = stream.getReader()
+    const chunks = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const size = value?.byteLength ?? 0
+      total += size
+      if (total > maxBytes) {
+        try { await reader.cancel() } catch { /* already closed */ }
+        throw new GitHubError(
+          `GitHub response exceeded ${maxBytes} bytes and was stopped before it was buffered.`,
+          { status: response.status, code: 'response-too-large', effectState: 'none', retry: 'never' },
+        )
+      }
+      if (size > 0) chunks.push(Buffer.from(value))
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+  const text = typeof response.text === 'function' ? await response.text() : ''
+  if (Buffer.byteLength(text) > maxBytes) {
+    throw new GitHubError(
+      `GitHub response exceeded ${maxBytes} bytes and was stopped before it was buffered.`,
+      { status: response.status, code: 'response-too-large', effectState: 'none', retry: 'never' },
+    )
+  }
+  return text
+}
+
+/** Discard a body that will not be parsed, without reading it to the end. */
+async function drainBody(response) {
+  try {
+    await readBody(response, MAX_DRAIN_BYTES)
+  } catch {
+    /* a too-large or broken body must not block the retry */
+  }
+}
+
 /**
  * Methods whose replay cannot create a second resource.
  *
@@ -399,7 +452,7 @@ export async function request(config, auth, spec) {
       const transient = response.status === 502 || response.status === 503 || response.status === 504
         || ((response.status === 429 || response.status === 403) && Number.isFinite(retryAfter) && retryAfter > 0)
       if (transient) {
-        try { await response.text() } catch { /* drain the body before retrying */ }
+        await drainBody(response)
         const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 400 * (attempt + 1)
         await new Promise((resolve) => setTimeout(resolve, waitMs))
         continue
@@ -407,7 +460,7 @@ export async function request(config, auth, spec) {
     }
 
     const rate = parseRate(response.headers)
-    const text = await response.text()
+    const text = await readBody(response, MAX_RESPONSE_BYTES)
     // `raw: true` means the body IS the payload (file content), not an API
     // document: parsing it would turn a JSON file into a fake API object.
     let data = null

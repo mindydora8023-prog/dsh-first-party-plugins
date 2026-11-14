@@ -22,7 +22,17 @@ export class LineReader {
   #ended = null
   #wake = null
 
-  constructor(socket) {
+  #idleMs = 0
+
+  /**
+   * @param {import('node:net').Socket} socket
+   * @param {{idleMs?: number}} [options] idleMs > 0 rejects a read that receives
+   *   nothing for that long. IMAP/SMTP clear the socket timeout after connect,
+   *   so without this a peer that never answers leaves the read pending.
+   */
+  constructor(socket, options = {}) {
+    const idle = Number(options.idleMs)
+    this.#idleMs = Number.isFinite(idle) && idle > 0 ? idle : 0
     this.#socket = socket
     socket.on('data', (chunk) => {
       this.#chunks.push(chunk)
@@ -63,8 +73,26 @@ export class LineReader {
    */
   #wait() {
     if (this.#wake) return Promise.reject(new Error('read re-entry: the previous read has not finished'))
-    return new Promise((resolve) => {
-      this.#wake = resolve
+    return new Promise((resolve, reject) => {
+      let settled = false
+      let timer = null
+      const finish = (error) => {
+        if (settled) return
+        settled = true
+        if (timer !== null) clearTimeout(timer)
+        this.#wake = null
+        if (error) reject(error)
+        else resolve()
+      }
+      this.#wake = () => finish()
+      if (this.#idleMs > 0) {
+        timer = setTimeout(() => {
+          const error = new Error(`no data from the server for ${this.#idleMs}ms`)
+          this.#ended ??= error
+          try { this.#socket.destroy() } catch { /* already gone */ }
+          finish(error)
+        }, this.#idleMs)
+      }
     })
   }
 

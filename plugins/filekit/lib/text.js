@@ -28,12 +28,17 @@ export function buildWindow(body, req, displayPath) {
   let outputBytes = 0
   let truncatedByBytes = false
 
-  const emit = (raw) => {
+  // `start`/`end` bound one physical line inside `body`, excluding the LF.
+  // A trailing CR (CRLF) is not part of the line text. Lines outside the
+  // window are counted and never sliced, so a late page of a large file does
+  // not allocate the prefix it skipped.
+  const emitSpan = (start, end) => {
     totalLines += 1
     if (truncatedByBytes) return
     if (totalLines < offset) return
     if (out.length >= limit) return
-    let line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+    const textEnd = end > start && body.charCodeAt(end - 1) === 13 ? end - 1 : end
+    let line = body.slice(start, textEnd)
     if (line.length > maxLineLength) {
       line = `${line.slice(0, maxLineLength)}... (line truncated to ${maxLineLength} chars)`
     }
@@ -46,11 +51,19 @@ export function buildWindow(body, req, displayPath) {
     out.push({ number: totalLines, text: line })
   }
 
+  // A trailing LF is not a new line: the walk stops when `start` lands on the
+  // end, which is what `split` + dropping the empty tail used to do.
   if (body.length > 0) {
-    const parts = body.split('\n')
-    // A trailing LF yields one empty tail element that is not a new line.
-    if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
-    for (const part of parts) emit(part)
+    let start = 0
+    while (start < body.length) {
+      const nl = body.indexOf('\n', start)
+      if (nl === -1) {
+        emitSpan(start, body.length)
+        break
+      }
+      emitSpan(start, nl)
+      start = nl + 1
+    }
   }
 
   if (!truncatedByBytes && offset > totalLines && !(totalLines === 0 && offset === 1)) {

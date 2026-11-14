@@ -82,8 +82,12 @@ function planDeletion(ctx, id, headers, shared) {
   const { archived, members } = shared ?? rules(ctx, headers)
   const childrenOf = shared?.childIndex ?? childIndex(headers)
   const order = [], refused = [], seen = new Set([id]), queue = [{ id, depth: 0 }]
-  while (queue.length) {
-    const current = queue.shift()
+  // Index, not shift: shift copies the queue on every node, so a wide
+  // parentSession closure was quadratic in the number of descendants.
+  let head = 0
+  while (head < queue.length) {
+    const current = queue[head]
+    head += 1
     for (const childId of childrenOf.get(current.id) ?? []) {
       if (seen.has(childId)) continue
       seen.add(childId)

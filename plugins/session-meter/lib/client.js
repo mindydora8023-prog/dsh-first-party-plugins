@@ -346,8 +346,13 @@ window.__ModuleLoader__.load({
 			const unknown = [];
 			for (const name of names) {
 				if (typeof name !== "string" || name.length === 0) continue;
-				if (live.known.has(name)) continue;
-				if (!unknown.includes(name)) unknown.push(name);
+				// Ask every spelling, not only the routed id. A host that has not
+				// picked up a newer nameCandidates still has the bare catalog key
+				// (`grok-4.7`), and liveRateFor looks candidates up in that order.
+				for (const candidate of nameCandidates(name)) {
+					if (live.known.has(candidate)) continue;
+					if (!unknown.includes(candidate)) unknown.push(candidate);
+				}
 			}
 			if (unknown.length === 0 || live.inFlight) return;
 			if (Date.now() < live.retryAt) return;
@@ -468,6 +473,12 @@ window.__ModuleLoader__.load({
 
 		/** Trailing release-suffix noise a relay may append to an official id. */
 		const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental)$/;
+		/**
+		 * Context-window tag a route appends (`grok-4.7@500k`). Not part of the
+		 * catalog id. Snapshot dates (`@20250929`) have no k/m/b unit and stay.
+		 * Mirrors CONTEXT_SUFFIX in lib/prices.js.
+		 */
+		const CONTEXT_SUFFIX = /@\d+(?:\.\d+)?[kmb]$/;
 
 		/**
 		 * Every spelling of a routed model id worth trying against the online
@@ -478,20 +489,25 @@ window.__ModuleLoader__.load({
 		function nameCandidates(model) {
 			if (typeof model !== "string" || model.length === 0) return [];
 			const lower = model.toLowerCase();
-			const slash = lower.lastIndexOf("/");
-			const tail = slash >= 0 ? lower.slice(slash + 1) : lower;
+			const forms = [lower];
+			const bare = lower.replace(CONTEXT_SUFFIX, "");
+			if (bare !== lower) forms.push(bare);
 			const collapseMinor = (value) => value.replace(/\.(\d+)(?=[-/])/g, "");
 			const stripSuffix = (value) => value.replace(RELEASE_SUFFIX, "");
 			const out = [];
 			const push = (value) => {
 				if (value.length > 0 && !out.includes(value)) out.push(value);
 			};
-			push(lower);
-			push(tail);
-			for (const value of [tail, collapseMinor(tail)]) {
-				push(stripSuffix(value));
-				push(collapseMinor(stripSuffix(value)));
-				push(stripSuffix(collapseMinor(value)));
+			for (const form of forms) {
+				const slash = form.lastIndexOf("/");
+				const tail = slash >= 0 ? form.slice(slash + 1) : form;
+				push(form);
+				push(tail);
+				for (const value of [tail, collapseMinor(tail)]) {
+					push(stripSuffix(value));
+					push(collapseMinor(stripSuffix(value)));
+					push(stripSuffix(collapseMinor(value)));
+				}
 			}
 			return out;
 		}
@@ -962,8 +978,30 @@ window.__ModuleLoader__.load({
 			const [liveRevision, setLiveRevision] = React.useState(0);
 
 			React.useEffect(() => {
-				const timer = setInterval(() => setNow(Date.now()), 30000);
-				return () => clearInterval(timer);
+				let timer = null;
+				const hidden = () => {
+					try { return typeof document !== "undefined" && document.visibilityState === "hidden"; }
+					catch { return false; }
+				};
+				const arm = () => {
+					if (timer !== null) return;
+					setNow(Date.now());
+					timer = setInterval(() => setNow(Date.now()), 30000);
+				};
+				const disarm = () => {
+					if (timer === null) return;
+					clearInterval(timer);
+					timer = null;
+				};
+				// The 30s clock only redraws the pill and retries prices. A hidden
+				// page has no viewer, so the interval stops until it is visible.
+				const sync = () => { if (hidden()) disarm(); else arm(); };
+				try { document.addEventListener("visibilitychange", sync); } catch { /* non-DOM host */ }
+				sync();
+				return () => {
+					disarm();
+					try { document.removeEventListener("visibilitychange", sync); } catch { /* ignore */ }
+				};
 			}, []);
 
 			React.useEffect(() => liveSubscribe(() => setLiveRevision((value) => value + 1)), []);
