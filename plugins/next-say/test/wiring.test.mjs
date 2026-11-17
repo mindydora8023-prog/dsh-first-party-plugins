@@ -65,8 +65,9 @@ function createFakeHost(options = {}) {
     const scoped = {
       get: (name) => services[name],
       effect: (factory) => {
-        effects.push(factory);
-        return factory();
+        const disposer = factory();
+        effects.push(disposer);
+        return disposer;
       },
     };
     for (const dep of deps) {
@@ -127,8 +128,9 @@ function createFakeHost(options = {}) {
     },
   });
   ctx.effect = (factory) => {
-    effects.push(factory);
-    return factory();
+    const disposer = factory();
+    effects.push(disposer);
+    return disposer;
   };
   ctx.on = (event, handler) => {
     const set = listeners.get(event) ?? new Set();
@@ -157,8 +159,7 @@ function createFakeHost(options = {}) {
     dispose() {
       // Run every registered effect's disposer, which is what a fiber unload
       // does: it must remove the route.
-      for (const factory of effects) {
-        const disposer = factory();
+      for (const disposer of effects) {
         if (typeof disposer === 'function') disposer();
       }
       effects.length = 0;
@@ -629,6 +630,61 @@ test('the same suggestion is accepted when the draft is different', async () => 
     });
     assert.equal(ok.body.ok, true);
     assert.equal(ok.body.suggestion, 'run the tests');
+  });
+});
+
+test('concurrent automatic requests share a turn budget', async () => {
+  let finish;
+  let calls = 0;
+  const llm = { prepareCall: async () => {
+    calls += 1;
+    await new Promise((resolve) => { finish = resolve; });
+    return { async *stream() { yield { type: 'text-delta', text: 'Review results' }; } };
+  } };
+  const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], [4]);
+  await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1' } });
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = await hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', turn: 4 } });
+    assert.equal(second.body.reason, 'in-progress');
+    finish();
+    assert.equal((await pending).body.ok, true);
+    const third = await hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1' } });
+    assert.equal(third.body.reason, 'already-predicted');
+    assert.equal(calls, 1);
+  });
+});
+
+test('disposing a session cancels its pending prediction', async () => {
+  let signal;
+  const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], [1]);
+  const llm = { prepareCall: (config, cancellation) => {
+    signal = cancellation;
+    return new Promise(() => {});
+  } };
+  await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', turn: 1 } });
+    await new Promise((resolve) => setImmediate(resolve));
+    host.emit('session/disposed', session);
+    assert.equal(signal.aborted, true);
+    assert.equal((await pending).body.reason, 'superseded');
+    assert.equal(__internals.deliveredTurns.has('s1'), false);
+  });
+});
+
+test('unloading aborts pending adapter work', async () => {
+  let signal;
+  const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]);
+  const llm = { prepareCall: (config, cancellation) => {
+    signal = cancellation;
+    return new Promise(() => {});
+  } };
+  await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', manual: true } });
+    await new Promise((resolve) => setImmediate(resolve));
+    host.dispose();
+    assert.equal(signal.aborted, true);
+    assert.equal((await pending).body.reason, 'superseded');
   });
 });
 

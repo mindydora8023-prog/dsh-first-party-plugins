@@ -120,45 +120,31 @@ export function historyCompletion(history, draft, options = {}) {
   const query = normalizeForMatch(text);
   if (query.length < minChars) return null;
 
-  const candidates = [];
+  let best = null;
   const items = Array.isArray(history) ? history.slice(-maxEntries) : [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     if (!item || typeof item.text !== 'string') continue;
-    if (!includeAssistant && item.role === 'assistant') continue;
-    // A one-character message is not worth completing.
+    if (item.role !== undefined && item.role !== 'user' && !(includeAssistant && item.role === 'assistant')) continue;
     if (item.text.trim().length < 2) continue;
-    candidates.push({ text: item.text, rank: recencyRank(index, items.length) });
-  }
-  if (candidates.length === 0) return null;
+    const scored = scoreCandidate(item.text, query, recencyRank(index, items.length));
+    if (scored === null || (best !== null && scored.score <= best.scored.score)) continue;
 
-  let best = null;
-  for (const candidate of candidates) {
-    const scored = scoreCandidate(candidate.text, query, candidate.rank);
-    if (scored === null) continue;
-    if (best === null || scored.score > best.scored.score) {
-      best = { candidate, scored };
+    // Only rank candidates that can actually be shown. A newer oversized tail
+    // must not hide an older usable completion.
+    let consumed = 0;
+    let position = 0;
+    for (const char of item.text) {
+      if (consumed >= query.length) break;
+      consumed += normalizeForMatch(char).length;
+      position += char.length;
     }
+    // Case folding can expand one character (for example U+0130). Matching only
+    // half its normalized form cannot yield an append-only completion.
+    if (consumed !== query.length) continue;
+    const suffix = item.text.slice(position);
+    if (suffix === '' || suffix.length > maxExtraChars) continue;
+    best = { scored, suffix, full: item.text };
   }
-  if (best === null) return null;
-
-  // The ghost text is the candidate's tail measured in ORIGINAL characters, so
-  // the visible remainder lines up with the bytes on screen. When the draft
-  // itself differs only in width/case, the candidate's own prefix is the one
-  // that matches, and the remainder is still what the user has not typed.
-  const full = best.candidate.text;
-  const normalizedFull = normalizeForMatch(full);
-  let cut = query.length;
-  // Walk the original string until its normalized form has consumed the query.
-  let consumed = 0;
-  let position = 0;
-  while (position < full.length && consumed < cut) {
-    consumed += normalizeForMatch(full[position]).length;
-    position += 1;
-  }
-  const suffix = full.slice(position);
-  if (suffix === '') return null;
-  if (suffix.length > maxExtraChars) return null;
-
-  return { suffix, full, source: 'history' };
+  return best === null ? null : { suffix: best.suffix, full: best.full, source: 'history' };
 }

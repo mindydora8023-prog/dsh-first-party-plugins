@@ -24,121 +24,161 @@ window.__ModuleLoader__.load({
     const API = '/next-say';
 
         const zh = {
-      title: "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      idle: "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      tab: "Tab",
-      accept: "\u91c7\u7eb3",
-      reroll: "\u6362\u4e00\u6761",
-      dismiss: "\u5ffd\u7565",
-      thinking: "\u6b63\u5728\u60f3\u4e0b\u4e00\u53e5\u2026",
-      manual: "\u9884\u6d4b",
-      manualBusy: "\u9884\u6d4b\u4e2d\u2026",
-      paused: "\u5df2\u6682\u505c",
-      pausedHint: "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
-      empty: "\u6682\u65e0\u5efa\u8bae",
-      failed: "\u6ca1\u9884\u6d4b\u51fa\u6765",
-      hintTab: "Tab \u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001",
-      tabAccept: "Tab \u91c7\u7eb3",
-      settingsNav: "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      settingsTitle: "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      settingsIntro: "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u4e24\u79cd\u5efa\u8bae\u90fd\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
-      settingsEnabled: "\u542f\u7528\u5efa\u8bae",
-      settingsEnabledHint: "\u5173\u95ed\u540e\u65e2\u4e0d\u518d\u9884\u6d4b\uff0c\u4e5f\u4e0d\u518d\u663e\u793a\u5386\u53f2\u8865\u5168\u3002",
-      settingsMode: "\u9884\u6d4b\u65f6\u673a",
-      settingsModeHint: "\u81ea\u52a8\uff1a\u6bcf\u8f6e\u56de\u7b54\u7ed3\u675f\u540e\u9884\u6d4b\u4e00\u6b21\uff08\u6bcf\u6b21\u90fd\u662f\u771f\u5b9e\u8ba1\u8d39\u8c03\u7528\uff09\u3002\u624b\u52a8\uff1a\u53ea\u5728\u70b9\u300c\u9884\u6d4b\u300d\u65f6\u8c03\u7528\u3002",
-      settingsModeAuto: "\u81ea\u52a8",
-      settingsModeManual: "\u4ec5\u624b\u52a8",
-      settingsMaxChars: "\u5efa\u8bae\u5b57\u6570\u4e0a\u9650",
-      settingsMaxCharsHint: "\u5efa\u8bae\u6700\u957f\u591a\u5c11\u4e2a\u5b57\u7b26\u3002\u4e2d\u6587\u6309\u5b57\uff0c\u82f1\u6587\u6309\u5b57\u7b26\u3002",
-      settingsContextMessages: "\u53c2\u8003\u6d88\u606f\u6761\u6570",
-      settingsContextMessagesHint: "\u9884\u6d4b\u65f6\u6700\u591a\u8bfb\u53d6\u6700\u8fd1\u591a\u5c11\u6761\u6d88\u606f\u3002",
-      settingsContextChars: "\u4e0a\u4e0b\u6587\u9884\u7b97",
-      settingsContextCharsHint: "\u8fd9\u4e9b\u6d88\u606f\u5408\u8ba1\u6700\u591a\u591a\u5c11\u4e2a\u5b57\u7b26\u3002",
-      settingsTimeout: "\u8d85\u65f6\uff08\u6beb\u79d2\uff09",
-      settingsTimeoutHint: "\u8d85\u65f6\u540e\u4e22\u5f03\u8fd9\u4e00\u6b21\u7ed3\u679c\uff0c\u4e0d\u663e\u793a\u9519\u8bef\u3001\u4e0d\u81ea\u52a8\u91cd\u8bd5\u3002",
-      settingsHistory: "\u5386\u53f2\u524d\u7f00\u8865\u5168",
-      settingsHistoryHint: "\u8f93\u5165\u65f6\u7528\u672c\u4f1a\u8bdd\u5df2\u53d1\u8fc7\u7684\u6d88\u606f\u505a\u7070\u5b57\u8865\u5168\uff0c\u4e0d\u4ea7\u751f\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u3002",
-      settingsHistoryMinChars: "\u6700\u5c11\u8f93\u5165\u5b57\u6570",
-      settingsHistoryMinCharsHint: "\u8f93\u5165\u5230\u8fd9\u4e48\u591a\u4e2a\u5b57\u624d\u5f00\u59cb\u8865\u5168\u3002",
-      settingsProvider: "\u9884\u6d4b\u6a21\u578b",
-      settingsProviderHint: "\u7559\u7a7a\u5219\u8ddf\u968f\u5f53\u524d\u4f1a\u8bdd\u4f7f\u7528\u7684\u6a21\u578b\u3002",
-      settingsInherit: "\u8ddf\u968f\u4f1a\u8bdd",
-      settingsModel: "\u6a21\u578b",
-      settingsModelHint: "\u53ea\u5728\u9700\u8981\u6362\u5230\u66f4\u4fbf\u5b9c\u7684\u6a21\u578b\u65f6\u8bbe\u7f6e\u3002",
-      settingsPause: "\u6682\u505c\u5341\u5206\u949f",
-      settingsPauseHint: "\u6682\u505c\u671f\u95f4\u4e0d\u53d1\u8d77\u4efb\u4f55\u9884\u6d4b\u8c03\u7528\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
-      settingsResume: "\u6062\u590d\u9884\u6d4b",
-      settingsResumeHint: "\u5f53\u524d\u5904\u4e8e\u6682\u505c\u72b6\u6001\uff0c\u70b9\u6b64\u7acb\u5373\u6062\u590d\u3002",
-      settingsReset: "\u6062\u590d\u9ed8\u8ba4",
-      settingsResetHint: "\u628a\u6240\u6709\u8bbe\u7f6e\u6062\u590d\u4e3a\u9ed8\u8ba4\u503c\u3002",
-      settingsSave: "\u4fdd\u5b58",
-      settingsSaved: "\u5df2\u4fdd\u5b58",
-      settingsSaving: "\u6b63\u5728\u4fdd\u5b58\u2026",
-      settingsFailed: "\u4fdd\u5b58\u5931\u8d25",
-      settingsLoadFailed: "\u8bfb\u53d6\u8bbe\u7f6e\u5931\u8d25\uff0c\u5f53\u524d\u663e\u793a\u7684\u662f\u9ed8\u8ba4\u503c\u3002",
-      costWarning: "\u6bcf\u6b21\u81ea\u52a8\u9884\u6d4b\u90fd\u662f\u4e00\u6b21\u771f\u5b9e\u8ba1\u8d39\u7684\u6a21\u578b\u8c03\u7528\u3002",
-      never: "\u4ece\u4e0d",
+      "title": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+      "idle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+      "tab": "Tab",
+      "accept": "\u91c7\u7eb3",
+      "reroll": "\u6362\u4e00\u6761",
+      "dismiss": "\u5ffd\u7565",
+      "thinking": "\u6b63\u5728\u60f3\u4e0b\u4e00\u53e5\u2026",
+      "manual": "\u9884\u6d4b",
+      "manualPredict": "\u9884\u6d4b\u4e0b\u4e00\u53e5",
+      "manualHint": "\u70b9\u51fb\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u5efa\u8bae\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
+      "manualReady": "\u5efa\u8bae\u5df2\u663e\u793a\u5728\u8f93\u5165\u6846\uff1bTab \u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
+      "manualPaused": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u6682\u505c\u7ed3\u675f\u540e\u53ef\u7ee7\u7eed\u3002",
+      "manualInputBusy": "\u8f93\u5165\u6846\u6b63\u5728\u5904\u7406\u6d88\u606f\u6216\u547d\u4ee4\uff0c\u8bf7\u7a0d\u5019\u3002",
+      "manualRunning": "\u7b49\u5f85\u5f53\u524d\u56de\u5408\u7ed3\u675f\u540e\u518d\u9884\u6d4b\u3002",
+      "manualDraft": "\u6e05\u7a7a\u8349\u7a3f\u540e\u53ef\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u8f93\u5165\u65f6\u4f7f\u7528\u5386\u53f2\u8865\u5168\u3002",
+      "manualNoResult": "\u8fd9\u6b21\u6ca1\u6709\u751f\u6210\u65b0\u7684\u5efa\u8bae\uff0c\u53ef\u4ee5\u518d\u6b21\u9884\u6d4b\u3002",
+      "manualNoRoute": "\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u6a21\u578b\u8def\u7531\uff0c\u8bf7\u5728\u8bbe\u7f6e\u4e2d\u68c0\u67e5\u670d\u52a1\u5546\u548c\u6a21\u578b\u3002",
+      "manualDisabled": "\u4e0b\u4e00\u53e5\u5efa\u8bae\u5df2\u5173\u95ed\u3002",
+      "noHistory": "\u8fd8\u6ca1\u6709\u53ef\u53c2\u8003\u7684\u5bf9\u8bdd\uff0c\u8bf7\u5148\u53d1\u9001\u4e00\u6761\u6d88\u606f\u3002",
+      "timeout": "\u9884\u6d4b\u8d85\u65f6\uff0c\u53ef\u4ee5\u624b\u52a8\u91cd\u8bd5\u3002",
+      "manualBusy": "\u9884\u6d4b\u4e2d\u2026",
+      "paused": "\u5df2\u6682\u505c",
+      "pausedHint": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
+      "empty": "\u6682\u65e0\u5efa\u8bae",
+      "failed": "\u6ca1\u9884\u6d4b\u51fa\u6765",
+      "hintTab": "Tab \u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001",
+      "tabAccept": "Tab \u91c7\u7eb3",
+      "settingsNav": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+      "settingsTitle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+      "settingsIntro": "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u4e24\u79cd\u5efa\u8bae\u90fd\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
+      "settingsEnabled": "\u542f\u7528\u5efa\u8bae",
+      "settingsEnabledHint": "\u5173\u95ed\u540e\u65e2\u4e0d\u518d\u9884\u6d4b\uff0c\u4e5f\u4e0d\u518d\u663e\u793a\u5386\u53f2\u8865\u5168\u3002",
+      "settingsMode": "\u9884\u6d4b\u65f6\u673a",
+      "settingsModeHint": "\u81ea\u52a8\uff1a\u6bcf\u8f6e\u56de\u7b54\u7ed3\u675f\u540e\u9884\u6d4b\uff0c\u5931\u8d25\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\u3002\u624b\u52a8\uff1a\u70b9\u51fb\u8f93\u5165\u6846\u4e0b\u65b9\u7684\u300c\u9884\u6d4b\u4e0b\u4e00\u53e5\u300d\u624d\u8c03\u7528\u6a21\u578b\u3002\u6bcf\u6b21\u8c03\u7528\u90fd\u53ef\u80fd\u8ba1\u8d39\u3002",
+      "settingsModeAuto": "\u81ea\u52a8",
+      "settingsModeManual": "\u4ec5\u624b\u52a8",
+      "settingsMaxChars": "\u5efa\u8bae\u5b57\u6570\u4e0a\u9650",
+      "settingsMaxCharsHint": "\u5efa\u8bae\u6700\u957f\u591a\u5c11\u4e2a\u5b57\u7b26\u3002\u4e2d\u6587\u6309\u5b57\uff0c\u82f1\u6587\u6309\u5b57\u7b26\u3002",
+      "settingsContextMessages": "\u53c2\u8003\u6d88\u606f\u6761\u6570",
+      "settingsContextMessagesHint": "\u9884\u6d4b\u65f6\u6700\u591a\u8bfb\u53d6\u6700\u8fd1\u591a\u5c11\u6761\u6d88\u606f\u3002",
+      "settingsContextChars": "\u4e0a\u4e0b\u6587\u9884\u7b97",
+      "settingsContextCharsHint": "\u8fd9\u4e9b\u6d88\u606f\u5408\u8ba1\u6700\u591a\u591a\u5c11\u4e2a\u5b57\u7b26\u3002",
+      "settingsTimeout": "\u8d85\u65f6\uff08\u6beb\u79d2\uff09",
+      "settingsTimeoutHint": "\u8d85\u65f6\u540e\u505c\u6b62\u7b49\u5f85\u5e76\u4e22\u5f03\u8fdf\u5230\u7ed3\u679c\u3002\u81ea\u52a8\u6a21\u5f0f\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\uff1b\u624b\u52a8\u6a21\u5f0f\u663e\u793a\u539f\u56e0\uff0c\u7531\u4f60\u518d\u6b21\u70b9\u51fb\u3002",
+      "settingsHistory": "\u5386\u53f2\u524d\u7f00\u8865\u5168",
+      "settingsHistoryHint": "\u8f93\u5165\u65f6\u7528\u672c\u4f1a\u8bdd\u5df2\u53d1\u8fc7\u7684\u6d88\u606f\u505a\u7070\u5b57\u8865\u5168\uff0c\u4e0d\u4ea7\u751f\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u3002",
+      "settingsHistoryMinChars": "\u6700\u5c11\u8f93\u5165\u5b57\u6570",
+      "settingsHistoryMinCharsHint": "\u8f93\u5165\u5230\u8fd9\u4e48\u591a\u4e2a\u5b57\u624d\u5f00\u59cb\u8865\u5168\u3002",
+      "settingsProvider": "\u9884\u6d4b\u670d\u52a1\u5546",
+      "settingsProviderHint": "\u586b\u5199\u670d\u52a1\u5546 ID\uff0c\u4e0e\u4e0b\u65b9\u6a21\u578b\u4e00\u8d77\u4fdd\u5b58\uff1b\u4e24\u9879\u7559\u7a7a\u5219\u8ddf\u968f\u4f1a\u8bdd\u3002",
+      "settingsSaveRoute": "\u4fdd\u5b58\u9884\u6d4b\u6a21\u578b",
+      "settingsRouteHint": "\u670d\u52a1\u5546\u548c\u6a21\u578b\u7f16\u8f91\u5b8c\u6210\u540e\uff0c\u70b9\u6b64\u4e00\u8d77\u4fdd\u5b58\u3002",
+      "settingsRouteIncomplete": "\u8bf7\u586b\u5199\u670d\u52a1\u5546\u548c\u6a21\u578b\uff0c\u6216\u540c\u65f6\u6e05\u7a7a\u4e24\u9879\u4ee5\u8ddf\u968f\u4f1a\u8bdd\u3002",
+      "settingsInherit": "\u8ddf\u968f\u4f1a\u8bdd",
+      "settingsModel": "\u6a21\u578b",
+      "settingsModelHint": "\u53ea\u5728\u9700\u8981\u6362\u5230\u66f4\u4fbf\u5b9c\u7684\u6a21\u578b\u65f6\u8bbe\u7f6e\u3002",
+      "settingsPause": "\u6682\u505c\u5341\u5206\u949f",
+      "settingsPauseHint": "\u6682\u505c\u671f\u95f4\u4e0d\u53d1\u8d77\u4efb\u4f55\u9884\u6d4b\u8c03\u7528\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
+      "settingsResume": "\u6062\u590d\u9884\u6d4b",
+      "settingsResumeHint": "\u5f53\u524d\u5904\u4e8e\u6682\u505c\u72b6\u6001\uff0c\u70b9\u6b64\u7acb\u5373\u6062\u590d\u3002",
+      "settingsReset": "\u6062\u590d\u9ed8\u8ba4",
+      "settingsResetHint": "\u628a\u6240\u6709\u8bbe\u7f6e\u6062\u590d\u4e3a\u9ed8\u8ba4\u503c\u3002",
+      "settingsSave": "\u4fdd\u5b58",
+      "settingsUnsaved": "\u6709\u672a\u4fdd\u5b58\u7684\u7f16\u8f91",
+      "settingsUncertain": "\u4fdd\u5b58\u7ed3\u679c\u5f85\u6838\u5bf9\uff1b\u540e\u7eed\u4fdd\u5b58\u5df2\u6682\u505c\u3002\u8bf7\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e\u540e\u518d\u64cd\u4f5c\u3002",
+      "settingsReload": "\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e",
+      "settingsReloading": "\u6b63\u5728\u8bfb\u53d6\u8bbe\u7f6e\u2026",
+      "settingsEditHint": "\u6570\u503c\u7f16\u8f91\u5b8c\u6210\u540e\u79fb\u5f00\u7126\u70b9\u6216\u6309 Enter \u4fdd\u5b58\uff1bEsc \u64a4\u9500\u3002\u9884\u6d4b\u670d\u52a1\u5546\u548c\u6a21\u578b\u4f7f\u7528\u4e0b\u65b9\u6309\u94ae\u4e00\u8d77\u4fdd\u5b58\u3002",
+      "settingsSaved": "\u5df2\u4fdd\u5b58",
+      "settingsSaving": "\u6b63\u5728\u4fdd\u5b58\u2026",
+      "settingsFailed": "\u4fdd\u5b58\u5931\u8d25",
+      "settingsLoadFailed": "\u8bfb\u53d6\u8bbe\u7f6e\u5931\u8d25\uff0c\u5f53\u524d\u663e\u793a\u7684\u662f\u9ed8\u8ba4\u503c\u3002",
+      "costWarning": "\u6bcf\u6b21\u81ea\u52a8\u9884\u6d4b\u90fd\u662f\u4e00\u6b21\u771f\u5b9e\u8ba1\u8d39\u7684\u6a21\u578b\u8c03\u7528\u3002",
+      "never": "\u4ece\u4e0d",
     };
 
     const en = {
-      title: "Next-say suggestions",
-      idle: "Next-say",
-      tab: "Tab",
-      accept: "Accept",
-      reroll: "Another",
-      dismiss: "Dismiss",
-      thinking: "Thinking of your next message\u2026",
-      manual: "Predict",
-      manualBusy: "Predicting\u2026",
-      paused: "Paused",
-      pausedHint: "Predictions are paused and resume automatically.",
-      empty: "No suggestion yet",
-      failed: "Could not predict",
-      hintTab: "Tab fills the draft; it never sends",
-      tabAccept: "Tab accept",
-      settingsNav: "Next-say",
-      settingsTitle: "Next-say suggestions",
-      settingsIntro: "Predicts your next message after each finished turn, and completes a draft from local history. Neither is sent for you: Tab only fills the draft.",
-      settingsEnabled: "Enable suggestions",
-      settingsEnabledHint: "Turning this off stops both model predictions and history completion.",
-      settingsMode: "When to predict",
-      settingsModeHint: "Auto: once after every finished turn (each one is a real billed call). Manual: only when you press Predict.",
-      settingsModeAuto: "Automatic",
-      settingsModeManual: "Manual only",
-      settingsMaxChars: "Suggestion length",
-      settingsMaxCharsHint: "Longest suggested message, in characters.",
-      settingsContextMessages: "Messages considered",
-      settingsContextMessagesHint: "How many recent messages a prediction may read.",
-      settingsContextChars: "Context budget",
-      settingsContextCharsHint: "Character cap across those messages.",
-      settingsTimeout: "Timeout (ms)",
-      settingsTimeoutHint: "A timeout drops that result silently: no error, no automatic retry.",
-      settingsHistory: "History completion",
-      settingsHistoryHint: "Completes from messages already sent in this conversation. Makes no model call.",
-      settingsHistoryMinChars: "Minimum draft length",
-      settingsHistoryMinCharsHint: "How many characters to type before completion starts.",
-      settingsProvider: "Prediction model",
-      settingsProviderHint: "Leave empty to follow the model the current session uses.",
-      settingsInherit: "Follow the session",
-      settingsModel: "Model",
-      settingsModelHint: "Set this only to move predictions to a cheaper model.",
-      settingsPause: "Pause for ten minutes",
-      settingsPauseHint: "No prediction call is made while paused; it resumes automatically.",
-      settingsResume: "Resume predictions",
-      settingsResumeHint: "Predictions are paused right now; press to resume immediately.",
-      settingsReset: "Reset to defaults",
-      settingsResetHint: "Restore every setting to its default value.",
-      settingsSave: "Save",
-      settingsSaved: "Saved",
-      settingsSaving: "Saving\u2026",
-      settingsFailed: "Could not save",
-      settingsLoadFailed: "Could not read the settings; showing defaults.",
-      costWarning: "Every automatic prediction is a real, billed model call.",
-      never: "Never",
+      "title": "Next-say suggestions",
+      "idle": "Next-say",
+      "tab": "Tab",
+      "accept": "Accept",
+      "reroll": "Another",
+      "dismiss": "Dismiss",
+      "thinking": "Thinking of your next message\u2026",
+      "manual": "Predict",
+      "manualPredict": "Predict next message",
+      "manualHint": "Predict your next message. Suggestions only fill the draft; they never send.",
+      "manualReady": "Suggestion shown in the editor. Tab fills the draft without sending.",
+      "manualPaused": "Predictions are paused until the pause expires.",
+      "manualInputBusy": "The editor is processing a message or command. Please wait.",
+      "manualRunning": "Wait for the current turn to finish before predicting.",
+      "manualDraft": "Clear the draft to predict. Typing uses history completion.",
+      "manualNoResult": "No new suggestion this time. You can predict again.",
+      "manualNoRoute": "No model route is available. Check the provider and model in settings.",
+      "manualDisabled": "Next-say suggestions are disabled.",
+      "noHistory": "No conversation to reference yet. Send a message first.",
+      "timeout": "The prediction timed out. You can retry manually.",
+      "manualBusy": "Predicting\u2026",
+      "paused": "Paused",
+      "pausedHint": "Predictions are paused and resume automatically.",
+      "empty": "No suggestion yet",
+      "failed": "Could not predict",
+      "hintTab": "Tab fills the draft; it never sends",
+      "tabAccept": "Tab accept",
+      "settingsNav": "Next-say",
+      "settingsTitle": "Next-say suggestions",
+      "settingsIntro": "Predicts your next message after each finished turn, and completes a draft from local history. Neither is sent for you: Tab only fills the draft.",
+      "settingsEnabled": "Enable suggestions",
+      "settingsEnabledHint": "Turning this off stops both model predictions and history completion.",
+      "settingsMode": "When to predict",
+      "settingsModeHint": "Auto predicts after a finished turn, with at most one retry after failure. Manual calls the model only when you click Predict next message below the editor. Each call may be billed.",
+      "settingsModeAuto": "Automatic",
+      "settingsModeManual": "Manual only",
+      "settingsMaxChars": "Suggestion length",
+      "settingsMaxCharsHint": "Longest suggested message, in characters.",
+      "settingsContextMessages": "Messages considered",
+      "settingsContextMessagesHint": "How many recent messages a prediction may read.",
+      "settingsContextChars": "Context budget",
+      "settingsContextCharsHint": "Character cap across those messages.",
+      "settingsTimeout": "Timeout (ms)",
+      "settingsTimeoutHint": "A timeout stops waiting and discards late results. Auto mode retries at most once; manual mode shows the reason and waits for another click.",
+      "settingsHistory": "History completion",
+      "settingsHistoryHint": "Completes from messages already sent in this conversation. Makes no model call.",
+      "settingsHistoryMinChars": "Minimum draft length",
+      "settingsHistoryMinCharsHint": "How many characters to type before completion starts.",
+      "settingsProvider": "Prediction provider",
+      "settingsProviderHint": "Enter the provider ID and save it with the model below. Leave both empty to follow the session.",
+      "settingsSaveRoute": "Save prediction model",
+      "settingsRouteHint": "Finish editing the provider and model, then save them together.",
+      "settingsRouteIncomplete": "Fill in both provider and model, or clear both to follow the session.",
+      "settingsInherit": "Follow the session",
+      "settingsModel": "Model",
+      "settingsModelHint": "Set this only to move predictions to a cheaper model.",
+      "settingsPause": "Pause for ten minutes",
+      "settingsPauseHint": "No prediction call is made while paused; it resumes automatically.",
+      "settingsResume": "Resume predictions",
+      "settingsResumeHint": "Predictions are paused right now; press to resume immediately.",
+      "settingsReset": "Reset to defaults",
+      "settingsResetHint": "Restore every setting to its default value.",
+      "settingsSave": "Save",
+      "settingsUnsaved": "Unsaved edits",
+      "settingsUncertain": "The save outcome needs checking. Further saves are paused; reload the settings before continuing.",
+      "settingsReload": "Reload settings",
+      "settingsReloading": "Reading settings...",
+      "settingsEditHint": "Finish numeric edits by leaving the field or pressing Enter; Escape cancels. Save the prediction provider and model together with the button below.",
+      "settingsSaved": "Saved",
+      "settingsSaving": "Saving\u2026",
+      "settingsFailed": "Could not save",
+      "settingsLoadFailed": "Could not read the settings; showing defaults.",
+      "costWarning": "Every automatic prediction is a real, billed model call.",
+      "never": "Never",
     };
 
     const LOCALES = { zh, en };
-    const KEY_COUNT = 54;
+    const KEY_COUNT = 74;
 
         /** Full-width and ASCII variants are unified before matching, never for display. */
     const NORMALIZE_STRIP = /[\s\u3000]+/g;
@@ -250,87 +290,65 @@ window.__ModuleLoader__.load({
       const query = normalizeForMatch(text);
       if (query.length < minChars) return null;
 
-      const candidates = [];
+      let best = null;
       const items = Array.isArray(history) ? history.slice(-maxEntries) : [];
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index];
         if (!item || typeof item.text !== 'string') continue;
-        if (!includeAssistant && item.role === 'assistant') continue;
-        // A one-character message is not worth completing.
+        if (item.role !== undefined && item.role !== 'user' && !(includeAssistant && item.role === 'assistant')) continue;
         if (item.text.trim().length < 2) continue;
-        candidates.push({ text: item.text, rank: recencyRank(index, items.length) });
-      }
-      if (candidates.length === 0) return null;
+        const scored = scoreCandidate(item.text, query, recencyRank(index, items.length));
+        if (scored === null || (best !== null && scored.score <= best.scored.score)) continue;
 
-      let best = null;
-      for (const candidate of candidates) {
-        const scored = scoreCandidate(candidate.text, query, candidate.rank);
-        if (scored === null) continue;
-        if (best === null || scored.score > best.scored.score) {
-          best = { candidate, scored };
+        // Only rank candidates that can actually be shown. A newer oversized tail
+        // must not hide an older usable completion.
+        let consumed = 0;
+        let position = 0;
+        for (const char of item.text) {
+          if (consumed >= query.length) break;
+          consumed += normalizeForMatch(char).length;
+          position += char.length;
         }
+        // Case folding can expand one character (for example U+0130). Matching only
+        // half its normalized form cannot yield an append-only completion.
+        if (consumed !== query.length) continue;
+        const suffix = item.text.slice(position);
+        if (suffix === '' || suffix.length > maxExtraChars) continue;
+        best = { scored, suffix, full: item.text };
       }
-      if (best === null) return null;
-
-      // The ghost text is the candidate's tail measured in ORIGINAL characters, so
-      // the visible remainder lines up with the bytes on screen. When the draft
-      // itself differs only in width/case, the candidate's own prefix is the one
-      // that matches, and the remainder is still what the user has not typed.
-      const full = best.candidate.text;
-      const normalizedFull = normalizeForMatch(full);
-      let cut = query.length;
-      // Walk the original string until its normalized form has consumed the query.
-      let consumed = 0;
-      let position = 0;
-      while (position < full.length && consumed < cut) {
-        consumed += normalizeForMatch(full[position]).length;
-        position += 1;
-      }
-      const suffix = full.slice(position);
-      if (suffix === '') return null;
-      if (suffix.length > maxExtraChars) return null;
-
-      return { suffix, full, source: 'history' };
+      return best === null ? null : { suffix: best.suffix, full: best.full, source: 'history' };
     }
 
-        /**
-     * Remove every child of a node.
-     *
-     * Walks `children` when it is a live collection (real DOM and the test double
-     * both provide one) and falls back to `firstChild`. A bare
-     * `while (node.firstChild !== null)` loop spins forever on a host object without
-     * that property, which is how a test run hung.
-     */
+        const GHOST_ATTR = 'data-next-say-ghost';
+    const STYLE_ID = 'next-say-ghost-style';
+    const ghostDocuments = new WeakMap();
+    let lastGhost = null;
+
+    /** Host objects and test doubles must never control an unbounded loop. */
     function clearChildren(node) {
       const kids = node.children;
-      if (kids !== undefined && kids !== null && typeof kids.length === 'number') {
-        for (let index = kids.length - 1; index >= 0; index -= 1) node.removeChild(kids[index]);
+      if (kids != null && typeof kids.length === 'number') {
+        const count = Number.isFinite(kids.length) ? Math.min(64, Math.max(0, Math.floor(kids.length))) : 64;
+        for (let guard = 0; guard < count; guard += 1) {
+          const index = Number.isFinite(kids.length) ? kids.length - 1 : 0;
+          if (index < 0) return;
+          node.removeChild(kids[index]);
+        }
         return;
       }
       for (let guard = 0; guard < 64; guard += 1) {
-        if (node.firstChild === undefined || node.firstChild === null) return;
-        node.removeChild(node.firstChild);
+        const child = node.firstChild;
+        if (child == null) return;
+        node.removeChild(child);
       }
     }
 
-    /** Attribute marking OUR layer, so another plugin's node is never touched. */
-    const GHOST_ATTR = 'data-next-say-ghost';
+    function sessionKey(sessionId) {
+      return sessionId == null ? '' : String(sessionId);
+    }
 
-    /** Style element id, removed with the plugin. */
-    const STYLE_ID = 'next-say-ghost-style';
-
-    /** The single layer this module owns (one composer is visible at a time). */
-    let layer = null;
-    let observer = null;
-    let onResize = null;
-    let onScroll = null;
-    let watchedWindow = null;
-    /** The host placeholder this module hid, and how it was displayed before. */
-    let hiddenPlaceholder = null;
-    let placeholderWas = '';
-
-    function ensureStyle(doc) {
-      if (doc.getElementById(STYLE_ID) !== null) return;
+    function ensureStyle(doc, owner) {
+      if (owner.style !== null || doc.getElementById(STYLE_ID) != null) return;
       const style = doc.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
@@ -350,167 +368,160 @@ window.__ModuleLoader__.load({
     [${GHOST_ATTR}][data-shown="1"] { display: block; }
       `;
       doc.head.appendChild(style);
+      owner.style = style;
     }
 
-    /**
-     * Find the composer editor for a session.
-     *
-     * Scoped by the conversation element when possible: with several sessions
-     * rendered, an unscoped query can measure another session's composer.
-     */
+    /** A missing scoped editor must never fall through into another conversation. */
     function findEditor(doc, sessionId) {
-      const scoped = sessionId === undefined || sessionId === null || sessionId === ''
-        ? null
-        : doc.querySelector(`[data-conversation-session="${String(sessionId).replace(/"/g, '\\"')}"] [data-composer-input="true"]`);
-      if (scoped !== null && scoped !== undefined) return scoped;
-      return doc.querySelector('[data-composer-input="true"]');
+      const key = sessionKey(sessionId);
+      if (key !== '') {
+        // Escape CSS string syntax, including backslashes and line breaks.
+        const escaped = key.replace(/[\\"\n\r\f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `);
+        const scoped = doc.querySelector(`[data-conversation-session="${escaped}"] [data-composer-input="true"]`);
+        if (scoped != null) return scoped;
+        if (doc.querySelector('[data-conversation-session]') != null) return null;
+      }
+      // Legacy hosts without conversation markers are supported only when unique.
+      if (typeof doc.querySelectorAll !== 'function') return null;
+      const editors = doc.querySelectorAll('[data-composer-input="true"]');
+      return editors.length === 1 ? editors[0] : null;
     }
 
-    /** Hide the host placeholder so it cannot sit under the ghost. */
-    function hidePlaceholder(doc, editor) {
-      const host = editor === null || editor === undefined ? null : editor.parentElement;
-      if (host === null || host === undefined) return;
-      const node = typeof host.querySelector === 'function' ? host.querySelector('[data-composer-placeholder]') : null;
-      if (node === null || node === undefined) return;
-      // Re-resolve every time: the remembered node may belong to a composer that has
-      // since been replaced (session switch, remount), and leaving THAT one hidden
-      // while hiding nothing here is how a stale reference turns into a missing
-      // placeholder.
-      if (hiddenPlaceholder === node) return;
-      if (hiddenPlaceholder !== null) restorePlaceholder();
-      hiddenPlaceholder = node;
-      placeholderWas = node.style.display;
+    function restorePlaceholder(state) {
+      if (state.placeholder === null) return;
+      state.placeholder.style.display = state.placeholderWas;
+      state.placeholder = null;
+      state.placeholderWas = '';
+    }
+
+    function hidePlaceholder(state) {
+      const host = state.editor?.parentElement;
+      const node = typeof host?.querySelector === 'function' ? host.querySelector('[data-composer-placeholder]') : null;
+      if (state.placeholder === node) return;
+      restorePlaceholder(state);
+      if (node == null) return;
+      state.placeholder = node;
+      state.placeholderWas = node.style.display;
       node.style.display = 'none';
     }
 
-    /** Put the placeholder back exactly as it was. */
-    function restorePlaceholder() {
-      if (hiddenPlaceholder === null) return;
-      hiddenPlaceholder.style.display = placeholderWas;
-      hiddenPlaceholder = null;
-      placeholderWas = '';
+    function releaseState(state) {
+      restorePlaceholder(state);
+      state.observer?.disconnect();
+      state.observer = null;
+      if (state.win !== null) {
+        state.win.removeEventListener('resize', state.onMove, true);
+        state.win.removeEventListener('scroll', state.onMove, true);
+      }
+      state.layer.remove();
+      state.editor = null;
+      if (lastGhost === state) lastGhost = null;
     }
 
-    /**
-     * Put the layer at the editor's content origin.
-     *
-     * The layer is NOT positioned at the caret. A caret rect from a collapsed range
-     * was off by about one CJK glyph horizontally and a couple of pixels vertically
-     * on screen, so the ghost landed on top of the last typed character. Instead the
-     * layer starts where the text starts and carries the already-typed prefix as
-     * INVISIBLE text; the ghost then flows immediately after it with the editor's own
-     * font metrics. Alignment stops depending on measurement.
-     */
-    function place(doc) {
-      if (layer === null) return false;
-      const editor = findEditor(doc, layer.dataset.session);
-      if (editor === null || editor === undefined) return false;
-      const host = editor.parentElement;
-      if (host === null || host === undefined) return false;
+    /** Remove only this document's resources, optionally restricted to one session. */
+    function clearGhost(doc, sessionId) {
+      if (doc == null) return;
+      const owner = ghostDocuments.get(doc);
+      if (owner === undefined) return;
+      const keys = arguments.length < 2 ? [...owner.sessions.keys()] : [sessionKey(sessionId)];
+      for (const key of keys) {
+        const state = owner.sessions.get(key);
+        if (state === undefined) continue;
+        releaseState(state);
+        owner.sessions.delete(key);
+      }
+      if (owner.sessions.size === 0) {
+        owner.style?.remove();
+        ghostDocuments.delete(doc);
+      }
+    }
 
+    /** Re-resolve the editor and replace its observer when the host remounts it. */
+    function place(doc, state) {
+      const editor = findEditor(doc, state.key);
+      const host = editor?.parentElement;
+      if (host == null) {
+        clearGhost(doc, state.key);
+        return false;
+      }
+      if (state.editor !== editor) {
+        restorePlaceholder(state);
+        state.observer?.disconnect();
+        state.observer = null;
+        state.editor = editor;
+        const Observer = doc.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
+        if (typeof Observer === 'function') {
+          state.observer = new Observer(state.onMove);
+          state.observer.observe(editor);
+        }
+      }
+      const layer = state.layer;
+      if (layer.parentElement !== host) host.appendChild(layer);
       const hostRect = host.getBoundingClientRect();
       const rect = editor.getBoundingClientRect();
       const computed = doc.defaultView.getComputedStyle(editor);
       const padLeft = parseFloat(computed.paddingLeft) || 0;
       const padRight = parseFloat(computed.paddingRight) || 0;
       const padTop = parseFloat(computed.paddingTop) || 0;
-
       layer.style.left = `${rect.left - hostRect.left + padLeft}px`;
       layer.style.top = `${rect.top - hostRect.top + padTop}px`;
       layer.style.width = `${Math.max(60, rect.width - padLeft - padRight)}px`;
-      layer.style.fontFamily = computed.fontFamily;
-      layer.style.fontSize = computed.fontSize;
-      layer.style.lineHeight = computed.lineHeight;
-      layer.style.fontWeight = computed.fontWeight;
-      layer.style.letterSpacing = computed.letterSpacing;
+      for (const prop of ['fontFamily', 'fontSize', 'lineHeight', 'fontWeight', 'letterSpacing']) {
+        layer.style[prop] = computed[prop];
+      }
+      if (layer.dataset.shown === '1') hidePlaceholder(state);
       return true;
     }
 
-    /** Create the layer once and keep it attached to the current editor host. */
-    function ensureLayer(doc, sessionId) {
-      const editor = findEditor(doc, sessionId);
-      if (editor === null || editor === undefined) return null;
-      const host = editor.parentElement;
-      if (host === null || host === undefined) return null;
-
-      if (layer === null) {
-        layer = doc.createElement('div');
+    /** Paint only the requested session, preserving the invisible typed prefix. */
+    function paintGhost(doc, sessionId, text, options = {}) {
+      if (doc == null) return;
+      const key = sessionKey(sessionId);
+      const editor = findEditor(doc, key);
+      if (editor?.parentElement == null) {
+        clearGhost(doc, key);
+        return;
+      }
+      let owner = ghostDocuments.get(doc);
+      if (owner === undefined) {
+        owner = { sessions: new Map(), style: null };
+        ghostDocuments.set(doc, owner);
+      }
+      // A unique unmarked legacy editor can change sessions, but has only one owner.
+      for (const [otherKey, other] of owner.sessions) {
+        if (otherKey !== key && (other.editor === editor || findEditor(doc, otherKey) === editor)) {
+          releaseState(other);
+          owner.sessions.delete(otherKey);
+        }
+      }
+      let state = owner.sessions.get(key);
+      if (state === undefined) {
+        const layer = doc.createElement('div');
         layer.setAttribute(GHOST_ATTR, '');
         layer.setAttribute('aria-hidden', 'true');
+        layer.dataset.session = key;
         layer.dataset.shown = '0';
+        state = { key, layer, editor: null, observer: null, win: doc.defaultView ?? null,
+          onMove: null, placeholder: null, placeholderWas: '' };
+        state.onMove = () => {
+          if (ghostDocuments.get(doc)?.sessions.get(key) === state) place(doc, state);
+        };
+        owner.sessions.set(key, state);
+        state.win?.addEventListener('resize', state.onMove, true);
+        state.win?.addEventListener('scroll', state.onMove, true);
       }
-      if (layer.parentElement !== host) host.appendChild(layer);
-      layer.dataset.session = sessionId === undefined || sessionId === null ? '' : String(sessionId);
-      return layer;
-    }
-
-    /**
-     * Re-measure on anything that can move the editor or the caret.
-     *
-     * Listeners live in module state so `clearGhost` removes them: adding
-     * capture-phase resize/scroll listeners per mount and never removing them leaks
-     * one pair per mount for the life of the page.
-     */
-    function watch(doc) {
-      if (watchedWindow !== null) return;
-      const win = doc.defaultView;
-      if (win === null || win === undefined) return;
-      watchedWindow = win;
-      if (typeof ResizeObserver !== 'undefined') {
-        observer = new ResizeObserver(() => place(doc));
-        const editor = findEditor(doc, layer === null ? undefined : layer.dataset.session);
-        if (editor !== null && editor !== undefined) observer.observe(editor);
-      }
-      onResize = () => place(doc);
-      onScroll = () => place(doc);
-      win.addEventListener('resize', onResize, true);
-      win.addEventListener('scroll', onScroll, true);
-    }
-
-    /**
-     * Render, re-measure or clear the ghost.
-     *
-     * @param {Document} doc
-     * @param {string|undefined} sessionId
-     * @param {string} text      Text to ghost. Empty clears it.
-     * @param {object} [options]
-     * @param {string} [options.prefix] Already-typed text to reserve space for, so a
-     *   continuation starts exactly after it. Painted invisibly.
-     */
-    function paintGhost(doc, sessionId, text, options = {}) {
-      if (typeof doc === 'undefined' || doc === null) return;
-      ensureStyle(doc);
-
-      const node = ensureLayer(doc, sessionId);
-      if (node === null) {
-        restorePlaceholder();
-        return;
-      }
-      if (node.dataset.watched !== '1') {
-        node.dataset.watched = '1';
-        watch(doc);
-      }
-
+      ensureStyle(doc, owner);
+      if (!place(doc, state)) return;
+      lastGhost = state;
+      const node = state.layer;
+      clearChildren(node);
       if (text === '') {
         node.dataset.shown = '0';
-        clearChildren(node);
-        restorePlaceholder();
+        restorePlaceholder(state);
         return;
       }
-
-      if (!place(doc)) {
-        node.dataset.shown = '0';
-        restorePlaceholder();
-        return;
-      }
-
-      // Rebuild the children (node-by-node, never innerHTML).
-      clearChildren(node);
-
       const prefix = typeof options.prefix === 'string' ? options.prefix : '';
       if (prefix !== '') {
-        // The already-typed text occupies its real width but paints nothing, so the
-        // ghost begins exactly one glyph after it and wraps with it.
         const spacer = doc.createElement('span');
         spacer.setAttribute('data-next-say-spacer', '');
         spacer.style.visibility = 'hidden';
@@ -521,37 +532,19 @@ window.__ModuleLoader__.load({
       ghost.setAttribute('data-next-say-text', '');
       ghost.textContent = text;
       node.appendChild(ghost);
-
-      hidePlaceholder(doc, findEditor(doc, sessionId));
+      hidePlaceholder(state);
       node.dataset.shown = '1';
     }
 
-    /** Remove the layer, its stylesheet, its listeners, and restore the placeholder. */
-    function clearGhost(doc) {
-      restorePlaceholder();
-      if (typeof doc === 'undefined' || doc === null) return;
-      if (layer !== null) {
-        layer.remove();
-        layer = null;
+    /** No arguments preserve the last-painted debug view; doc/session are optional. */
+    function ghostState(doc, sessionId) {
+      let state = lastGhost;
+      if (doc != null) {
+        const sessions = ghostDocuments.get(doc)?.sessions;
+        state = sessions?.get(sessionKey(sessionId));
+        if (arguments.length < 2 && sessions !== undefined) state = [...sessions.values()].at(-1);
       }
-      if (observer !== null) {
-        observer.disconnect();
-        observer = null;
-      }
-      if (watchedWindow !== null) {
-        if (onResize !== null) watchedWindow.removeEventListener('resize', onResize, true);
-        if (onScroll !== null) watchedWindow.removeEventListener('scroll', onScroll, true);
-      }
-      watchedWindow = null;
-      onResize = null;
-      onScroll = null;
-      const style = doc.getElementById(STYLE_ID);
-      if (style !== null) style.remove();
-    }
-
-    /** Exposed for tests: whether a ghost is currently attached and shown. */
-    function ghostState() {
-      return layer === null ? null : { shown: layer.dataset.shown === '1', session: layer.dataset.session };
+      return state == null ? null : { shown: state.layer.dataset.shown === '1', session: state.key };
     }
 
     /* --------------------------------------------------------------- helpers */
@@ -589,6 +582,7 @@ window.__ModuleLoader__.load({
         ...(signal === undefined ? {} : { signal }),
       });
       const body = await response.json();
+      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
       return body;
     }
 
@@ -600,7 +594,32 @@ window.__ModuleLoader__.load({
         body: JSON.stringify(payload),
         ...(signal === undefined ? {} : { signal }),
       });
-      return response.json();
+      const body = await response.json();
+      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
+      return body;
+    }
+
+    /** Bound read-only HTTP waits even when a carrier ignores cancellation. */
+    async function getJsonBounded(path, signal) {
+      const controller = new AbortController();
+      let timer;
+      const cancel = () => { clearTimeout(timer); controller.abort(signal && signal.reason); };
+      let onAbort;
+      signal?.addEventListener?.('abort', cancel, { once: true });
+      try {
+        if (signal && signal.aborted) cancel();
+        controller.signal.throwIfAborted();
+        const interrupted = new Promise((resolve, reject) => {
+          onAbort = () => reject(controller.signal.reason);
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        timer = setTimeout(() => controller.abort(new Error('read request timed out')), 10000);
+        return await Promise.race([getJson(path, controller.signal), interrupted]);
+      } finally {
+        clearTimeout(timer);
+        if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+        signal?.removeEventListener?.('abort', cancel);
+      }
     }
 
     /**
@@ -609,20 +628,20 @@ window.__ModuleLoader__.load({
      * Tab must never be swallowed while the user is in another field (a search
      * box, a settings input): that would break ordinary focus movement.
      */
-    function inComposer() {
+    function inComposer(sessionId) {
       const active = document.activeElement;
-      if (active === null || active === undefined) return false;
-      if (typeof active.closest === 'function' && active.closest('[data-composer-input="true"]') !== null) return true;
-      if (active.isContentEditable === true) return true;
-      const tag = String(active.tagName || '').toLowerCase();
-      if (tag !== 'textarea' && tag !== 'input') return false;
-      return typeof active.closest === 'function' && active.closest('[data-input-scroll]') !== null;
+      if (!active || typeof active.closest !== 'function') return false;
+      const editor = active.closest('[data-composer-input="true"]');
+      if (!editor) return false;
+      const conversation = editor.closest('[data-conversation-session]');
+      return !conversation || conversation.getAttribute('data-conversation-session') === String(sessionId);
     }
 
     /** Shared settings snapshot, so the row and the settings page agree. */
     const settingsStore = {
       value: null,
       error: undefined,
+      writeUncertain: false,
       listeners: new Set(),
       set(next) {
         this.value = next;
@@ -642,26 +661,93 @@ window.__ModuleLoader__.load({
       },
     };
 
-    async function loadSettings() {
+    const SETTINGS_TIMEOUT_MS = 10000;
+    let settingsLoad = null;
+    let settingsRevision = 0;
+    let settingsQueueEpoch = 0;
+    let settingsWrites = Promise.resolve();
+
+    function uncertainSettingsError() {
+      return Object.assign(new Error('settings require a fresh read'), { code: 'settings-uncertain' });
+    }
+
+    async function settingsRequest(payload) {
+      const controller = new AbortController();
+      let timer;
       try {
-        const body = await getJson('/settings');
-        if (body && body.settings) {
-          settingsStore.error = undefined;
-          settingsStore.set(body.settings);
-          return body.settings;
-        }
-        throw new Error('settings response carried no settings');
-      } catch (error) {
-        settingsStore.error = error instanceof Error ? error.message : String(error);
-        if (settingsStore.value === null) settingsStore.set({ ...DEFAULT_SETTINGS });
-        return undefined;
+        const work = payload === undefined
+          ? getJson('/settings', controller.signal)
+          : postJson('/settings', payload, controller.signal);
+        return await Promise.race([
+          work,
+          new Promise((resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(Object.assign(new Error('settings request timed out'), { code: 'settings-timeout' }));
+              controller.abort();
+            }, SETTINGS_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    async function saveSettings(patch) {
-      const body = await postJson('/settings', patch);
-      if (body && body.settings) settingsStore.set(body.settings);
-      return body;
+    function loadSettings() {
+      if (settingsLoad !== null) return settingsLoad;
+      const revision = settingsRevision;
+      settingsLoad = (async () => {
+        try {
+          const body = await settingsRequest();
+          if (!body || body.ok !== true || !body.settings) throw new Error('invalid settings response');
+          if (revision === settingsRevision) {
+            settingsStore.error = undefined;
+            settingsStore.writeUncertain = false;
+            settingsStore.set(body.settings);
+          }
+          return body.settings;
+        } catch (error) {
+          if (revision === settingsRevision) {
+            settingsStore.error = error instanceof Error ? error.message : String(error);
+            if (settingsStore.value === null) settingsStore.set({ ...DEFAULT_SETTINGS });
+          }
+          return undefined;
+        } finally {
+          settingsLoad = null;
+        }
+      })();
+      return settingsLoad;
+    }
+
+    function saveSettings(patch) {
+      // Serialize writes in user order. Cancelling an earlier HTTP request would
+      // not undo its server-side write, so latest-response filtering alone fails.
+      settingsRevision += 1;
+      const payload = { ...patch };
+      const epoch = settingsQueueEpoch;
+      const write = settingsWrites.then(async () => {
+        if (settingsStore.writeUncertain || epoch !== settingsQueueEpoch) throw uncertainSettingsError();
+        let body;
+        try {
+          body = await settingsRequest(payload);
+          if (!body || body.ok !== true || !body.settings) throw new Error('invalid settings response');
+        } catch (error) {
+          // Only explicit pre-write HTTP rejections prove that no setting was
+          // changed. Disconnects, malformed replies and 5xx may follow a write.
+          if (![400, 401, 403, 404, 405, 408, 413].includes(error && error.status)) {
+            settingsStore.writeUncertain = true;
+            settingsQueueEpoch += 1;
+            settingsRevision += 1;
+            throw uncertainSettingsError();
+          }
+          throw error;
+        }
+        settingsRevision += 1;
+        settingsStore.error = undefined;
+        settingsStore.set(body.settings);
+        return body;
+      });
+      settingsWrites = write.catch(() => {});
+      return write;
     }
 
     /**
@@ -672,31 +758,130 @@ window.__ModuleLoader__.load({
      */
     function createHistoryCache() {
       const entries = new Map();
+      const maxSessions = 16;
+      const maxTotalChars = 1000000;
+      let totalChars = 0;
+      const forget = (sessionId) => {
+        const entry = entries.get(sessionId);
+        if (entry) totalChars -= entry.chars;
+        entries.delete(sessionId);
+      };
+      const touch = (sessionId, entry) => {
+        entries.delete(sessionId);
+        entries.set(sessionId, entry);
+        for (let guard = 0; guard <= maxSessions && (entries.size > maxSessions || totalChars > maxTotalChars); guard += 1) {
+          forget(entries.keys().next().value);
+        }
+      };
+      const store = (sessionId, entry, items) => {
+        const kept = [];
+        const source = Array.isArray(items) ? items : [];
+        let chars = 0;
+        for (let index = source.length - 1; index >= 0 && kept.length < 200; index -= 1) {
+          const item = source[index];
+          if (!item || typeof item.text !== 'string' || (item.role !== undefined && item.role !== 'user')) continue;
+          const text = item.text.slice(0, 2000);
+          if (text.trim() === '') continue;
+          kept.push({ text, role: 'user' });
+          chars += text.length;
+        }
+        totalChars += chars - entry.chars;
+        entry.chars = chars;
+        entry.items = kept.reverse();
+        touch(sessionId, entry);
+      };
       return {
         get(sessionId) {
-          return entries.get(sessionId);
+          const entry = entries.get(sessionId);
+          if (!entry) return undefined;
+          touch(sessionId, entry);
+          return entry.items;
         },
         set(sessionId, items) {
-          entries.set(sessionId, Array.isArray(items) ? items : []);
+          const entry = entries.get(sessionId) || { items: [], chars: 0 };
+          entry.revision = {};
+          store(sessionId, entry, items);
         },
-        async refresh(sessionId) {
+        async refresh(sessionId, signal) {
           if (!sessionId) return [];
+          const entry = entries.get(sessionId) || { items: [], chars: 0 };
+          const revision = {};
+          entry.revision = revision;
+          touch(sessionId, entry);
           try {
-            const body = await getJson('/history?sessionId=' + encodeURIComponent(sessionId));
-            const items = body && Array.isArray(body.items) ? body.items : [];
-            entries.set(sessionId, items);
-            return items;
+            const body = await getJsonBounded('/history?sessionId=' + encodeURIComponent(sessionId), signal);
+            if (!body || body.ok === false || !Array.isArray(body.items)) throw new Error('invalid history response');
+            // Identity matters as well as revision: eviction/clear must invalidate
+            // an old request even if the same session is opened again later.
+            if (!(signal && signal.aborted) && entries.get(sessionId) === entry && entry.revision === revision) {
+              store(sessionId, entry, body && body.items);
+            }
           } catch {
-            return entries.get(sessionId) || [];
+            // Keep the last successful pool when a refresh is cancelled or fails.
           }
+          return entries.get(sessionId)?.items || [];
         },
-        clear(sessionId) {
-          entries.delete(sessionId);
-        },
+        clear: forget,
       };
     }
 
     const historyCache = createHistoryCache();
+
+    // Controls live in the allocated dock; their request owner remains the
+    // corresponding overlay component. Unmounting one session cannot affect another.
+    const manualControls = {
+      entries: new Map(),
+      listeners: new Set(),
+      publish(sessionId, owner, value) {
+        this.entries.set(sessionId, { ...value, owner });
+        for (const listener of this.listeners) listener(sessionId);
+      },
+      remove(sessionId, owner) {
+        if (this.entries.get(sessionId)?.owner !== owner) return;
+        this.entries.delete(sessionId);
+        for (const listener of this.listeners) listener(sessionId);
+      },
+      subscribe(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+      },
+    };
+
+    function ManualControl(props) {
+      const sessionId = props.sessionId;
+      const t = typeof props.t === 'function' ? props.t : (key) => zh[key] || key;
+      const [, repaint] = React.useState(0);
+      const life = React.useMemo(() => ({ active: true }), [sessionId]);
+      React.useEffect(() => {
+        life.active = true;
+        const stop = manualControls.subscribe((id) => { if (id === sessionId) repaint((value) => value + 1); });
+        repaint((value) => value + 1);
+        return () => { life.active = false; stop(); };
+      }, [sessionId]);
+      const entry = manualControls.entries.get(sessionId);
+      if (!entry || !entry.visible) return null;
+      const onClick = async (event) => {
+        const button = event.currentTarget;
+        // A stale callback must not call a controller replaced after session switch.
+        if (!life.active || manualControls.entries.get(sessionId)?.owner !== entry.owner || !entry.ready) return;
+        const ok = await entry.run();
+        if (ok && life.active && manualControls.entries.get(sessionId)?.owner === entry.owner &&
+            typeof document !== 'undefined' && document.activeElement === button && button.isConnected !== false) {
+          try { props.inputActions?.focus?.(); } catch { /* The host may already be closing its input context. */ }
+        }
+      };
+      return h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 } },
+        h('button', {
+          type: 'button', disabled: !entry.ready, 'aria-busy': entry.busy,
+          style: { font: 'inherit', fontSize: 12, padding: '4px 10px', borderRadius: 6,
+            border: '1px solid var(--dsw-alias-border-primary, #8884)', background: 'transparent',
+            color: 'var(--dsw-alias-label-primary, inherit)', opacity: entry.ready ? 1 : 0.6,
+            cursor: entry.ready ? 'pointer' : 'default' },
+          onMouseDown: (event) => event.preventDefault(), onClick,
+        }, t(entry.hasSuggestion ? 'reroll' : 'manualPredict')),
+        h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary, #6b7280)' } },
+          entry.busy ? t('thinking') : entry.message ? t(entry.message) : t('manualHint')));
+    }
 
     /**
      * One suggestion row.
@@ -745,6 +930,7 @@ window.__ModuleLoader__.load({
       const [suggestion, setSuggestion] = React.useState('');
       const [source, setSource] = React.useState('');
       const [busy, setBusy] = React.useState(false);
+      const [manualMessage, setManualMessage] = React.useState('');
 
       /** Text the user dismissed or accepted; suppresses re-offering it. */
       const dismissed = React.useRef('');
@@ -772,8 +958,22 @@ window.__ModuleLoader__.load({
        * landed, so history completion silently never appeared.
        */
       const [historyEpoch, setHistoryEpoch] = React.useState(0);
+      const [suppressionEpoch, setSuppressionEpoch] = React.useState(0);
       const alive = React.useRef(true);
       const inFlight = React.useRef(null);
+      const scope = React.useRef({ sessionId, historyController: null });
+      const suggestionSession = React.useRef(sessionId);
+      const lastPoolFetch = React.useRef(0);
+      const triedOnMount = React.useRef(false);
+      if (scope.current.sessionId !== sessionId) {
+        scope.current = { sessionId };
+        historyRef.current = [];
+        dismissed.current = '';
+        accepted.current = '';
+        lastPoolFetch.current = 0;
+        triedOnMount.current = false;
+      }
+      const currentScope = scope.current;
 
       React.useEffect(() => {
         alive.current = true;
@@ -802,23 +1002,53 @@ window.__ModuleLoader__.load({
         accepted.current = '';
         setSuggestion('');
         setSource('');
-        if (sessionId) void historyCache.refresh(sessionId).then((items) => {
-          if (!alive.current) return;
+        setManualMessage('');
+        setBusy(false);
+        const controller = new AbortController();
+        currentScope.historyController = controller;
+        if (sessionId) void historyCache.refresh(sessionId, controller.signal).then((items) => {
+          if (!alive.current || controller.signal.aborted || scope.current !== currentScope) return;
           historyRef.current = items;
           setHistoryEpoch((value) => value + 1);
         });
+        return () => {
+          controller.abort();
+          manualControls.remove(sessionId, currentScope);
+          if (inFlight.current !== null) {
+            inFlight.current.abort();
+            inFlight.current = null;
+          }
+        };
       }, [sessionId]);
 
       const enabled = settings !== null && settings.enabled === true;
       const paused = settings !== null && isPaused(settings);
       const blankDraft = draft.trim() === '';
+      const inputReady = phase === 'plain';
+      const live = React.useRef(null);
+      const [pauseEpoch, setPauseEpoch] = React.useState(0);
+      live.current = { enabled, paused, inputReady, running, blankDraft };
+      React.useEffect(() => {
+        if (!paused) return undefined;
+        const wait = Math.min(2147483647, Math.max(1, Number(settings.pausedUntil) - Date.now()));
+        const timer = setTimeout(() => setPauseEpoch((value) => value + 1), wait);
+        return () => clearTimeout(timer);
+      }, [paused, settings && settings.pausedUntil, pauseEpoch]);
+      React.useEffect(() => {
+        if (enabled && !paused && !running && inputReady) return;
+        if (inFlight.current !== null) {
+          inFlight.current.abort();
+          inFlight.current = null;
+          setBusy(false);
+        }
+      }, [enabled, paused, running, inputReady]);
 
       /* ------------------------------------------------- local completion */
 
       // Recomputed on every draft change: a pure function over the cached
       // history, so this is a string scan, not a request.
       const local = React.useMemo(() => {
-        if (!enabled || settings === null || settings.historyEnabled !== true) return null;
+        if (!enabled || paused || !inputReady || settings === null || settings.historyEnabled !== true) return null;
         if (blankDraft) return null;
         // The draft the user dismissed must not be re-offered -- but only that
         // exact draft. Any further edit produces a new draft and may complete
@@ -837,7 +1067,7 @@ window.__ModuleLoader__.load({
         }
         // `historyEpoch` is a dependency because the pool arrives asynchronously:
         // a ref alone never invalidates this memo.
-      }, [enabled, settings, blankDraft, draft, historyEpoch]);
+      }, [enabled, settings, blankDraft, draft, historyEpoch, sessionId, suppressionEpoch, paused, inputReady]);
 
       /* -------------------------------------------- history pool lifecycle */
 
@@ -845,21 +1075,20 @@ window.__ModuleLoader__.load({
       // races the composer: an empty answer then leaves completion permanently
       // dead, because nothing else refreshes it. Retry while the user is typing
       // and the pool is still empty, throttled so it cannot become a poll loop.
-      const lastPoolFetch = React.useRef(0);
       React.useEffect(() => {
         if (!enabled || paused || settings === null || settings.historyEnabled !== true) return undefined;
         if (blankDraft || historyRef.current.length > 0) return undefined;
         const now = Date.now();
         if (now - lastPoolFetch.current < 4000) return undefined;
         lastPoolFetch.current = now;
-        let cancelled = false;
-        void historyCache.refresh(sessionId).then((items) => {
-          if (cancelled || !alive.current) return;
+        const controller = new AbortController();
+        void historyCache.refresh(sessionId, controller.signal).then((items) => {
+          if (controller.signal.aborted || !alive.current || scope.current !== currentScope) return;
           historyRef.current = items;
           setHistoryEpoch((value) => value + 1);
         });
         return () => {
-          cancelled = true;
+          controller.abort();
         };
       }, [enabled, paused, settings, blankDraft, draft, historyEpoch, sessionId]);
 
@@ -872,48 +1101,51 @@ window.__ModuleLoader__.load({
       // even if the feed says nothing. The Host still refuses to spend a second
       // call for a turn it has already predicted, so this cannot double-bill a
       // turn that was also predicted through the feed.
-      const triedOnMount = React.useRef(false);
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
         if (running || !blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
         if (triedOnMount.current) return undefined;
-        triedOnMount.current = true;
         const timer = setTimeout(() => {
-          if (alive.current) void predict({ manual: false });
+          if (!alive.current || scope.current !== currentScope) return;
+          triedOnMount.current = true;
+          void predict({ manual: false });
         }, 1200);
         return () => clearTimeout(timer);
         // `predict` is deliberately NOT a dependency: it is declared below this
         // effect, so naming it in the array would read it during render (TDZ) and
         // throw. The callback captured here is the one for this session, which is
         // exactly what an effect that runs once wants.
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy]);
+      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
 
       // Poll the Host's turn feed rather than agent/status: status flips once
       // per step, so a tool-calling turn looks like many finished turns.
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
         if (running) return undefined;
         if (!blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
 
         let cancelled = false;
         let timer;
+        let checking = false;
+        const controller = new AbortController();
         const hidden = () => {
           try { return document.visibilityState === 'hidden'; } catch { return false; }
         };
 
         const tick = async () => {
-          if (cancelled || !alive.current || hidden()) return;
+          if (cancelled || !alive.current || hidden() || checking) return;
+          checking = true;
           let turn = null;
           let predicted = null;
           try {
             // Read only: the Host marks a turn as spent inside /predict, so a
             // cancelled tick (a re-render while this request was in flight) can no
             // longer consume a turn that was never used.
-            const body = await getJson('/turn?sessionId=' + encodeURIComponent(sessionId));
+            const body = await getJsonBounded('/turn?sessionId=' + encodeURIComponent(sessionId), controller.signal);
             if (body && body.ok !== false) {
               if (body.enabled === false) return;
               turn = body.turn;
@@ -921,8 +1153,10 @@ window.__ModuleLoader__.load({
             }
           } catch {
             // A Host that is briefly unreachable is not an error worth showing.
+          } finally {
+            checking = false;
           }
-          if (cancelled || !alive.current || hidden()) return;
+          if (cancelled || !alive.current || hidden() || scope.current !== currentScope) return;
           const alreadyDone = predicted !== null && turn !== null && turn <= predicted;
           if (turn === null || turn === undefined || alreadyDone) {
             timer = setTimeout(tick, 2000);
@@ -943,10 +1177,11 @@ window.__ModuleLoader__.load({
         if (!hidden()) timer = setTimeout(tick, 900);
         return () => {
           cancelled = true;
+          controller.abort();
           clearTimeout(timer);
           try { document.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
         };
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy]);
+      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
 
       /**
        * Ask the Host for a suggestion.
@@ -956,19 +1191,24 @@ window.__ModuleLoader__.load({
        */
       const predict = React.useCallback(async (options) => {
         const manual = options && options.manual === true;
+        if (!alive.current || scope.current !== currentScope) return;
+        const state = live.current;
+        if (!state.enabled || state.paused || !state.inputReady || state.running || !state.blankDraft) return;
         if (sessionId === undefined || sessionId === null || sessionId === '') return;
-        if (inFlight.current !== null) {
-          try {
-            inFlight.current.abort();
-          } catch {
-            // Ignore: the request may have settled already.
-          }
-        }
+        if (inFlight.current !== null) return false;
         const controller = new AbortController();
         inFlight.current = controller;
         setBusy(true);
+        if (manual) setManualMessage('');
+        let onAbort;
+        const interrupted = new Promise((resolve, reject) => {
+          onAbort = () => reject(controller.signal.reason);
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        const budget = Math.max(2000, Math.min(60000, Number(settingsStore.value?.timeoutMs) || 12000)) + 10000;
+        const deadline = setTimeout(() => controller.abort(Object.assign(new Error('prediction response timed out'), { code: 'client-timeout' })), budget);
         try {
-          const body = await postJson('/predict', {
+          const body = await Promise.race([postJson('/predict', {
             sessionId,
             manual,
             // The turn this prediction is for, so the Host can claim it before
@@ -979,8 +1219,9 @@ window.__ModuleLoader__.load({
             // The Host refuses a suggestion that repeats this, so the round trip
             // does not even reach the screen.
             draft: draftRef.current,
-          }, controller.signal);
-          if (!alive.current || controller.signal.aborted) return;
+          }, controller.signal), interrupted]);
+          if (!alive.current || controller.signal.aborted || scope.current !== currentScope || inFlight.current !== controller) return false;
+          suggestionSession.current = sessionId;
           if (body && body.ok === true && typeof body.suggestion === 'string' && body.suggestion !== '') {
             // A prediction that merely repeats what is already in the composer is
             // worthless: accepting it would insert the sentence twice. This is
@@ -990,34 +1231,58 @@ window.__ModuleLoader__.load({
             const trimmedDraft = draftRef.current.trim();
             const repeatsDraft = trimmedDraft !== '' && body.suggestion.trim() === trimmedDraft;
             if (repeatsDraft || body.suggestion === dismissed.current || body.suggestion === accepted.current) {
-              setSuggestion('');
-              setSource('');
-            } else {
-              setSuggestion(body.suggestion);
-              setSource('model');
+              if (manual) setManualMessage('manualNoResult');
+              else { setSuggestion(''); setSource(''); }
+              return false;
             }
-            void historyCache.refresh(sessionId).then((items) => {
-              if (!alive.current) return;
+            setSuggestion(body.suggestion);
+            setSource('model');
+            if (manual) setManualMessage('manualReady');
+            const historySignal = currentScope.historyController.signal;
+            void historyCache.refresh(sessionId, historySignal).then((items) => {
+              if (!alive.current || historySignal.aborted || controller.signal.aborted || scope.current !== currentScope) return;
               historyRef.current = items;
               // A finished turn adds the user's own message to the pool, which
               // is exactly when a new completion becomes possible.
               setHistoryEpoch((value) => value + 1);
             });
-          } else {
-            setSuggestion('');
-            setSource('');
+            return true;
           }
+          if (manual) {
+            const key = { __proto__: null, 'no-history': 'noHistory', 'no-route': 'manualNoRoute', timeout: 'timeout',
+              empty: 'manualNoResult', truncated: 'manualNoResult', 'repeats-draft': 'manualNoResult',
+              paused: 'manualPaused', disabled: 'manualDisabled' }[body && body.reason] || 'failed';
+            setManualMessage(key);
+          } else { setSuggestion(''); setSource(''); }
+          return false;
         } catch (error) {
-          if (!alive.current) return;
-          const name = error instanceof Error ? error.name : '';
-          if (name === 'AbortError') return;
+          if (!alive.current || scope.current !== currentScope || inFlight.current !== controller) return false;
+          if (controller.signal.aborted) {
+            if (manual && controller.signal.reason?.code === 'client-timeout') setManualMessage('timeout');
+          } else if (manual) setManualMessage('failed');
+          return false;
         } finally {
-          if (inFlight.current === controller) inFlight.current = null;
-          if (alive.current) {
-            setBusy(false);
+          clearTimeout(deadline);
+          controller.signal.removeEventListener('abort', onAbort);
+          if (inFlight.current === controller) {
+            inFlight.current = null;
+            if (alive.current && scope.current === currentScope) setBusy(false);
           }
         }
       }, [sessionId]);
+
+      React.useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '') return;
+        const hasSuggestion = suggestionSession.current === sessionId && suggestion !== '' && suggestion !== dismissed.current;
+        const message = paused ? 'manualPaused' : !inputReady ? 'manualInputBusy' : running ? 'manualRunning'
+          : !blankDraft ? 'manualDraft' : manualMessage === 'manualReady' && !hasSuggestion ? '' : manualMessage;
+        manualControls.publish(sessionId, currentScope, {
+          visible: enabled && settings !== null && settings.mode === 'manual',
+          ready: enabled && !paused && inputReady && !running && blankDraft && !busy,
+          busy, hasSuggestion, message,
+          run: () => predict({ manual: true, avoid: suggestion, forceDifferent: hasSuggestion }),
+        });
+      }, [sessionId, settings, enabled, paused, inputReady, running, blankDraft, busy, manualMessage, suggestion, predict]);
 
       /* ------------------------------------------------------------ accept */
 
@@ -1029,12 +1294,13 @@ window.__ModuleLoader__.load({
        * so text typed between reading and writing is never overwritten.
        */
       const accept = React.useCallback((text) => {
-        if (text === '' || !inputActions) return false;
+        if (text === '' || !inputActions || !live.current.enabled || live.current.paused || !live.current.inputReady) return false;
         try {
           const span = inputActions.captureInsertion();
           if (!inputActions.insertText(text, span)) return false;
-          accepted.current = text;
+          accepted.current = draftRef.current + text;
           dismissed.current = '';
+          setSuppressionEpoch((value) => value + 1);
           setSuggestion('');
           setSource('');
           return true;
@@ -1052,10 +1318,10 @@ window.__ModuleLoader__.load({
        * TOP of the draft the user already typed.
        */
       const acceptSuggested = React.useCallback(() => {
-        if (suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
+        if (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
         if (local !== null) return accept(local.suffix);
         return false;
-      }, [accept, suggestion, local]);
+      }, [accept, suggestion, local, sessionId, blankDraft, running]);
 
       const dismiss = React.useCallback(() => {
         // Remember WHAT was refused, not just "the draft": a dismissed model
@@ -1063,10 +1329,11 @@ window.__ModuleLoader__.load({
         // the exact draft it was offered for -- keep typing and it may offer
         // again. Recording the raw draft here suppressed every later completion
         // for the whole session.
-        dismissed.current = suggestion !== '' ? suggestion : `${draft}\u0000local`;
+        setSuppressionEpoch((value) => value + 1);
+        dismissed.current = suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' ? suggestion : `${draft}\u0000local`;
         setSuggestion('');
         setSource('');
-      }, [suggestion, draft]);
+      }, [suggestion, draft, sessionId, blankDraft, running]);
 
       // Keyboard: Tab accepts, Escape dismisses -- but only from the composer,
       // and only while a suggestion is actually on screen.
@@ -1074,9 +1341,10 @@ window.__ModuleLoader__.load({
         if (typeof document === 'undefined') return undefined;
         const onKeyDown = (event) => {
           if (event.defaultPrevented || event.isComposing) return;
-          const hasSuggestion = suggestion !== '' || local !== null;
+          if (!enabled || paused || !inputReady || !live.current.inputReady || scope.current !== currentScope) return;
+          const hasSuggestion = (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) || local !== null;
           if (!hasSuggestion) return;
-          if (!inComposer()) return;
+          if (!inComposer(sessionId)) return;
           if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
             if (acceptSuggested()) {
               event.preventDefault();
@@ -1092,7 +1360,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [acceptSuggested, dismiss, suggestion, local]);
+      }, [acceptSuggested, dismiss, suggestion, local, enabled, paused, inputReady, sessionId, blankDraft, running]);
 
       /* ------------------------------------------------------------ render */
 
@@ -1117,7 +1385,7 @@ window.__ModuleLoader__.load({
       // these two conditions the stale suggestion stayed painted after sending
       // (the draft went empty again) and then overlapped whatever the user typed
       // next, because it is anchored at the editor origin.
-      const modelText = suggestion !== '' && suggestion !== dismissed.current && blankDraft && !running
+      const modelText = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && blankDraft && !running
         ? suggestion
         : '';
       const localSuffix = local !== null ? local.suffix : '';
@@ -1157,11 +1425,11 @@ window.__ModuleLoader__.load({
       // state and keep the Tab/Escape listeners alive.
       React.useEffect(() => {
         if (typeof document === "undefined") return undefined;
-        if (!enabled) {
-          clearGhost(document);
+        if (!enabled || paused) {
+          clearGhost(document, sessionId);
           return undefined;
         }
-        if (phase === "submitting") {
+        if (!inputReady) {
           paintGhost(document, sessionId, "");
           return undefined;
         }
@@ -1175,12 +1443,12 @@ window.__ModuleLoader__.load({
         // composer pushed the text around and read as a stray widget.
         paintGhost(document, sessionId, ghostText, { prefix: ghostPrefix });
         return undefined;
-      }, [enabled, phase, sessionId, ghostText, ghostPrefix]);
+      }, [enabled, paused, inputReady, sessionId, ghostText, ghostPrefix]);
 
       // Leaving this session, or unmounting, must not leave stale ghost text
       // floating over an empty composer.
       React.useEffect(() => () => {
-        if (typeof document !== "undefined") clearGhost(document);
+        if (typeof document !== "undefined") clearGhost(document, sessionId);
       }, []);
 
       return null;
@@ -1211,6 +1479,8 @@ window.__ModuleLoader__.load({
 
     function clampTo(key, value) {
       const range = RANGES[key];
+      if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'object') return DEFAULT_SETTINGS[key];
+      if (typeof value === 'string' && value.trim() === '') return DEFAULT_SETTINGS[key];
       const number = Number(value);
       if (!Number.isFinite(number)) return DEFAULT_SETTINGS[key];
       const rounded = Math.floor(number);
@@ -1227,6 +1497,10 @@ window.__ModuleLoader__.load({
       const [value, setValue] = React.useState(settingsStore.value);
       const [status, setStatus] = React.useState('');
       const [now, setNow] = React.useState(() => Date.now());
+      const [edits, setEdits] = React.useState({});
+      const editsRef = React.useRef({});
+      const editVersions = React.useRef({});
+      const saveRevision = React.useRef(0);
       const alive = React.useRef(true);
 
       React.useEffect(() => {
@@ -1240,17 +1514,61 @@ window.__ModuleLoader__.load({
       }, []);
 
       const save = React.useCallback(async (patch) => {
+        const revision = ++saveRevision.current;
         setStatus('saving');
         try {
-          const body = await saveSettings(patch);
-          if (!alive.current) return;
-          setStatus(body && body.ok === true ? 'saved' : 'failed');
-        } catch {
-          if (alive.current) setStatus('failed');
+          await saveSettings(patch);
+          if (alive.current && revision === saveRevision.current) setStatus('saved');
+          return true;
+        } catch (error) {
+          if (alive.current && revision === saveRevision.current) setStatus(error && error.code === 'settings-uncertain' ? 'uncertain' : 'failed');
+          return false;
         }
       }, []);
 
+      const reloadSettings = async () => {
+        if (status === 'saving' || status === 'loading') return;
+        const revision = ++saveRevision.current;
+        setStatus('loading');
+        const loaded = await loadSettings();
+        if (!alive.current || revision !== saveRevision.current) return;
+        setStatus(settingsStore.writeUncertain ? 'uncertain' : loaded ? 'saved' : 'failed');
+      };
       const current = value || DEFAULT_SETTINGS;
+      const editField = (key, text) => {
+        editVersions.current = { ...editVersions.current, [key]: {} };
+        editsRef.current = { ...editsRef.current, [key]: text };
+        setEdits(editsRef.current);
+      };
+      const clearSavedEdits = (snapshot, versions = editVersions.current) => {
+        if (!alive.current) return;
+        const next = { ...editsRef.current };
+        for (const [key, text] of Object.entries(snapshot)) {
+          if (next[key] === text && editVersions.current[key] === versions[key]) delete next[key];
+        }
+        editsRef.current = next;
+        setEdits(next);
+      };
+      const fieldText = (key) => Object.hasOwn(edits, key) ? edits[key] : String(current[key] ?? '');
+      const commitNumber = async (key) => {
+        if (!Object.hasOwn(editsRef.current, key)) return;
+        const text = editsRef.current[key];
+        const versions = editVersions.current;
+        if (await save({ [key]: clampTo(key, text) })) clearSavedEdits({ [key]: text }, versions);
+      };
+      const providerText = fieldText('provider');
+      const modelText = fieldText('model');
+      const routeComplete = (providerText.trim() === '') === (modelText.trim() === '');
+      const routeChanged = providerText.trim() !== current.provider || modelText.trim() !== current.model;
+      const commitRoute = async () => {
+        const snapshot = {
+          provider: Object.hasOwn(editsRef.current, 'provider') ? editsRef.current.provider : current.provider,
+          model: Object.hasOwn(editsRef.current, 'model') ? editsRef.current.model : current.model,
+        };
+        const versions = editVersions.current;
+        if ((snapshot.provider.trim() === '') !== (snapshot.model.trim() === '')) return;
+        if (await save({ provider: snapshot.provider.trim(), model: snapshot.model.trim() })) clearSavedEdits(snapshot, versions);
+      };
       const paused = isPaused(current, now);
       // The countdown is the only consumer of `now`. An open settings page that
       // is not paused must not re-render once a second for as long as it stays
@@ -1267,21 +1585,29 @@ window.__ModuleLoader__.load({
         : String(remaining);
 
       const toggle = (key) => (event) => { void save({ [key]: event.target.checked }); };
-      const number = (key, min, max) => h('input', {
+      const number = (key, min, max, label) => h('input', {
         type: 'number',
         min,
         max,
+        'aria-label': t(label),
         style: inputStyle,
-        value: current[key] === undefined ? '' : String(current[key]),
-        onChange: (event) => {
-          // Ignore the transient empty string while the user retypes: saving it
-          // as 0 is what silently disables a feature.
-          if (event.target.value === '') return;
-          const next = clampTo(key, event.target.value);
-          void save({ [key]: next });
+        value: fieldText(key),
+        // Preserve transient empty and out-of-range input until editing ends.
+        onChange: (event) => editField(key, event.target.value),
+        onBlur: () => { void commitNumber(key); },
+        onKeyDown: (event) => {
+          if (event.isComposing) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            clearSavedEdits({ [key]: editsRef.current[key] });
+          }
         },
       });
       const select = (key, options) => h('select', {
+        'aria-label': t('settingsMode'),
         style: inputStyle,
         value: current[key],
         onChange: (event) => { void save({ [key]: event.target.value }); },
@@ -1290,7 +1616,8 @@ window.__ModuleLoader__.load({
       return h('div', { style: { padding: '4px 0 24px' } },
         h('h2', { style: { fontSize: 16, margin: '0 0 6px' } }, t('settingsTitle')),
         h('p', { style: { fontSize: 12, margin: '0 0 4px', ...hintStyle } }, t('settingsIntro')),
-        h('p', { style: { fontSize: 12, margin: '0 0 16px', ...hintStyle } }, t('costWarning')),
+        h('p', { style: { fontSize: 12, margin: '0 0 8px', ...hintStyle } }, t('costWarning')),
+        h('p', { style: { ...hintStyle, margin: '0 0 16px' } }, t('settingsEditHint')),
 
         settingsStore.error === undefined ? null : h('p', {
           style: { fontSize: 12, margin: '0 0 16px', color: 'var(--dsw-alias-state-warning-primary, #b45309)' },
@@ -1298,7 +1625,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsEnabled')), h('div', { style: hintStyle }, t('settingsEnabledHint'))),
-          h('input', { type: 'checkbox', checked: current.enabled === true, onChange: toggle('enabled') })),
+          h('input', { type: 'checkbox', 'aria-label': t('settingsEnabled'), checked: current.enabled === true, onChange: toggle('enabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsMode')), h('div', { style: hintStyle }, t('settingsModeHint'))),
@@ -1309,27 +1636,27 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsMaxChars')), h('div', { style: hintStyle }, t('settingsMaxCharsHint'))),
-          number('maxSuggestionChars', 20, 400)),
+          number('maxSuggestionChars', 20, 400, 'settingsMaxChars')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsContextMessages')), h('div', { style: hintStyle }, t('settingsContextMessagesHint'))),
-          number('contextMessages', 2, 20)),
+          number('contextMessages', 2, 20, 'settingsContextMessages')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsContextChars')), h('div', { style: hintStyle }, t('settingsContextCharsHint'))),
-          number('contextChars', 1000, 20000)),
+          number('contextChars', 1000, 20000, 'settingsContextChars')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsTimeout')), h('div', { style: hintStyle }, t('settingsTimeoutHint'))),
-          number('timeoutMs', 2000, 60000)),
+          number('timeoutMs', 2000, 60000, 'settingsTimeout')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistory')), h('div', { style: hintStyle }, t('settingsHistoryHint'))),
-          h('input', { type: 'checkbox', checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
+          h('input', { type: 'checkbox', 'aria-label': t('settingsHistory'), checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistoryMinChars')), h('div', { style: hintStyle }, t('settingsHistoryMinCharsHint'))),
-          number('historyMinChars', 1, 8)),
+          number('historyMinChars', 1, 8, 'settingsHistoryMinChars')),
 
         h('div', { style: rowStyle },
           h('div', null,
@@ -1351,8 +1678,11 @@ window.__ModuleLoader__.load({
             type: 'text',
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.provider === '' ? t('settingsInherit') : '',
-            value: current.provider,
-            onChange: (event) => { void save({ provider: event.target.value.trim() }); },
+            'aria-label': t('settingsProvider'),
+            'aria-describedby': 'next-say-route-hint',
+            'aria-invalid': !routeComplete,
+            value: providerText,
+            onChange: (event) => editField('provider', event.target.value),
           })),
 
         h('div', { style: { ...rowStyle, borderBottom: 'none' } },
@@ -1361,18 +1691,42 @@ window.__ModuleLoader__.load({
             type: 'text',
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.model === '' ? t('settingsInherit') : '',
-            value: current.model,
-            onChange: (event) => { void save({ model: event.target.value.trim() }); },
+            'aria-label': t('settingsModel'),
+            'aria-describedby': 'next-say-route-hint',
+            'aria-invalid': !routeComplete,
+            value: modelText,
+            onChange: (event) => editField('model', event.target.value),
           })),
 
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, paddingTop: 14 } },
+        h('div', { style: rowStyle },
+          h('p', { id: 'next-say-route-hint', style: { ...hintStyle, margin: 0 } }, t(routeComplete ? 'settingsRouteHint' : 'settingsRouteIncomplete')),
+          h('button', {
+            type: 'button',
+            style: { ...inputStyle, cursor: routeChanged && routeComplete ? 'pointer' : 'default' },
+            disabled: !routeChanged || !routeComplete || settingsStore.writeUncertain,
+            'aria-describedby': 'next-say-route-hint',
+            onClick: () => { void commitRoute(); },
+          }, t('settingsSaveRoute'))),
+
+        h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, paddingTop: 14 } },
           h('button', {
             type: 'button',
             style: { ...inputStyle, cursor: 'pointer' },
-            onClick: () => { void save({ reset: true }); },
+            disabled: settingsStore.writeUncertain,
+            onClick: () => {
+              editsRef.current = {};
+              editVersions.current = {};
+              setEdits({});
+              void save({ reset: true });
+            },
           }, t('settingsReset')),
           h('span', { style: hintStyle }, t('settingsResetHint')),
-          h('span', { style: hintStyle }, status === 'saving' ? t('settingsSaving') : status === 'saved' ? t('settingsSaved') : status === 'failed' ? t('settingsFailed') : '')),
+          h('span', { role: 'status', 'aria-live': 'polite', style: hintStyle }, settingsStore.writeUncertain ? t('settingsUncertain') : status === 'loading' ? t('settingsReloading') : status === 'saving' ? t('settingsSaving') : status === 'failed' ? t('settingsFailed') : Object.keys(edits).length > 0 ? t('settingsUnsaved') : status === 'saved' ? t('settingsSaved') : ''),
+          settingsStore.writeUncertain || settingsStore.error !== undefined ? h('button', {
+            type: 'button', style: { ...inputStyle, cursor: 'pointer' },
+            disabled: status === 'loading' || status === 'saving',
+            onClick: () => { void reloadSettings(); },
+          }, t('settingsReload')) : null),
       );
     }
 
@@ -1396,6 +1750,13 @@ window.__ModuleLoader__.load({
         order: 5,
         locale: NS,
       }, SuggestionRow));
+
+      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        name: 'conversation.composer.dock',
+        id: 'next-say-manual',
+        order: 20,
+        locale: NS,
+      }, ManualControl));
 
       // The settings page is root-scoped: it must exist even with no session.
       ctx.slots.inject('settings.section', () => ctx.slots.register({
@@ -1427,7 +1788,12 @@ window.__ModuleLoader__.load({
         normalizeForMatch,
         SuggestionRow,
         GhostPainter,
+        ManualControl,
+        manualControls,
         settingsStore,
+        createHistoryCache,
+        loadSettings,
+        saveSettings,
         SettingsPage,
       },
     };

@@ -2,9 +2,9 @@
  * Host half of dsh-plugin-next-say.
  *
  * Responsibilities, and nothing else:
- *   1. Record ONE finished turn per session, from the durable `agent/turn-stopping`
- *      event, so the browser can ask "may I predict now?" without polling
- *      `agent/status` (which flips once per step and would look like many turns).
+ *   1. Derive the latest completed turn from durable `turn/end` events so the
+ *      browser can ask "may I predict now?" without polling `agent/status`
+ *      (which flips once per step and would look like many turns).
  *   2. Own the auxiliary model call. The Client never talks to a provider.
  *   3. Serve the small same-origin API the suggestion row and the settings page
  *      read, behind DSH's own browser authentication.
@@ -15,7 +15,6 @@
  *
  * Source is kept pure ASCII (workspace convention).
  */
-import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -27,16 +26,15 @@ import {
   dedupeKey,
   detectConversationLanguage,
   isNearDuplicate,
-  isUserAuthored,
   normalizeSuggestion,
   recentMessages,
+  recentUserHistory,
   resolveRoute,
 } from './predict.js';
 import {
   DEFAULTS,
   applyPatch,
   isPaused,
-  pauseUntil,
   readSettings,
   settingsPath,
   writeSettings,
@@ -140,9 +138,8 @@ function lastCompletedTurn(session) {
 function forgetSession(sessionId) {
   deliveredTurns.delete(sessionId);
   scanCache.delete(sessionId);
-  for (const key of attempts.keys()) {
-    if (key.startsWith(`${sessionId}\u0000`)) attempts.delete(key);
-  }
+  attempts.delete(sessionId);
+  inflight.get(sessionId)?.abort();
   predictingIn.delete(sessionId);
   memory.delete(sessionId);
   inflight.delete(sessionId);
@@ -176,45 +173,103 @@ function json(res, status, body) {
  * has no `body` stream and no `getReader()`. Handling both keeps this one
  * handler usable from either registration without a silent "empty body".
  */
-async function readJsonBody(request, limit = 64 * 1024) {
-  const declared = Number(request.headers?.['content-length']);
-  if (Number.isFinite(declared) && declared > limit) throw new Error('request body too large');
+const BODY_TIMEOUT_MS = 5000;
 
-  let text = '';
-  const body = request.body;
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'object' && typeof body.getReader !== 'function' && !(body instanceof ReadableStream)) {
-      // Already decoded by the carrier.
-      return body;
-    }
-    if (typeof body === 'string') {
-      text = body;
-    } else if (typeof body.getReader === 'function') {
-      const reader = body.getReader();
-      const chunks = [];
-      let total = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > limit) throw new Error('request body too large');
-        chunks.push(Buffer.from(value));
-      }
-      text = Buffer.concat(chunks).toString('utf8');
-    }
-  } else if (typeof request[Symbol.asyncIterator] === 'function') {
-    const chunks = [];
-    let total = 0;
-    for await (const chunk of request) {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      total += buffer.byteLength;
-      if (total > limit) throw new Error('request body too large');
-      chunks.push(buffer);
-    }
-    text = Buffer.concat(chunks).toString('utf8');
+class BodyError extends Error {
+  constructor(status, code) {
+    super(code);
+    this.status = status;
+    this.code = code;
   }
+}
 
-  return text.trim() === '' ? {} : JSON.parse(text);
+async function readJsonBody(request, limit = 64 * 1024, timeoutMs = BODY_TIMEOUT_MS) {
+  let reader;
+  let iterator;
+  let completed = false;
+  let stopped = false;
+  let timer;
+  // Cleanup is best effort: a hostile carrier's cancel/return can also hang.
+  const stop = (callback) => {
+    try { Promise.resolve(callback()).catch(() => {}); } catch {}
+  };
+  const tooLarge = () => new BodyError(413, 'body-too-large');
+  const invalid = () => new BodyError(400, 'invalid-body');
+  const checkObject = (value) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw invalid();
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw invalid();
+    return value;
+  };
+  const parse = (text) => {
+    if (Buffer.byteLength(text, 'utf8') > limit) throw tooLarge();
+    return checkObject(JSON.parse(text));
+  };
+  const chunks = [];
+  let total = 0;
+  const append = (chunk) => {
+    if (typeof chunk !== 'string' && !(chunk instanceof Uint8Array)) throw invalid();
+    const buffer = Buffer.from(chunk);
+    total += buffer.byteLength;
+    if (total > limit) throw tooLarge();
+    if (buffer.byteLength > 0) chunks.push(buffer);
+  };
+
+  try {
+    const headers = request.headers;
+    const declared = Number(typeof headers?.get === 'function'
+      ? headers.get('content-length')
+      : headers?.['content-length'] ?? headers?.['Content-Length']);
+    if (Number.isFinite(declared) && declared > limit) throw tooLarge();
+
+    const body = request.body;
+    if (typeof body === 'string') return parse(body);
+    if (body instanceof Uint8Array) {
+      append(body);
+      return parse(Buffer.concat(chunks).toString('utf8'));
+    }
+    if (body !== undefined && body !== null && typeof body.getReader !== 'function') {
+      // Decoded carriers get the same shape and serialized UTF-8 budget checks.
+      checkObject(body);
+      return parse(JSON.stringify(body));
+    }
+
+    const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : BODY_TIMEOUT_MS;
+    const deadline = Date.now() + budget;
+    const expired = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new BodyError(408, 'body-timeout')), budget);
+    });
+    if (typeof body?.getReader === 'function') reader = body.getReader();
+    else if (typeof request[Symbol.asyncIterator] === 'function') iterator = request[Symbol.asyncIterator]();
+    else throw invalid();
+
+    const reading = (async () => {
+      for (;;) {
+        // Resolved empty chunks can starve timers; also enforce elapsed wall time.
+        if (stopped || Date.now() >= deadline) throw new BodyError(408, 'body-timeout');
+        const step = await (reader ? reader.read() : iterator.next());
+        if (stopped || Date.now() >= deadline) throw new BodyError(408, 'body-timeout');
+        if (step.done) break;
+        append(step.value);
+      }
+    })();
+    // One race per body, so chunks do not accumulate reactions on `expired`.
+    await Promise.race([reading, expired]);
+    completed = true;
+    return parse(Buffer.concat(chunks).toString('utf8'));
+  } catch (error) {
+    // Never publish parser excerpts or arbitrary carrier error fields/messages.
+    if (error instanceof BodyError) throw error;
+    throw invalid();
+  } finally {
+    stopped = true;
+    clearTimeout(timer);
+    if (reader) {
+      if (!completed) stop(() => reader.cancel());
+      try { reader.releaseLock(); } catch {}
+    }
+    if (iterator && !completed && typeof iterator.return === 'function') stop(() => iterator.return());
+  }
 }
 
 /**
@@ -340,55 +395,70 @@ async function generate(ctx, session, settings, options = {}) {
     else predictingIn.set(sessionId, left);
   };
 
+  let onAbort;
+  const cancelled = new Promise((resolve, reject) => {
+    onAbort = () => reject(abort.signal.reason);
+    abort.signal.addEventListener('abort', onAbort, { once: true });
+    if (abort.signal.aborted) onAbort();
+  });
+
   try {
-    const call = await llm.prepareCall(
-      {
-        provider: route.provider,
-        model: route.model,
-        maxTokens: charsToTokens(budgetChars, language),
-      },
-      abort.signal,
-    );
-    // Dispatch with the PREPARED config, not the one built here.
-    //
-    // `stream()` asserts `callConfigEquals(options, prepared.config)` and throws
-    // "prepared LLM call config changed before adapter dispatch" otherwise.
-    // `prepareCall` materializes adapter defaults (reasoning effort, temperature,
-    // maxTokens, ...), so re-sending raw provider/model/maxTokens is never equal
-    // to what was prepared. Observed live as an instant, message-less failure.
-    const streamOptions = {
-      ...call.config,
-      messages: [
+    // Racing the work bounds waiting even when an adapter ignores its signal.
+    // Keep all publication outside this task so a late completion is inert.
+    const work = (async () => {
+      const call = await llm.prepareCall(
         {
-          role: 'user',
-          content: [{ type: 'text', text: requestText }],
+          provider: route.provider,
+          model: route.model,
+          maxTokens: charsToTokens(budgetChars, language),
         },
-      ],
-      system,
-      sessionId: session.id,
-      signal: abort.signal,
-    };
-    for await (const chunk of call.stream(streamOptions)) {
-      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
-        output += chunk.text;
-        // A provider that ignores maxTokens must not fill memory.
-        if (output.length > MAX_RAW_CHARS) break;
+        abort.signal,
+      );
+      abort.signal.throwIfAborted();
+      // Dispatch with the PREPARED config, not the one built here.
+      // `prepareCall` materializes adapter defaults, and stream() requires the
+      // same prepared controls rather than raw provider/model/maxTokens.
+      const streamOptions = {
+        ...call.config,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: requestText }],
+          },
+        ],
+        system,
+        sessionId: session.id,
+        signal: abort.signal,
+      };
+      for await (const chunk of call.stream(streamOptions)) {
+        abort.signal.throwIfAborted();
+        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
+          // Check before appending: one chunk can exceed the entire budget.
+          if (output.length + chunk.text.length > MAX_RAW_CHARS) {
+            abort.abort(new Error('prediction exceeded output limit'));
+            abort.signal.throwIfAborted();
+          }
+          output += chunk.text;
+        }
+        if (chunk?.type === 'finish') finish = chunk.reason;
       }
-      if (chunk?.type === 'finish') finish = chunk.reason;
-    }
+    })();
+    await Promise.race([work, cancelled]);
+    abort.signal.throwIfAborted();
   } catch (error) {
-    release();
-    const name = error instanceof Error ? error.name : '';
-    const message = error instanceof Error ? error.message : String(error);
+    const cause = abort.signal.aborted ? abort.signal.reason : error;
+    const name = cause instanceof Error ? cause.name : '';
+    const message = cause instanceof Error ? cause.message : String(cause);
     return {
       ok: false,
       reason: name === 'TimeoutError' ? 'timeout' : name === 'AbortError' ? 'superseded' : 'failed',
       message: message.slice(0, 300),
       elapsedMs: Date.now() - startedAt,
     };
+  } finally {
+    abort.signal.removeEventListener('abort', onAbort);
+    release();
   }
-
-  release();
 
   if (finish?.kind === 'aborted') {
     return { ok: false, reason: 'superseded', elapsedMs: Date.now() - startedAt };
@@ -533,28 +603,14 @@ function createHandler(ctx, state) {
           return;
         }
         const settings = state.settings;
-        const items = [];
         let messages = [];
         try {
           messages = typeof session.deriveMessages === 'function' ? session.deriveMessages() : [];
         } catch {
           messages = [];
         }
-        for (const message of messages) {
-          if (message?.role !== 'user') continue;
-          // Injected context arrives as a user message; only the human's own text
-          // is valid completion material.
-          if (!isUserAuthored(message)) continue;
-          const blocks = Array.isArray(message.content) ? message.content : [];
-          const text = blocks
-            .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-            .map((block) => block.text.trim())
-            .filter((value) => value !== '')
-            .join(' ');
-          if (text === '') continue;
-          items.push({ text: text.slice(0, 2000), role: 'user' });
-        }
-        json(response, 200, { ok: true, items: items.slice(-500), paused: isPaused(settings) });
+        const items = recentUserHistory(messages);
+        json(response, 200, { ok: true, items, paused: isPaused(settings) });
         return;
       }
 
@@ -584,7 +640,7 @@ function createHandler(ctx, state) {
         // consumed the turn: the feed then reported "already predicted", the poller
         // stopped, and the composer stayed empty with no way to recover except a
         // new turn. Observed live: `predicted: 12` with nothing on screen.
-        const turn = typeof body.turn === 'number' && Number.isFinite(body.turn) ? body.turn : undefined;
+        let turn = typeof body.turn === 'number' && Number.isFinite(body.turn) ? body.turn : undefined;
         if (turn !== undefined) {
           const claimed = deliveredTurns.get(sessionId);
           if (claimed !== undefined && turn <= claimed) {
@@ -603,19 +659,33 @@ function createHandler(ctx, state) {
           json(response, 200, { ok: false, reason: 'no-session' });
           return;
         }
+        // Mount predictions omit the turn; infer it so they share the same
+        // budget as the turn-feed request. Concurrent automatic requests must
+        // not supersede each other and spend a second provider call.
+        if (body.manual !== true) {
+          turn ??= lastCompletedTurn(session) ?? undefined;
+          if (turn !== undefined && turn <= (deliveredTurns.get(sessionId) ?? -Infinity)) {
+            json(response, 200, { ok: false, reason: 'already-predicted' });
+            return;
+          }
+          if (inflight.has(sessionId)) {
+            json(response, 200, { ok: false, reason: 'in-progress' });
+            return;
+          }
+        }
         const result = await generate(ctx, session, settings, {
           avoid: typeof body.avoid === 'string' ? body.avoid : undefined,
           forceDifferent: body.forceDifferent === true,
           draft: typeof body.draft === 'string' ? body.draft : undefined,
         });
-        if (turn !== undefined) {
-          const key = `${sessionId}\u0000${turn}`;
-          const used = (attempts.get(key) ?? 0) + 1;
+        if (turn !== undefined && result.reason !== 'superseded') {
+          const previousAttempt = attempts.get(sessionId);
+          const used = (previousAttempt?.turn === turn ? previousAttempt.used : 0) + 1;
           if (result.ok === true || used >= MAX_ATTEMPTS) {
-            deliveredTurns.set(sessionId, turn);
-            attempts.delete(key);
+            deliveredTurns.set(sessionId, Math.max(turn, deliveredTurns.get(sessionId) ?? -Infinity));
+            attempts.delete(sessionId);
           } else {
-            attempts.set(key, used);
+            attempts.set(sessionId, { turn, used });
           }
         }
         json(response, 200, result);
@@ -624,6 +694,10 @@ function createHandler(ctx, state) {
 
       json(response, 404, { ok: false, reason: 'not-found' });
     } catch (error) {
+      if (error instanceof BodyError) {
+        json(response, error.status, { ok: false, reason: error.code });
+        return;
+      }
       json(response, 500, {
         ok: false,
         reason: 'internal',
@@ -636,10 +710,15 @@ function createHandler(ctx, state) {
 export function apply(ctx) {
   const file = settingsPath(dshHome());
   const state = { file, settings: readSettings(file) };
+  ctx.effect(() => () => {
+    for (const controller of inflight.values()) controller.abort();
+    inflight.clear();
+    deliveredTurns.clear();
+    scanCache.clear();
+    attempts.clear();
+    predictingIn.clear();
+  }, 'next-say prediction cleanup');
 
-  // Record one finished turn per session. `agent/turn-stopping` fires when the
-  // turn is about to close with no live tool calls, which is the exact moment
-  // "the assistant has finished answering".
   // Serve the browser API, waiting for the carrier instead of probing it once.
   //
   // A one-shot `ctx.get('webServer')` read is a startup race: at profile-boot
@@ -683,12 +762,19 @@ export function apply(ctx) {
  */
 export const __internals = {
   ROUTE,
+  BODY_TIMEOUT_MS,
+  readJsonBody,
+  createHandler,
   deliveredTurns,
   predictingIn,
   memory,
   historyOf,
+  generate,
   lastCompletedTurn,
   resetState() {
+    for (const controller of inflight.values()) controller.abort();
+    inflight.clear();
+    attempts.clear();
     deliveredTurns.clear();
     predictingIn.clear();
     scanCache.clear();

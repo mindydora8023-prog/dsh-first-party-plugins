@@ -118,6 +118,31 @@ test('refuses a remainder longer than maxExtraChars', () => {
   assert.notEqual(historyCompletion(history, 'go', { minChars: 2, maxExtraChars: 600 }), null);
 });
 
+test('an oversized newer candidate does not mask a usable older completion', () => {
+  const history = [user('go test'), user('go ' + 'x'.repeat(500))];
+  assert.equal(historyCompletion(history, 'go', { maxExtraChars: 20 }).suffix, ' test');
+});
+
+test('tool and system text are not user completion material', () => {
+  const history = [
+    { role: 'tool', text: 'run the command' },
+    { role: 'system', text: 'run the command' },
+  ];
+  assert.equal(historyCompletion(history, 'run'), null);
+  assert.equal(historyCompletion(history, 'run', { includeAssistant: true }), null);
+});
+
+test('astral case folding consumes whole original code points', () => {
+  const result = historyCompletion([user('\u{10400} next')], '\u{10428}', { minChars: 1 });
+  assert.equal(result.suffix, ' next');
+  assert.equal(result.full, '\u{10400} next');
+});
+
+test('partial case-fold expansion is not an append-only completion', () => {
+  assert.equal(historyCompletion([user('\u0130stanbul')], 'i', { minChars: 1 }), null);
+  assert.equal(historyCompletion([user('\u0130stanbul')], 'i\u0307', { minChars: 1 }).suffix, 'stanbul');
+});
+
 test('skips one-character history entries', () => {
   assert.equal(historyCompletion([user('x')], 'x', { minChars: 1 }), null);
 });

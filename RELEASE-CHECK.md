@@ -1,8 +1,12 @@
 # 发布检查记录
 
-日期：2026-11-12。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+最近核对：2026-11-17。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
-## 0.3.1：task-radar 原生脚本修复
+## 0.3.2：next-say 0.2.0
+
+将工作区 next-say 0.2.0 同步到发布副本。运行时、客户端模板、词典生成器和对应测试一并更新；保留原有 LICENSE、THIRD_PARTY_NOTICES 与 ferrisching MIT。构建同步测试仍使用发布仓的隔离临时副本，不把本机 Python 路径写进源码。词典同步测试改为 `DSH_PYTHON` / `PYTHON` / 用户目录下的 DSH 自带解释器 / PATH。测试数量以当次 `npm test` 实跑为准，不沿用下文历史记录里的 127 条。
+
+## 0.3.1：task-radar 原生脚本修复（2026-11-12）
 
 本机同步验证发现 0.1.1 的 JavaScript 引号转义没有形成合法的 PowerShell XML 字符串。task-radar 因此发布为 0.1.2：使用原始脚本与 PowerShell 单引号 XML 拼接、SecurityElement 转义，开启遇错终止；radar 只读接口增加实际加载版本字段。新增真实 Windows PowerShell 解析器回归测试，并用原先错误引号作为反例；此测试不显示通知，非 Windows 环境明确跳过。
 

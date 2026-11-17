@@ -311,7 +311,7 @@ test('the completion memo is invalidated when the history pool arrives', () => {
   assert.match(source, /const \[historyEpoch, setHistoryEpoch\]/, 'a version state is required');
   assert.match(
     source,
-    /\}, \[enabled, settings, blankDraft, draft, historyEpoch\]\);/,
+    /\}, \[enabled, settings, blankDraft, draft, historyEpoch(?:, [A-Za-z]+)*\]\);/,
     'historyEpoch must be a memo dependency',
   );
   const writes = source.match(/historyRef\.current = items;/g) ?? [];

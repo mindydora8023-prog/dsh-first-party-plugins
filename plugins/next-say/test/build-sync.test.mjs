@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -38,9 +38,14 @@ const OUTPUT = join(ROOT, 'lib', 'client.js');
 const MATCH = join(ROOT, 'lib', 'match.js');
 const GHOST = join(ROOT, 'lib', 'ghost.js');
 
-/** Explicit interpreter path or executable name, then PATH. */
+/** Explicit interpreter, then the DSH runtime Python, then PATH. */
 function pythonPath() {
-  return process.env.DSH_PYTHON || process.env.PYTHON || 'python';
+  const fromEnv = process.env.DSH_PYTHON || process.env.PYTHON;
+  if (fromEnv) return fromEnv;
+  const bundled = join(homedir(), '.dsh', 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'python',
+    process.platform === 'win32' ? 'python.exe' : 'bin/python3');
+  if (existsSync(bundled)) return bundled;
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
 /**

@@ -265,7 +265,7 @@ export function isUserAuthored(message) {
 }
 
 /**
- * Select the most recent user/assistant plain text, newest first, under a
+ * Select the most recent user/assistant plain text, in chronological order, under a
  * character budget.
  *
  * Tool output, attachments, system prompts, injected context and hidden reasoning
@@ -279,30 +279,51 @@ export function recentMessages(messages, options = {}) {
     ? Math.max(80, Math.floor(options.perMessageChars))
     : 1600;
 
-  const candidates = [];
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (!message) continue;
-    if (message.role !== 'user' && message.role !== 'assistant') continue;
-    // Injected user-role messages are not the conversation.
+  const items = Array.isArray(messages) ? messages : [];
+  const kept = [];
+  let used = 0;
+  // Start at the live tail and stop as soon as the result is full. Building a
+  // candidate for every old message wasted work and memory on long sessions.
+  for (let index = items.length - 1; index >= 0 && kept.length < maxMessages; index -= 1) {
+    const message = items[index];
+    if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
     if (message.role === 'user' && !isUserAuthored(message)) continue;
     const text = messageText(message);
     if (text === '') continue;
-    candidates.push({ role: message.role, text: tailOf(text, perMessageChars) });
-  }
-
-  const kept = [];
-  let used = 0;
-  for (let index = candidates.length - 1; index >= 0 && kept.length < maxMessages; index -= 1) {
-    const item = candidates[index];
+    const item = { role: message.role, text: tailOf(text, perMessageChars) };
     // The separator and role label are part of what we actually send.
     const cost = item.text.length + 32;
-    // Always keep the newest qualifying message: a single huge message must not
-    // empty the whole transcript.
+    // Always keep the newest qualifying message, even past the budget.
     if (kept.length > 0 && used + cost > maxChars) break;
-    kept.unshift(item);
+    kept.push(item);
     used += cost;
   }
-  return kept;
+  return kept.reverse();
+}
+
+/** Newest human-authored messages for local completion, oldest first. */
+export function recentUserHistory(messages, options = {}) {
+  const maxEntries = Number.isFinite(options.maxEntries) ? Math.max(1, Math.floor(options.maxEntries)) : 500;
+  const maxChars = Number.isFinite(options.maxChars) ? Math.max(1, Math.floor(options.maxChars)) : 2000;
+  const source = Array.isArray(messages) ? messages : [];
+  const kept = [];
+  for (let index = source.length - 1; index >= 0 && kept.length < maxEntries; index -= 1) {
+    const message = source[index];
+    if (message?.role !== 'user' || !isUserAuthored(message)) continue;
+    const blocks = Array.isArray(message.content) ? message.content : [];
+    let text = '';
+    for (const block of blocks) {
+      if (block?.type !== 'text' || typeof block.text !== 'string') continue;
+      const part = block.text.trim();
+      if (part === '') continue;
+      // Collect only the displayed head instead of joining a huge message first.
+      const separator = text === '' ? '' : ' ';
+      text += separator + part.slice(0, Math.max(0, maxChars - text.length - separator.length));
+      if (text.length >= maxChars) break;
+    }
+    if (text !== '') kept.push({ text, role: 'user' });
+  }
+  return kept.reverse();
 }
 
 /**

@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-next-say",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "输入框内的下一句建议：回合结束后预测下一句话，输入时用本地历史补全，Tab 只填入草稿",
+  "description": "输入框内的下一句建议：回合结束后预测你要说的话，草稿非空时用本地历史做前缀补全，Tab 只填入草稿、不发送",
   "main": "lib/index.js",
   "exports": {
     ".": {
@@ -44,6 +44,8 @@
   },
   "scripts": {
     "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/predict.js && node --check lib/match.js && node --check lib/ghost.js && node --check lib/config.js",
+    "build:client": "node tools/client-build.mjs",
+    "check:locales": "node tools/client-build.mjs --check --locales-only",
     "check:client": "node tools/check-client.mjs",
     "test": "node --test --test-timeout=20000 test/*.test.mjs"
   },

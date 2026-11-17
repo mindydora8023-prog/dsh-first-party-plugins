@@ -29,8 +29,12 @@ async function runIsolated(source, timeoutMs) {
   // sandbox that denies piped stdio.
   const child = spawn(process.execPath, ['--input-type=module', '-e', source], { stdio: 'ignore' });
   let timer;
+  const closed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => resolve(code));
+  });
   const outcome = await Promise.race([
-    new Promise((resolve) => child.once('exit', (code) => resolve(code))),
+    closed,
     new Promise((resolve) => {
       timer = setTimeout(() => resolve('timeout'), timeoutMs);
     }),
@@ -43,6 +47,7 @@ async function runIsolated(source, timeoutMs) {
     // the only option that is guaranteed to land.
     child.kill('SIGKILL');
   }
+  await closed;
   return outcome;
 }
 
@@ -58,6 +63,29 @@ test('clearing children terminates on a node with neither children nor firstChil
     'clearChildren did not terminate: the child-removal loop lost its bound and would burn a CPU core',
   );
   assert.equal(outcome, 0);
+});
+
+test('both child-removal branches terminate with non-progressing host objects', async () => {
+  const outcome = await runIsolated(
+    `import { clearChildren } from ${JSON.stringify(GHOST.href)};
+     for (const node of [
+       { children: { length: Infinity, 0: {} } },
+       { children: { length: 1, 0: {} } },
+       { firstChild: {} },
+     ]) {
+       let calls = 0;
+       node.removeChild = () => { calls += 1; };
+       clearChildren(node);
+       if (calls > 64 || calls === 0) throw new Error('removal bound violated');
+     }`,
+    5000,
+  );
+  assert.notEqual(outcome, 'timeout', 'clearChildren did not terminate on a non-progressing collection');
+  assert.equal(outcome, 0);
+});
+
+test('the watchdog kills and reaps a synchronous spin', async () => {
+  assert.equal(await runIsolated('for (;;) {}', 150), 'timeout');
 });
 
 test('clearing children removes what a node does expose', async () => {

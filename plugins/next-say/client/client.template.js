@@ -64,6 +64,7 @@ window.__ModuleLoader__.load({
         ...(signal === undefined ? {} : { signal }),
       });
       const body = await response.json();
+      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
       return body;
     }
 
@@ -75,7 +76,32 @@ window.__ModuleLoader__.load({
         body: JSON.stringify(payload),
         ...(signal === undefined ? {} : { signal }),
       });
-      return response.json();
+      const body = await response.json();
+      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
+      return body;
+    }
+
+    /** Bound read-only HTTP waits even when a carrier ignores cancellation. */
+    async function getJsonBounded(path, signal) {
+      const controller = new AbortController();
+      let timer;
+      const cancel = () => { clearTimeout(timer); controller.abort(signal && signal.reason); };
+      let onAbort;
+      signal?.addEventListener?.('abort', cancel, { once: true });
+      try {
+        if (signal && signal.aborted) cancel();
+        controller.signal.throwIfAborted();
+        const interrupted = new Promise((resolve, reject) => {
+          onAbort = () => reject(controller.signal.reason);
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        timer = setTimeout(() => controller.abort(new Error('read request timed out')), 10000);
+        return await Promise.race([getJson(path, controller.signal), interrupted]);
+      } finally {
+        clearTimeout(timer);
+        if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+        signal?.removeEventListener?.('abort', cancel);
+      }
     }
 
     /**
@@ -84,20 +110,20 @@ window.__ModuleLoader__.load({
      * Tab must never be swallowed while the user is in another field (a search
      * box, a settings input): that would break ordinary focus movement.
      */
-    function inComposer() {
+    function inComposer(sessionId) {
       const active = document.activeElement;
-      if (active === null || active === undefined) return false;
-      if (typeof active.closest === 'function' && active.closest('[data-composer-input="true"]') !== null) return true;
-      if (active.isContentEditable === true) return true;
-      const tag = String(active.tagName || '').toLowerCase();
-      if (tag !== 'textarea' && tag !== 'input') return false;
-      return typeof active.closest === 'function' && active.closest('[data-input-scroll]') !== null;
+      if (!active || typeof active.closest !== 'function') return false;
+      const editor = active.closest('[data-composer-input="true"]');
+      if (!editor) return false;
+      const conversation = editor.closest('[data-conversation-session]');
+      return !conversation || conversation.getAttribute('data-conversation-session') === String(sessionId);
     }
 
     /** Shared settings snapshot, so the row and the settings page agree. */
     const settingsStore = {
       value: null,
       error: undefined,
+      writeUncertain: false,
       listeners: new Set(),
       set(next) {
         this.value = next;
@@ -117,26 +143,93 @@ window.__ModuleLoader__.load({
       },
     };
 
-    async function loadSettings() {
+    const SETTINGS_TIMEOUT_MS = 10000;
+    let settingsLoad = null;
+    let settingsRevision = 0;
+    let settingsQueueEpoch = 0;
+    let settingsWrites = Promise.resolve();
+
+    function uncertainSettingsError() {
+      return Object.assign(new Error('settings require a fresh read'), { code: 'settings-uncertain' });
+    }
+
+    async function settingsRequest(payload) {
+      const controller = new AbortController();
+      let timer;
       try {
-        const body = await getJson('/settings');
-        if (body && body.settings) {
-          settingsStore.error = undefined;
-          settingsStore.set(body.settings);
-          return body.settings;
-        }
-        throw new Error('settings response carried no settings');
-      } catch (error) {
-        settingsStore.error = error instanceof Error ? error.message : String(error);
-        if (settingsStore.value === null) settingsStore.set({ ...DEFAULT_SETTINGS });
-        return undefined;
+        const work = payload === undefined
+          ? getJson('/settings', controller.signal)
+          : postJson('/settings', payload, controller.signal);
+        return await Promise.race([
+          work,
+          new Promise((resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(Object.assign(new Error('settings request timed out'), { code: 'settings-timeout' }));
+              controller.abort();
+            }, SETTINGS_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    async function saveSettings(patch) {
-      const body = await postJson('/settings', patch);
-      if (body && body.settings) settingsStore.set(body.settings);
-      return body;
+    function loadSettings() {
+      if (settingsLoad !== null) return settingsLoad;
+      const revision = settingsRevision;
+      settingsLoad = (async () => {
+        try {
+          const body = await settingsRequest();
+          if (!body || body.ok !== true || !body.settings) throw new Error('invalid settings response');
+          if (revision === settingsRevision) {
+            settingsStore.error = undefined;
+            settingsStore.writeUncertain = false;
+            settingsStore.set(body.settings);
+          }
+          return body.settings;
+        } catch (error) {
+          if (revision === settingsRevision) {
+            settingsStore.error = error instanceof Error ? error.message : String(error);
+            if (settingsStore.value === null) settingsStore.set({ ...DEFAULT_SETTINGS });
+          }
+          return undefined;
+        } finally {
+          settingsLoad = null;
+        }
+      })();
+      return settingsLoad;
+    }
+
+    function saveSettings(patch) {
+      // Serialize writes in user order. Cancelling an earlier HTTP request would
+      // not undo its server-side write, so latest-response filtering alone fails.
+      settingsRevision += 1;
+      const payload = { ...patch };
+      const epoch = settingsQueueEpoch;
+      const write = settingsWrites.then(async () => {
+        if (settingsStore.writeUncertain || epoch !== settingsQueueEpoch) throw uncertainSettingsError();
+        let body;
+        try {
+          body = await settingsRequest(payload);
+          if (!body || body.ok !== true || !body.settings) throw new Error('invalid settings response');
+        } catch (error) {
+          // Only explicit pre-write HTTP rejections prove that no setting was
+          // changed. Disconnects, malformed replies and 5xx may follow a write.
+          if (![400, 401, 403, 404, 405, 408, 413].includes(error && error.status)) {
+            settingsStore.writeUncertain = true;
+            settingsQueueEpoch += 1;
+            settingsRevision += 1;
+            throw uncertainSettingsError();
+          }
+          throw error;
+        }
+        settingsRevision += 1;
+        settingsStore.error = undefined;
+        settingsStore.set(body.settings);
+        return body;
+      });
+      settingsWrites = write.catch(() => {});
+      return write;
     }
 
     /**
@@ -147,31 +240,130 @@ window.__ModuleLoader__.load({
      */
     function createHistoryCache() {
       const entries = new Map();
+      const maxSessions = 16;
+      const maxTotalChars = 1000000;
+      let totalChars = 0;
+      const forget = (sessionId) => {
+        const entry = entries.get(sessionId);
+        if (entry) totalChars -= entry.chars;
+        entries.delete(sessionId);
+      };
+      const touch = (sessionId, entry) => {
+        entries.delete(sessionId);
+        entries.set(sessionId, entry);
+        for (let guard = 0; guard <= maxSessions && (entries.size > maxSessions || totalChars > maxTotalChars); guard += 1) {
+          forget(entries.keys().next().value);
+        }
+      };
+      const store = (sessionId, entry, items) => {
+        const kept = [];
+        const source = Array.isArray(items) ? items : [];
+        let chars = 0;
+        for (let index = source.length - 1; index >= 0 && kept.length < 200; index -= 1) {
+          const item = source[index];
+          if (!item || typeof item.text !== 'string' || (item.role !== undefined && item.role !== 'user')) continue;
+          const text = item.text.slice(0, 2000);
+          if (text.trim() === '') continue;
+          kept.push({ text, role: 'user' });
+          chars += text.length;
+        }
+        totalChars += chars - entry.chars;
+        entry.chars = chars;
+        entry.items = kept.reverse();
+        touch(sessionId, entry);
+      };
       return {
         get(sessionId) {
-          return entries.get(sessionId);
+          const entry = entries.get(sessionId);
+          if (!entry) return undefined;
+          touch(sessionId, entry);
+          return entry.items;
         },
         set(sessionId, items) {
-          entries.set(sessionId, Array.isArray(items) ? items : []);
+          const entry = entries.get(sessionId) || { items: [], chars: 0 };
+          entry.revision = {};
+          store(sessionId, entry, items);
         },
-        async refresh(sessionId) {
+        async refresh(sessionId, signal) {
           if (!sessionId) return [];
+          const entry = entries.get(sessionId) || { items: [], chars: 0 };
+          const revision = {};
+          entry.revision = revision;
+          touch(sessionId, entry);
           try {
-            const body = await getJson('/history?sessionId=' + encodeURIComponent(sessionId));
-            const items = body && Array.isArray(body.items) ? body.items : [];
-            entries.set(sessionId, items);
-            return items;
+            const body = await getJsonBounded('/history?sessionId=' + encodeURIComponent(sessionId), signal);
+            if (!body || body.ok === false || !Array.isArray(body.items)) throw new Error('invalid history response');
+            // Identity matters as well as revision: eviction/clear must invalidate
+            // an old request even if the same session is opened again later.
+            if (!(signal && signal.aborted) && entries.get(sessionId) === entry && entry.revision === revision) {
+              store(sessionId, entry, body && body.items);
+            }
           } catch {
-            return entries.get(sessionId) || [];
+            // Keep the last successful pool when a refresh is cancelled or fails.
           }
+          return entries.get(sessionId)?.items || [];
         },
-        clear(sessionId) {
-          entries.delete(sessionId);
-        },
+        clear: forget,
       };
     }
 
     const historyCache = createHistoryCache();
+
+    // Controls live in the allocated dock; their request owner remains the
+    // corresponding overlay component. Unmounting one session cannot affect another.
+    const manualControls = {
+      entries: new Map(),
+      listeners: new Set(),
+      publish(sessionId, owner, value) {
+        this.entries.set(sessionId, { ...value, owner });
+        for (const listener of this.listeners) listener(sessionId);
+      },
+      remove(sessionId, owner) {
+        if (this.entries.get(sessionId)?.owner !== owner) return;
+        this.entries.delete(sessionId);
+        for (const listener of this.listeners) listener(sessionId);
+      },
+      subscribe(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+      },
+    };
+
+    function ManualControl(props) {
+      const sessionId = props.sessionId;
+      const t = typeof props.t === 'function' ? props.t : (key) => zh[key] || key;
+      const [, repaint] = React.useState(0);
+      const life = React.useMemo(() => ({ active: true }), [sessionId]);
+      React.useEffect(() => {
+        life.active = true;
+        const stop = manualControls.subscribe((id) => { if (id === sessionId) repaint((value) => value + 1); });
+        repaint((value) => value + 1);
+        return () => { life.active = false; stop(); };
+      }, [sessionId]);
+      const entry = manualControls.entries.get(sessionId);
+      if (!entry || !entry.visible) return null;
+      const onClick = async (event) => {
+        const button = event.currentTarget;
+        // A stale callback must not call a controller replaced after session switch.
+        if (!life.active || manualControls.entries.get(sessionId)?.owner !== entry.owner || !entry.ready) return;
+        const ok = await entry.run();
+        if (ok && life.active && manualControls.entries.get(sessionId)?.owner === entry.owner &&
+            typeof document !== 'undefined' && document.activeElement === button && button.isConnected !== false) {
+          try { props.inputActions?.focus?.(); } catch { /* The host may already be closing its input context. */ }
+        }
+      };
+      return h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 } },
+        h('button', {
+          type: 'button', disabled: !entry.ready, 'aria-busy': entry.busy,
+          style: { font: 'inherit', fontSize: 12, padding: '4px 10px', borderRadius: 6,
+            border: '1px solid var(--dsw-alias-border-primary, #8884)', background: 'transparent',
+            color: 'var(--dsw-alias-label-primary, inherit)', opacity: entry.ready ? 1 : 0.6,
+            cursor: entry.ready ? 'pointer' : 'default' },
+          onMouseDown: (event) => event.preventDefault(), onClick,
+        }, t(entry.hasSuggestion ? 'reroll' : 'manualPredict')),
+        h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary, #6b7280)' } },
+          entry.busy ? t('thinking') : entry.message ? t(entry.message) : t('manualHint')));
+    }
 
     /**
      * One suggestion row.
@@ -220,6 +412,7 @@ window.__ModuleLoader__.load({
       const [suggestion, setSuggestion] = React.useState('');
       const [source, setSource] = React.useState('');
       const [busy, setBusy] = React.useState(false);
+      const [manualMessage, setManualMessage] = React.useState('');
 
       /** Text the user dismissed or accepted; suppresses re-offering it. */
       const dismissed = React.useRef('');
@@ -247,8 +440,22 @@ window.__ModuleLoader__.load({
        * landed, so history completion silently never appeared.
        */
       const [historyEpoch, setHistoryEpoch] = React.useState(0);
+      const [suppressionEpoch, setSuppressionEpoch] = React.useState(0);
       const alive = React.useRef(true);
       const inFlight = React.useRef(null);
+      const scope = React.useRef({ sessionId, historyController: null });
+      const suggestionSession = React.useRef(sessionId);
+      const lastPoolFetch = React.useRef(0);
+      const triedOnMount = React.useRef(false);
+      if (scope.current.sessionId !== sessionId) {
+        scope.current = { sessionId };
+        historyRef.current = [];
+        dismissed.current = '';
+        accepted.current = '';
+        lastPoolFetch.current = 0;
+        triedOnMount.current = false;
+      }
+      const currentScope = scope.current;
 
       React.useEffect(() => {
         alive.current = true;
@@ -277,23 +484,53 @@ window.__ModuleLoader__.load({
         accepted.current = '';
         setSuggestion('');
         setSource('');
-        if (sessionId) void historyCache.refresh(sessionId).then((items) => {
-          if (!alive.current) return;
+        setManualMessage('');
+        setBusy(false);
+        const controller = new AbortController();
+        currentScope.historyController = controller;
+        if (sessionId) void historyCache.refresh(sessionId, controller.signal).then((items) => {
+          if (!alive.current || controller.signal.aborted || scope.current !== currentScope) return;
           historyRef.current = items;
           setHistoryEpoch((value) => value + 1);
         });
+        return () => {
+          controller.abort();
+          manualControls.remove(sessionId, currentScope);
+          if (inFlight.current !== null) {
+            inFlight.current.abort();
+            inFlight.current = null;
+          }
+        };
       }, [sessionId]);
 
       const enabled = settings !== null && settings.enabled === true;
       const paused = settings !== null && isPaused(settings);
       const blankDraft = draft.trim() === '';
+      const inputReady = phase === 'plain';
+      const live = React.useRef(null);
+      const [pauseEpoch, setPauseEpoch] = React.useState(0);
+      live.current = { enabled, paused, inputReady, running, blankDraft };
+      React.useEffect(() => {
+        if (!paused) return undefined;
+        const wait = Math.min(2147483647, Math.max(1, Number(settings.pausedUntil) - Date.now()));
+        const timer = setTimeout(() => setPauseEpoch((value) => value + 1), wait);
+        return () => clearTimeout(timer);
+      }, [paused, settings && settings.pausedUntil, pauseEpoch]);
+      React.useEffect(() => {
+        if (enabled && !paused && !running && inputReady) return;
+        if (inFlight.current !== null) {
+          inFlight.current.abort();
+          inFlight.current = null;
+          setBusy(false);
+        }
+      }, [enabled, paused, running, inputReady]);
 
       /* ------------------------------------------------- local completion */
 
       // Recomputed on every draft change: a pure function over the cached
       // history, so this is a string scan, not a request.
       const local = React.useMemo(() => {
-        if (!enabled || settings === null || settings.historyEnabled !== true) return null;
+        if (!enabled || paused || !inputReady || settings === null || settings.historyEnabled !== true) return null;
         if (blankDraft) return null;
         // The draft the user dismissed must not be re-offered -- but only that
         // exact draft. Any further edit produces a new draft and may complete
@@ -312,7 +549,7 @@ window.__ModuleLoader__.load({
         }
         // `historyEpoch` is a dependency because the pool arrives asynchronously:
         // a ref alone never invalidates this memo.
-      }, [enabled, settings, blankDraft, draft, historyEpoch]);
+      }, [enabled, settings, blankDraft, draft, historyEpoch, sessionId, suppressionEpoch, paused, inputReady]);
 
       /* -------------------------------------------- history pool lifecycle */
 
@@ -320,21 +557,20 @@ window.__ModuleLoader__.load({
       // races the composer: an empty answer then leaves completion permanently
       // dead, because nothing else refreshes it. Retry while the user is typing
       // and the pool is still empty, throttled so it cannot become a poll loop.
-      const lastPoolFetch = React.useRef(0);
       React.useEffect(() => {
         if (!enabled || paused || settings === null || settings.historyEnabled !== true) return undefined;
         if (blankDraft || historyRef.current.length > 0) return undefined;
         const now = Date.now();
         if (now - lastPoolFetch.current < 4000) return undefined;
         lastPoolFetch.current = now;
-        let cancelled = false;
-        void historyCache.refresh(sessionId).then((items) => {
-          if (cancelled || !alive.current) return;
+        const controller = new AbortController();
+        void historyCache.refresh(sessionId, controller.signal).then((items) => {
+          if (controller.signal.aborted || !alive.current || scope.current !== currentScope) return;
           historyRef.current = items;
           setHistoryEpoch((value) => value + 1);
         });
         return () => {
-          cancelled = true;
+          controller.abort();
         };
       }, [enabled, paused, settings, blankDraft, draft, historyEpoch, sessionId]);
 
@@ -347,48 +583,51 @@ window.__ModuleLoader__.load({
       // even if the feed says nothing. The Host still refuses to spend a second
       // call for a turn it has already predicted, so this cannot double-bill a
       // turn that was also predicted through the feed.
-      const triedOnMount = React.useRef(false);
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
         if (running || !blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
         if (triedOnMount.current) return undefined;
-        triedOnMount.current = true;
         const timer = setTimeout(() => {
-          if (alive.current) void predict({ manual: false });
+          if (!alive.current || scope.current !== currentScope) return;
+          triedOnMount.current = true;
+          void predict({ manual: false });
         }, 1200);
         return () => clearTimeout(timer);
         // `predict` is deliberately NOT a dependency: it is declared below this
         // effect, so naming it in the array would read it during render (TDZ) and
         // throw. The callback captured here is the one for this session, which is
         // exactly what an effect that runs once wants.
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy]);
+      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
 
       // Poll the Host's turn feed rather than agent/status: status flips once
       // per step, so a tool-calling turn looks like many finished turns.
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
         if (running) return undefined;
         if (!blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
 
         let cancelled = false;
         let timer;
+        let checking = false;
+        const controller = new AbortController();
         const hidden = () => {
           try { return document.visibilityState === 'hidden'; } catch { return false; }
         };
 
         const tick = async () => {
-          if (cancelled || !alive.current || hidden()) return;
+          if (cancelled || !alive.current || hidden() || checking) return;
+          checking = true;
           let turn = null;
           let predicted = null;
           try {
             // Read only: the Host marks a turn as spent inside /predict, so a
             // cancelled tick (a re-render while this request was in flight) can no
             // longer consume a turn that was never used.
-            const body = await getJson('/turn?sessionId=' + encodeURIComponent(sessionId));
+            const body = await getJsonBounded('/turn?sessionId=' + encodeURIComponent(sessionId), controller.signal);
             if (body && body.ok !== false) {
               if (body.enabled === false) return;
               turn = body.turn;
@@ -396,8 +635,10 @@ window.__ModuleLoader__.load({
             }
           } catch {
             // A Host that is briefly unreachable is not an error worth showing.
+          } finally {
+            checking = false;
           }
-          if (cancelled || !alive.current || hidden()) return;
+          if (cancelled || !alive.current || hidden() || scope.current !== currentScope) return;
           const alreadyDone = predicted !== null && turn !== null && turn <= predicted;
           if (turn === null || turn === undefined || alreadyDone) {
             timer = setTimeout(tick, 2000);
@@ -418,10 +659,11 @@ window.__ModuleLoader__.load({
         if (!hidden()) timer = setTimeout(tick, 900);
         return () => {
           cancelled = true;
+          controller.abort();
           clearTimeout(timer);
           try { document.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
         };
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy]);
+      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
 
       /**
        * Ask the Host for a suggestion.
@@ -431,19 +673,24 @@ window.__ModuleLoader__.load({
        */
       const predict = React.useCallback(async (options) => {
         const manual = options && options.manual === true;
+        if (!alive.current || scope.current !== currentScope) return;
+        const state = live.current;
+        if (!state.enabled || state.paused || !state.inputReady || state.running || !state.blankDraft) return;
         if (sessionId === undefined || sessionId === null || sessionId === '') return;
-        if (inFlight.current !== null) {
-          try {
-            inFlight.current.abort();
-          } catch {
-            // Ignore: the request may have settled already.
-          }
-        }
+        if (inFlight.current !== null) return false;
         const controller = new AbortController();
         inFlight.current = controller;
         setBusy(true);
+        if (manual) setManualMessage('');
+        let onAbort;
+        const interrupted = new Promise((resolve, reject) => {
+          onAbort = () => reject(controller.signal.reason);
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        const budget = Math.max(2000, Math.min(60000, Number(settingsStore.value?.timeoutMs) || 12000)) + 10000;
+        const deadline = setTimeout(() => controller.abort(Object.assign(new Error('prediction response timed out'), { code: 'client-timeout' })), budget);
         try {
-          const body = await postJson('/predict', {
+          const body = await Promise.race([postJson('/predict', {
             sessionId,
             manual,
             // The turn this prediction is for, so the Host can claim it before
@@ -454,8 +701,9 @@ window.__ModuleLoader__.load({
             // The Host refuses a suggestion that repeats this, so the round trip
             // does not even reach the screen.
             draft: draftRef.current,
-          }, controller.signal);
-          if (!alive.current || controller.signal.aborted) return;
+          }, controller.signal), interrupted]);
+          if (!alive.current || controller.signal.aborted || scope.current !== currentScope || inFlight.current !== controller) return false;
+          suggestionSession.current = sessionId;
           if (body && body.ok === true && typeof body.suggestion === 'string' && body.suggestion !== '') {
             // A prediction that merely repeats what is already in the composer is
             // worthless: accepting it would insert the sentence twice. This is
@@ -465,34 +713,58 @@ window.__ModuleLoader__.load({
             const trimmedDraft = draftRef.current.trim();
             const repeatsDraft = trimmedDraft !== '' && body.suggestion.trim() === trimmedDraft;
             if (repeatsDraft || body.suggestion === dismissed.current || body.suggestion === accepted.current) {
-              setSuggestion('');
-              setSource('');
-            } else {
-              setSuggestion(body.suggestion);
-              setSource('model');
+              if (manual) setManualMessage('manualNoResult');
+              else { setSuggestion(''); setSource(''); }
+              return false;
             }
-            void historyCache.refresh(sessionId).then((items) => {
-              if (!alive.current) return;
+            setSuggestion(body.suggestion);
+            setSource('model');
+            if (manual) setManualMessage('manualReady');
+            const historySignal = currentScope.historyController.signal;
+            void historyCache.refresh(sessionId, historySignal).then((items) => {
+              if (!alive.current || historySignal.aborted || controller.signal.aborted || scope.current !== currentScope) return;
               historyRef.current = items;
               // A finished turn adds the user's own message to the pool, which
               // is exactly when a new completion becomes possible.
               setHistoryEpoch((value) => value + 1);
             });
-          } else {
-            setSuggestion('');
-            setSource('');
+            return true;
           }
+          if (manual) {
+            const key = { __proto__: null, 'no-history': 'noHistory', 'no-route': 'manualNoRoute', timeout: 'timeout',
+              empty: 'manualNoResult', truncated: 'manualNoResult', 'repeats-draft': 'manualNoResult',
+              paused: 'manualPaused', disabled: 'manualDisabled' }[body && body.reason] || 'failed';
+            setManualMessage(key);
+          } else { setSuggestion(''); setSource(''); }
+          return false;
         } catch (error) {
-          if (!alive.current) return;
-          const name = error instanceof Error ? error.name : '';
-          if (name === 'AbortError') return;
+          if (!alive.current || scope.current !== currentScope || inFlight.current !== controller) return false;
+          if (controller.signal.aborted) {
+            if (manual && controller.signal.reason?.code === 'client-timeout') setManualMessage('timeout');
+          } else if (manual) setManualMessage('failed');
+          return false;
         } finally {
-          if (inFlight.current === controller) inFlight.current = null;
-          if (alive.current) {
-            setBusy(false);
+          clearTimeout(deadline);
+          controller.signal.removeEventListener('abort', onAbort);
+          if (inFlight.current === controller) {
+            inFlight.current = null;
+            if (alive.current && scope.current === currentScope) setBusy(false);
           }
         }
       }, [sessionId]);
+
+      React.useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '') return;
+        const hasSuggestion = suggestionSession.current === sessionId && suggestion !== '' && suggestion !== dismissed.current;
+        const message = paused ? 'manualPaused' : !inputReady ? 'manualInputBusy' : running ? 'manualRunning'
+          : !blankDraft ? 'manualDraft' : manualMessage === 'manualReady' && !hasSuggestion ? '' : manualMessage;
+        manualControls.publish(sessionId, currentScope, {
+          visible: enabled && settings !== null && settings.mode === 'manual',
+          ready: enabled && !paused && inputReady && !running && blankDraft && !busy,
+          busy, hasSuggestion, message,
+          run: () => predict({ manual: true, avoid: suggestion, forceDifferent: hasSuggestion }),
+        });
+      }, [sessionId, settings, enabled, paused, inputReady, running, blankDraft, busy, manualMessage, suggestion, predict]);
 
       /* ------------------------------------------------------------ accept */
 
@@ -504,12 +776,13 @@ window.__ModuleLoader__.load({
        * so text typed between reading and writing is never overwritten.
        */
       const accept = React.useCallback((text) => {
-        if (text === '' || !inputActions) return false;
+        if (text === '' || !inputActions || !live.current.enabled || live.current.paused || !live.current.inputReady) return false;
         try {
           const span = inputActions.captureInsertion();
           if (!inputActions.insertText(text, span)) return false;
-          accepted.current = text;
+          accepted.current = draftRef.current + text;
           dismissed.current = '';
+          setSuppressionEpoch((value) => value + 1);
           setSuggestion('');
           setSource('');
           return true;
@@ -527,10 +800,10 @@ window.__ModuleLoader__.load({
        * TOP of the draft the user already typed.
        */
       const acceptSuggested = React.useCallback(() => {
-        if (suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
+        if (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
         if (local !== null) return accept(local.suffix);
         return false;
-      }, [accept, suggestion, local]);
+      }, [accept, suggestion, local, sessionId, blankDraft, running]);
 
       const dismiss = React.useCallback(() => {
         // Remember WHAT was refused, not just "the draft": a dismissed model
@@ -538,10 +811,11 @@ window.__ModuleLoader__.load({
         // the exact draft it was offered for -- keep typing and it may offer
         // again. Recording the raw draft here suppressed every later completion
         // for the whole session.
-        dismissed.current = suggestion !== '' ? suggestion : `${draft}\u0000local`;
+        setSuppressionEpoch((value) => value + 1);
+        dismissed.current = suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' ? suggestion : `${draft}\u0000local`;
         setSuggestion('');
         setSource('');
-      }, [suggestion, draft]);
+      }, [suggestion, draft, sessionId, blankDraft, running]);
 
       // Keyboard: Tab accepts, Escape dismisses -- but only from the composer,
       // and only while a suggestion is actually on screen.
@@ -549,9 +823,10 @@ window.__ModuleLoader__.load({
         if (typeof document === 'undefined') return undefined;
         const onKeyDown = (event) => {
           if (event.defaultPrevented || event.isComposing) return;
-          const hasSuggestion = suggestion !== '' || local !== null;
+          if (!enabled || paused || !inputReady || !live.current.inputReady || scope.current !== currentScope) return;
+          const hasSuggestion = (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) || local !== null;
           if (!hasSuggestion) return;
-          if (!inComposer()) return;
+          if (!inComposer(sessionId)) return;
           if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
             if (acceptSuggested()) {
               event.preventDefault();
@@ -567,7 +842,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [acceptSuggested, dismiss, suggestion, local]);
+      }, [acceptSuggested, dismiss, suggestion, local, enabled, paused, inputReady, sessionId, blankDraft, running]);
 
       /* ------------------------------------------------------------ render */
 
@@ -592,7 +867,7 @@ window.__ModuleLoader__.load({
       // these two conditions the stale suggestion stayed painted after sending
       // (the draft went empty again) and then overlapped whatever the user typed
       // next, because it is anchored at the editor origin.
-      const modelText = suggestion !== '' && suggestion !== dismissed.current && blankDraft && !running
+      const modelText = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && blankDraft && !running
         ? suggestion
         : '';
       const localSuffix = local !== null ? local.suffix : '';
@@ -632,11 +907,11 @@ window.__ModuleLoader__.load({
       // state and keep the Tab/Escape listeners alive.
       React.useEffect(() => {
         if (typeof document === "undefined") return undefined;
-        if (!enabled) {
-          clearGhost(document);
+        if (!enabled || paused) {
+          clearGhost(document, sessionId);
           return undefined;
         }
-        if (phase === "submitting") {
+        if (!inputReady) {
           paintGhost(document, sessionId, "");
           return undefined;
         }
@@ -650,12 +925,12 @@ window.__ModuleLoader__.load({
         // composer pushed the text around and read as a stray widget.
         paintGhost(document, sessionId, ghostText, { prefix: ghostPrefix });
         return undefined;
-      }, [enabled, phase, sessionId, ghostText, ghostPrefix]);
+      }, [enabled, paused, inputReady, sessionId, ghostText, ghostPrefix]);
 
       // Leaving this session, or unmounting, must not leave stale ghost text
       // floating over an empty composer.
       React.useEffect(() => () => {
-        if (typeof document !== "undefined") clearGhost(document);
+        if (typeof document !== "undefined") clearGhost(document, sessionId);
       }, []);
 
       return null;
@@ -686,6 +961,8 @@ window.__ModuleLoader__.load({
 
     function clampTo(key, value) {
       const range = RANGES[key];
+      if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'object') return DEFAULT_SETTINGS[key];
+      if (typeof value === 'string' && value.trim() === '') return DEFAULT_SETTINGS[key];
       const number = Number(value);
       if (!Number.isFinite(number)) return DEFAULT_SETTINGS[key];
       const rounded = Math.floor(number);
@@ -702,6 +979,10 @@ window.__ModuleLoader__.load({
       const [value, setValue] = React.useState(settingsStore.value);
       const [status, setStatus] = React.useState('');
       const [now, setNow] = React.useState(() => Date.now());
+      const [edits, setEdits] = React.useState({});
+      const editsRef = React.useRef({});
+      const editVersions = React.useRef({});
+      const saveRevision = React.useRef(0);
       const alive = React.useRef(true);
 
       React.useEffect(() => {
@@ -715,17 +996,61 @@ window.__ModuleLoader__.load({
       }, []);
 
       const save = React.useCallback(async (patch) => {
+        const revision = ++saveRevision.current;
         setStatus('saving');
         try {
-          const body = await saveSettings(patch);
-          if (!alive.current) return;
-          setStatus(body && body.ok === true ? 'saved' : 'failed');
-        } catch {
-          if (alive.current) setStatus('failed');
+          await saveSettings(patch);
+          if (alive.current && revision === saveRevision.current) setStatus('saved');
+          return true;
+        } catch (error) {
+          if (alive.current && revision === saveRevision.current) setStatus(error && error.code === 'settings-uncertain' ? 'uncertain' : 'failed');
+          return false;
         }
       }, []);
 
+      const reloadSettings = async () => {
+        if (status === 'saving' || status === 'loading') return;
+        const revision = ++saveRevision.current;
+        setStatus('loading');
+        const loaded = await loadSettings();
+        if (!alive.current || revision !== saveRevision.current) return;
+        setStatus(settingsStore.writeUncertain ? 'uncertain' : loaded ? 'saved' : 'failed');
+      };
       const current = value || DEFAULT_SETTINGS;
+      const editField = (key, text) => {
+        editVersions.current = { ...editVersions.current, [key]: {} };
+        editsRef.current = { ...editsRef.current, [key]: text };
+        setEdits(editsRef.current);
+      };
+      const clearSavedEdits = (snapshot, versions = editVersions.current) => {
+        if (!alive.current) return;
+        const next = { ...editsRef.current };
+        for (const [key, text] of Object.entries(snapshot)) {
+          if (next[key] === text && editVersions.current[key] === versions[key]) delete next[key];
+        }
+        editsRef.current = next;
+        setEdits(next);
+      };
+      const fieldText = (key) => Object.hasOwn(edits, key) ? edits[key] : String(current[key] ?? '');
+      const commitNumber = async (key) => {
+        if (!Object.hasOwn(editsRef.current, key)) return;
+        const text = editsRef.current[key];
+        const versions = editVersions.current;
+        if (await save({ [key]: clampTo(key, text) })) clearSavedEdits({ [key]: text }, versions);
+      };
+      const providerText = fieldText('provider');
+      const modelText = fieldText('model');
+      const routeComplete = (providerText.trim() === '') === (modelText.trim() === '');
+      const routeChanged = providerText.trim() !== current.provider || modelText.trim() !== current.model;
+      const commitRoute = async () => {
+        const snapshot = {
+          provider: Object.hasOwn(editsRef.current, 'provider') ? editsRef.current.provider : current.provider,
+          model: Object.hasOwn(editsRef.current, 'model') ? editsRef.current.model : current.model,
+        };
+        const versions = editVersions.current;
+        if ((snapshot.provider.trim() === '') !== (snapshot.model.trim() === '')) return;
+        if (await save({ provider: snapshot.provider.trim(), model: snapshot.model.trim() })) clearSavedEdits(snapshot, versions);
+      };
       const paused = isPaused(current, now);
       // The countdown is the only consumer of `now`. An open settings page that
       // is not paused must not re-render once a second for as long as it stays
@@ -742,21 +1067,29 @@ window.__ModuleLoader__.load({
         : String(remaining);
 
       const toggle = (key) => (event) => { void save({ [key]: event.target.checked }); };
-      const number = (key, min, max) => h('input', {
+      const number = (key, min, max, label) => h('input', {
         type: 'number',
         min,
         max,
+        'aria-label': t(label),
         style: inputStyle,
-        value: current[key] === undefined ? '' : String(current[key]),
-        onChange: (event) => {
-          // Ignore the transient empty string while the user retypes: saving it
-          // as 0 is what silently disables a feature.
-          if (event.target.value === '') return;
-          const next = clampTo(key, event.target.value);
-          void save({ [key]: next });
+        value: fieldText(key),
+        // Preserve transient empty and out-of-range input until editing ends.
+        onChange: (event) => editField(key, event.target.value),
+        onBlur: () => { void commitNumber(key); },
+        onKeyDown: (event) => {
+          if (event.isComposing) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            clearSavedEdits({ [key]: editsRef.current[key] });
+          }
         },
       });
       const select = (key, options) => h('select', {
+        'aria-label': t('settingsMode'),
         style: inputStyle,
         value: current[key],
         onChange: (event) => { void save({ [key]: event.target.value }); },
@@ -765,7 +1098,8 @@ window.__ModuleLoader__.load({
       return h('div', { style: { padding: '4px 0 24px' } },
         h('h2', { style: { fontSize: 16, margin: '0 0 6px' } }, t('settingsTitle')),
         h('p', { style: { fontSize: 12, margin: '0 0 4px', ...hintStyle } }, t('settingsIntro')),
-        h('p', { style: { fontSize: 12, margin: '0 0 16px', ...hintStyle } }, t('costWarning')),
+        h('p', { style: { fontSize: 12, margin: '0 0 8px', ...hintStyle } }, t('costWarning')),
+        h('p', { style: { ...hintStyle, margin: '0 0 16px' } }, t('settingsEditHint')),
 
         settingsStore.error === undefined ? null : h('p', {
           style: { fontSize: 12, margin: '0 0 16px', color: 'var(--dsw-alias-state-warning-primary, #b45309)' },
@@ -773,7 +1107,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsEnabled')), h('div', { style: hintStyle }, t('settingsEnabledHint'))),
-          h('input', { type: 'checkbox', checked: current.enabled === true, onChange: toggle('enabled') })),
+          h('input', { type: 'checkbox', 'aria-label': t('settingsEnabled'), checked: current.enabled === true, onChange: toggle('enabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsMode')), h('div', { style: hintStyle }, t('settingsModeHint'))),
@@ -784,27 +1118,27 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsMaxChars')), h('div', { style: hintStyle }, t('settingsMaxCharsHint'))),
-          number('maxSuggestionChars', 20, 400)),
+          number('maxSuggestionChars', 20, 400, 'settingsMaxChars')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsContextMessages')), h('div', { style: hintStyle }, t('settingsContextMessagesHint'))),
-          number('contextMessages', 2, 20)),
+          number('contextMessages', 2, 20, 'settingsContextMessages')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsContextChars')), h('div', { style: hintStyle }, t('settingsContextCharsHint'))),
-          number('contextChars', 1000, 20000)),
+          number('contextChars', 1000, 20000, 'settingsContextChars')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsTimeout')), h('div', { style: hintStyle }, t('settingsTimeoutHint'))),
-          number('timeoutMs', 2000, 60000)),
+          number('timeoutMs', 2000, 60000, 'settingsTimeout')),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistory')), h('div', { style: hintStyle }, t('settingsHistoryHint'))),
-          h('input', { type: 'checkbox', checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
+          h('input', { type: 'checkbox', 'aria-label': t('settingsHistory'), checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistoryMinChars')), h('div', { style: hintStyle }, t('settingsHistoryMinCharsHint'))),
-          number('historyMinChars', 1, 8)),
+          number('historyMinChars', 1, 8, 'settingsHistoryMinChars')),
 
         h('div', { style: rowStyle },
           h('div', null,
@@ -826,8 +1160,11 @@ window.__ModuleLoader__.load({
             type: 'text',
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.provider === '' ? t('settingsInherit') : '',
-            value: current.provider,
-            onChange: (event) => { void save({ provider: event.target.value.trim() }); },
+            'aria-label': t('settingsProvider'),
+            'aria-describedby': 'next-say-route-hint',
+            'aria-invalid': !routeComplete,
+            value: providerText,
+            onChange: (event) => editField('provider', event.target.value),
           })),
 
         h('div', { style: { ...rowStyle, borderBottom: 'none' } },
@@ -836,18 +1173,42 @@ window.__ModuleLoader__.load({
             type: 'text',
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.model === '' ? t('settingsInherit') : '',
-            value: current.model,
-            onChange: (event) => { void save({ model: event.target.value.trim() }); },
+            'aria-label': t('settingsModel'),
+            'aria-describedby': 'next-say-route-hint',
+            'aria-invalid': !routeComplete,
+            value: modelText,
+            onChange: (event) => editField('model', event.target.value),
           })),
 
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, paddingTop: 14 } },
+        h('div', { style: rowStyle },
+          h('p', { id: 'next-say-route-hint', style: { ...hintStyle, margin: 0 } }, t(routeComplete ? 'settingsRouteHint' : 'settingsRouteIncomplete')),
+          h('button', {
+            type: 'button',
+            style: { ...inputStyle, cursor: routeChanged && routeComplete ? 'pointer' : 'default' },
+            disabled: !routeChanged || !routeComplete || settingsStore.writeUncertain,
+            'aria-describedby': 'next-say-route-hint',
+            onClick: () => { void commitRoute(); },
+          }, t('settingsSaveRoute'))),
+
+        h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, paddingTop: 14 } },
           h('button', {
             type: 'button',
             style: { ...inputStyle, cursor: 'pointer' },
-            onClick: () => { void save({ reset: true }); },
+            disabled: settingsStore.writeUncertain,
+            onClick: () => {
+              editsRef.current = {};
+              editVersions.current = {};
+              setEdits({});
+              void save({ reset: true });
+            },
           }, t('settingsReset')),
           h('span', { style: hintStyle }, t('settingsResetHint')),
-          h('span', { style: hintStyle }, status === 'saving' ? t('settingsSaving') : status === 'saved' ? t('settingsSaved') : status === 'failed' ? t('settingsFailed') : '')),
+          h('span', { role: 'status', 'aria-live': 'polite', style: hintStyle }, settingsStore.writeUncertain ? t('settingsUncertain') : status === 'loading' ? t('settingsReloading') : status === 'saving' ? t('settingsSaving') : status === 'failed' ? t('settingsFailed') : Object.keys(edits).length > 0 ? t('settingsUnsaved') : status === 'saved' ? t('settingsSaved') : ''),
+          settingsStore.writeUncertain || settingsStore.error !== undefined ? h('button', {
+            type: 'button', style: { ...inputStyle, cursor: 'pointer' },
+            disabled: status === 'loading' || status === 'saving',
+            onClick: () => { void reloadSettings(); },
+          }, t('settingsReload')) : null),
       );
     }
 
@@ -871,6 +1232,13 @@ window.__ModuleLoader__.load({
         order: 5,
         locale: NS,
       }, SuggestionRow));
+
+      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        name: 'conversation.composer.dock',
+        id: 'next-say-manual',
+        order: 20,
+        locale: NS,
+      }, ManualControl));
 
       // The settings page is root-scoped: it must exist even with no session.
       ctx.slots.inject('settings.section', () => ctx.slots.register({
@@ -902,7 +1270,12 @@ window.__ModuleLoader__.load({
         normalizeForMatch,
         SuggestionRow,
         GhostPainter,
+        ManualControl,
+        manualControls,
         settingsStore,
+        createHistoryCache,
+        loadSettings,
+        saveSettings,
         SettingsPage,
       },
     };
