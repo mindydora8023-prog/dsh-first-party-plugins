@@ -19,8 +19,8 @@
  *   - `useTrajectory`  -> requests[].{ providerMetadata, requestConfig, usage,
  *                           startedAt, purpose } (per-request model + usage)
  *
- * Only the client is involved: no Host route, credential, or network call. The
- * source is kept pure ASCII on purpose (workspace convention): user-visible
+ * The Host route is optional: until it answers, lookups use this built-in
+ * table. The source is kept pure ASCII on purpose (workspace convention): user-visible
  * Chinese text is written as \u escapes inside the locale dictionary, and the
  * copy logic here is exported through the module factory so tests exercise the
  * shipped functions rather than a copy.
@@ -42,7 +42,7 @@ window.__ModuleLoader__.load({
 		/**
 		 * DeepSeek official pricing, in CNY per 1,000,000 tokens.
 		 * Source: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
-		 * (checked 2026-10-22). Off-peak price is exactly half the peak price.
+		 * (checked 2026-11-17; CNY figures unchanged). Off-peak is half of peak.
 		 *
 		 * Keys are the billed model ids DeepSeek documents. Lookup order is
 		 * exact id -> provider tail -> family (`flash` / `pro`), so a routing
@@ -65,6 +65,8 @@ window.__ModuleLoader__.load({
 			"deepseek-flash": FLASH_TIER,
 			"deepseek-v4.1-flash": FLASH_TIER,
 			"deepseek-v4-flash": FLASH_TIER,
+			// Docs footnote: this legacy vision id is served and billed as flash.
+			"deepseek-v4-flash-vision-exp": FLASH_TIER,
 			"deepseek-pro": PRO_TIER,
 			"deepseek-v4-pro": PRO_TIER,
 			"deepseek-v4.1-pro": PRO_TIER,
@@ -112,6 +114,7 @@ window.__ModuleLoader__.load({
 			tokens: "Session tokens",
 			tokensUnit: "tokens",
 			referenceNote: "* price from the online catalog (converted to CNY)",
+			details: "Click for the breakdown",
 			catalogError: "Online price list unavailable:",
 			minute: "min",
 			hour: "h",
@@ -139,6 +142,7 @@ window.__ModuleLoader__.load({
 			tokens: "\u672c\u4f1a\u8bdd tokens",
 			tokensUnit: "tokens",
 			referenceNote: "* \u4e3a\u5728\u7ebf\u4ef7\u76ee\u8868\u4ef7\u683c\uff08\u5df2\u6362\u7b97\u4e3a\u4eba\u6c11\u5e01\uff09",
+			details: "\u70b9\u51fb\u67e5\u770b\u660e\u7ec6",
 			catalogError: "\u5728\u7ebf\u4ef7\u76ee\u8868\u672a\u53d6\u5230\uff1a",
 			minute: "\u5206\u949f",
 			hour: "\u5c0f\u65f6",
@@ -176,8 +180,11 @@ window.__ModuleLoader__.load({
 				[9 * 60, 12 * 60],
 				[14 * 60, 18 * 60],
 			],
-			// 2026 statutory holidays (same table as peak-guard/lib/holidays.js);
-			// an inclusive date range means the whole day stays off-peak.
+			// Statutory holidays (State Council). 2026 stays: a request is priced
+			// at its own start time, so last year's holiday must still be off-peak.
+			// 2027: notice of 2026-11-05. Inclusive ranges; the whole day is off-peak.
+			// Makeup workdays that fall on Sat/Sun stay off-peak: the price page says
+			// weekends are off-peak all day, not "whatever the office calendar says".
 			holidays: [
 				["2026-01-01", "2026-01-03"],
 				["2026-02-15", "2026-02-23"],
@@ -186,6 +193,13 @@ window.__ModuleLoader__.load({
 				["2026-06-19", "2026-06-21"],
 				["2026-09-25", "2026-09-27"],
 				["2026-10-01", "2026-10-07"],
+				["2027-01-01", "2027-01-03"],
+				["2027-02-05", "2027-02-13"],
+				["2027-04-03", "2027-04-05"],
+				["2027-05-01", "2027-05-05"],
+				["2027-06-09", "2027-06-09"],
+				["2027-09-15", "2027-09-15"],
+				["2027-10-01", "2027-10-07"],
 			],
 		};
 
@@ -219,8 +233,11 @@ window.__ModuleLoader__.load({
 		}
 
 		function isHoliday(dateKey, holidays) {
+			// Spans are sorted and non-overlapping. Stop at the first span that
+			// starts after this date instead of scanning every later year.
 			for (const span of holidays) {
-				if (dateKey >= span[0] && dateKey <= span[1]) return true;
+				if (dateKey < span[0]) return false;
+				if (dateKey <= span[1]) return true;
 			}
 			return false;
 		}
@@ -306,6 +323,10 @@ window.__ModuleLoader__.load({
 			inFlight: false,
 			lastError: undefined,
 			retryAt: 0,
+			/** Bumped only when a new catalog rate lands. The cost memo keys on it. */
+			generation: 0,
+			/** Catalog instant the last answer was built from. */
+			fetchedAt: 0,
 		};
 
 		const ROUTE = "/session-meter/prices";
@@ -313,6 +334,43 @@ window.__ModuleLoader__.load({
 		const LIVE_RETRY_MS = 60000;
 		/** Bound one price request; a hung request would leave inFlight stuck. */
 		const LIVE_TIMEOUT_MS = 15000;
+		/**
+		 * Names per request. The host answers at most this many and ignores the
+		 * rest, so a longer list has to be split or its tail stays unpriced.
+		 */
+		const LIVE_BATCH = 64;
+		/**
+		 * Encoded query budget. A batch of long relay names used to exceed what
+		 * a URL can carry, the request failed, and the same batch was retried.
+		 */
+		const LIVE_URL_BUDGET = 1500;
+
+		/**
+		 * The first names that fit in one query.
+		 * A comma is encoded as three characters. A name that is over the budget
+		 * by itself is skipped: sending it would fail the request and, because it
+		 * sorts first, it would be retried ahead of every other name.
+		 * @param {string[]} names
+		 * @param {number} [budget]
+		 * @returns {string[]}
+		 */
+		function priceQueryBatch(names, budget) {
+			const cap = Number.isFinite(budget) && budget > 0 ? budget : LIVE_URL_BUDGET;
+			const batch = [];
+			let used = 0;
+			const list = Array.isArray(names) ? names : [];
+			for (let index = 0; index < list.length && batch.length < LIVE_BATCH; index += 1) {
+				const name = list[index];
+				if (typeof name !== "string" || name.length === 0) continue;
+				const encoded = encodeURIComponent(name).length;
+				if (encoded > cap) continue;
+				const extra = encoded + (batch.length > 0 ? 3 : 0);
+				if (batch.length > 0 && used + extra > cap) break;
+				batch.push(name);
+				used += extra;
+			}
+			return batch;
+		}
 
 		function liveSubscribe(listener) {
 			live.listeners.add(listener);
@@ -338,7 +396,7 @@ window.__ModuleLoader__.load({
 		 * request was merely sent: an attempt that ran before the route existed (or
 		 * while the host was restarting) must not silence the model for the rest of
 		 * the page's life. Failures keep the names unknown and retry after
-		 * `LIVE_RETRY_MS`, which is what the 30 s tick in the component drives.
+		 * `LIVE_RETRY_MS`. The pill sleeps until that time, then asks again.
 		 * @param {string[]} names - routed model ids seen in this session.
 		 */
 		function requestLivePrices(names) {
@@ -346,6 +404,10 @@ window.__ModuleLoader__.load({
 			const unknown = [];
 			for (const name of names) {
 				if (typeof name !== "string" || name.length === 0) continue;
+				// The built-in table already prices this name, including a
+				// context-window tag. Asking the catalog would only get "not
+				// listed" back: DeepSeek ids are left out of it on purpose.
+				if (priceOf(name) !== undefined) continue;
 				// Ask every spelling, not only the routed id. A host that has not
 				// picked up a newer nameCandidates still has the bare catalog key
 				// (`grok-4.7`), and liveRateFor looks candidates up in that order.
@@ -357,7 +419,16 @@ window.__ModuleLoader__.load({
 			if (unknown.length === 0 || live.inFlight) return;
 			if (Date.now() < live.retryAt) return;
 			unknown.sort();
-			const key = unknown.join(",");
+			const batch = priceQueryBatch(unknown);
+			// Every remaining name is too long for a URL. Asking with an empty
+			// query would fetch nothing and then ask again on the next tick.
+			// A name that cannot fit is settled here, not only when it is the
+			// whole list. Left unknown, it was re-measured on every later tick.
+			for (const name of unknown) {
+				if (encodeURIComponent(name).length > LIVE_URL_BUDGET) live.known.add(name);
+			}
+			if (batch.length === 0) return;
+			const key = batch.join(",");
 			live.inFlight = true;
 			fetch(ROUTE + "?m=" + encodeURIComponent(key), {
 				credentials: "same-origin",
@@ -376,16 +447,47 @@ window.__ModuleLoader__.load({
 				.then((payload) => {
 					if (!payload || payload.ok !== true) throw new Error((payload && payload.error) || "catalog not ready");
 					const models = payload.models && typeof payload.models === "object" ? payload.models : {};
-					for (const name of unknown) {
+					const fetchedAt = Number(payload.fetchedAt);
+					let added = false;
+					// A newer catalog invalidates "this name has no price". The answer
+					// was about the previous snapshot; the same name may be listed now.
+					if (Number.isFinite(fetchedAt) && fetchedAt > 0 && live.fetchedAt > 0 && fetchedAt !== live.fetchedAt) {
+						// Names not in this batch keep their rate until they are asked.
+						// Clearing known is what makes that later ask happen.
+						live.known = new Set();
+					}
+					if (Number.isFinite(fetchedAt) && fetchedAt > 0) live.fetchedAt = fetchedAt;
+					// Only the names this request sent. An answer with no usable rate
+					// retires a rate we stored earlier; an empty object is not a rate.
+					for (const name of batch) {
 						live.known.add(name);
 						const rate = models[name];
-						if (!rate || typeof rate !== "object") continue;
-						live.models[name] = {
+						if (!rate || typeof rate !== "object" || typeof rate.input !== "number") {
+							if (live.models[name]) {
+								delete live.models[name];
+								added = true;
+							}
+							continue;
+						}
+						const next = {
 							input: Number(rate.input),
 							output: Number(rate.output),
 							cacheRead: Number(rate.cacheRead),
 							cacheWrite: Number(rate.cacheWrite),
 						};
+						const held = live.models[name];
+						// The same four numbers are not a new catalog. Replacing the object
+						// anyway bumped the generation and recomputed every session cost.
+						if (held && held.input === next.input && held.output === next.output
+							&& held.cacheRead === next.cacheRead && held.cacheWrite === next.cacheWrite) continue;
+						live.models[name] = next;
+						added = true;
+					}
+					// A generation bump is what invalidates the cost memo. An answer that
+					// added no rate (already known, or genuinely unpriced) must not.
+					if (added) {
+						live.generation += 1;
+						live.models = { ...live.models };
 					}
 					live.lastError = undefined;
 					live.retryAt = 0;
@@ -459,7 +561,9 @@ window.__ModuleLoader__.load({
 		 */
 		function priceOf(model) {
 			if (typeof model !== "string" || model.length === 0) return undefined;
-			const lower = model.toLowerCase();
+			// `@1m` / `@500k` is a route's context-window tag, not part of the
+			// billed id. A snapshot date (`@20251101`) has no unit and stays.
+			const lower = model.toLowerCase().replace(CONTEXT_SUFFIX, "");
 			if (Object.hasOwn(PRICING, lower)) return PRICING[lower];
 			const slash = lower.lastIndexOf("/");
 			const tail = slash >= 0 ? lower.slice(slash + 1) : lower;
@@ -685,12 +789,111 @@ window.__ModuleLoader__.load({
 		 *   defaults to the built-in table plus the fetched catalog.
 		 * @returns {{cost: number, rows: Array, unpricedTokens: number, remainderTokens: number, pinned: Map}}
 		 */
+		/**
+		 * A number that changes when any request's usage, or the session totals,
+		 * change in place.
+		 *
+		 * A streaming turn rewrites `usage` on the same request object and the
+		 * same array. Watching only the tail would miss a correction to an
+		 * earlier row. The walk is a few mixes per request, not the cost walk.
+		 *
+		 * Buckets are mixed one at a time. A weighted sum collided: 5 input
+		 * tokens and 1 output token produced the same stamp, so the pill kept
+		 * the old price.
+		 * @param {Array|undefined} requests
+		 * @param {object|undefined} totals
+		 * @returns {number}
+		 */
+		function mixUsage(hash, value) {
+			if (!value || typeof value !== "object") return mixKey(hash, "-");
+			hash = mixKey(hash, numberOrZero(value.inputTokens));
+			hash = mixKey(hash, numberOrZero(value.uncachedInputTokens));
+			hash = mixKey(hash, numberOrZero(value.outputTokens));
+			hash = mixKey(hash, numberOrZero(value.cacheReadTokens));
+			hash = mixKey(hash, numberOrZero(value.cacheWriteTokens));
+			return hash;
+		}
+
+		function inputStamp(requests, totals) {
+			const list = Array.isArray(requests) ? requests : [];
+			let hash = mixUsage(list.length, totals);
+			for (let index = 0; index < list.length; index += 1) {
+				const request = list[index];
+				if (!request || typeof request !== "object") {
+					hash = mixKey(hash, index);
+					continue;
+				}
+				// Same order as modelOfRequest: the served model, else the model the
+				// request was issued with. A stamp that only read providerMetadata
+				// ignored an in-place change of requestConfig.
+				const meta = request.providerMetadata;
+				const config = request.requestConfig;
+				const served = meta && typeof meta === "object" ? meta : undefined;
+				const issued = config && typeof config === "object" ? config : undefined;
+				const source = served && typeof served.model === "string" && served.model.length > 0 ? served : issued;
+				hash = mixKey(hash, source && source.provider);
+				hash = mixKey(hash, source && source.model);
+				hash = mixKey(hash, request.startedAt);
+				hash = mixUsage(hash, request.usage);
+			}
+			return hash;
+		}
+
+		function mixKey(hash, value) {
+			const text = value === undefined || value === null ? "" : String(value);
+			let next = hash;
+			for (let index = 0; index < text.length; index += 1) {
+				next = ((next * 33) ^ text.charCodeAt(index)) >>> 0;
+			}
+			return (next * 33) >>> 0;
+		}
+
+		function breakdownKey(input) {
+			const requests = Array.isArray(input.requests) ? input.requests : [];
+			const current = input.current && typeof input.current === "object" ? input.current : {};
+			const totals = input.totals && typeof input.totals === "object" ? input.totals : undefined;
+			// Every request, not just the tail: a compaction can rewrite an earlier
+			// record without changing the length or the last row.
+			let hash = mixKey(requests.length, current.provider);
+			hash = mixKey(hash, current.model);
+			if (totals !== undefined) {
+				hash = mixKey(hash, numberOrZero(totals.uncachedInputTokens));
+				hash = mixKey(hash, numberOrZero(totals.outputTokens));
+				hash = mixKey(hash, numberOrZero(totals.cacheReadTokens));
+				hash = mixKey(hash, numberOrZero(totals.cacheWriteTokens));
+			} else {
+				hash = mixKey(hash, "-");
+			}
+			for (let index = 0; index < requests.length; index += 1) {
+				const request = requests[index];
+				if (!request || typeof request !== "object") {
+					hash = mixKey(hash, index);
+					continue;
+				}
+				const id = modelOfRequest(request);
+				const usage = request.usage && typeof request.usage === "object" ? request.usage : {};
+				hash = mixKey(hash, requestKey(request));
+				hash = mixKey(hash, request.startedAt);
+				hash = mixKey(hash, id ? id.provider : "");
+				hash = mixKey(hash, id ? id.model : "");
+				hash = mixKey(hash, numberOrZero(usage.inputTokens));
+				hash = mixKey(hash, numberOrZero(usage.outputTokens));
+				hash = mixKey(hash, numberOrZero(usage.cacheReadTokens));
+				hash = mixKey(hash, numberOrZero(usage.cacheWriteTokens));
+			}
+			// A number, not the table: String(object) is always "[object Object]",
+			// which would keep yesterday's price after the catalog arrives.
+			hash = mixKey(hash, input._liveGeneration);
+			return hash;
+		}
+
 		function costBreakdown(input) {
 			const requests = Array.isArray(input.requests) ? input.requests : [];
 			const current = input.current && typeof input.current === "object" ? input.current : {};
 			const config = input.config || PEAK;
 			const now = Number.isFinite(input.now) ? input.now : Date.now();
-			const lookup = typeof input.rateAt === "function"
+			const customLookup = typeof input.rateAt === "function";
+			const lookup = customLookup
 				? input.rateAt
 				: (model, at) => rateAt(model, at, config);
 
@@ -699,6 +902,29 @@ window.__ModuleLoader__.load({
 				const priced = lookup(current.model, now);
 				return priced !== undefined && priced.periodPriced === true;
 			};
+
+			// Same requests, same totals, same catalog: the clock tick cannot change
+			// a pinned price. Skip the walk and only refresh the period-marker flag,
+			// which DOES follow `now` (a fresh DeepSeek selection, no rows yet).
+			const memo = input._memo;
+			const sameLookup = memo && memo.customLookup === customLookup && (!customLookup || memo.lookup === lookup);
+			// Identity check first. A clock tick keeps the same requests array, totals
+			// object and ledger; hashing every row on that tick was the whole walk
+			// the memo was meant to skip. A new array (trajectory publish, compaction)
+			// falls through to the fingerprint.
+			const sameRefs = memo
+				&& memo.requests === requests
+				&& memo.totals === input.totals
+				&& memo.model === current.model
+				&& memo.provider === current.provider
+				&& memo.generation === input._liveGeneration
+				&& memo.pinned === input.pinned
+				&& memo.stamp === (input._stamp !== undefined ? input._stamp : inputStamp(requests, input.totals));
+			if (memo && memo.result && sameLookup && (sameRefs || memo.key === breakdownKey(input))) {
+				const periodPriced = memo.result.rows.some((row) => row.periodPriced) || currentUsesPeriods();
+				if (periodPriced === memo.result.periodPriced) return memo.result;
+				return { ...memo.result, periodPriced };
+			}
 
 			// Retention ledger: every request this page session has seen, keyed
 			// by identity, so a record that later drops out of the window
@@ -883,13 +1109,93 @@ window.__ModuleLoader__.load({
 			return (value / 1000000).toFixed(2).replace(/\.0+$/, "") + "M";
 		}
 
-		/** Countdown text: 25 min / 2 h 5 min / 3 d 4 h. */
+		/**
+		 * How long the pill may sleep before the next redraw.
+		 *
+		 * The period dot has to move when the window flips, not up to one poll
+		 * later, and a failed catalog lookup has to wake at its retry time. With
+		 * neither pending, sleeping until the flip (capped) replaces a fixed 30 s
+		 * poll: the dot was late, and every open session re-rendered for a cost
+		 * that cannot change until a request does.
+		 *
+		 * @param {number} nowMs
+		 * @param {{flipAt?: number, retryAt?: number, retryDue?: boolean, capMs?: number}} [options]
+		 * @returns {number} delay in milliseconds, at least 250.
+		 */
+		function nextDelayMs(nowMs, options) {
+			const opts = options || {};
+			const cap = Number.isFinite(opts.capMs) && opts.capMs > 0 ? opts.capMs : 300000;
+			let wait = cap;
+			if (Number.isFinite(opts.flipAt) && opts.flipAt > nowMs) {
+				const until = opts.flipAt - nowMs;
+				const hour = 60 * MINUTE_MS;
+				// The pill prints the countdown for the last hour. Once it is up, the
+				// label changes when the remainder crosses a minute, not on the clock.
+				if (opts.countdown === true && until <= hour) {
+					const into = until % MINUTE_MS;
+					const boundary = into === 0 ? MINUTE_MS : into;
+					wait = Math.min(wait, until, boundary);
+				} else if (opts.period === true && until > hour) {
+					// Only a period-priced session prints the countdown. A flat session
+					// has nothing to show at the hour, so it keeps the long sleep.
+					wait = Math.min(wait, until - hour);
+				} else {
+					wait = Math.min(wait, until);
+				}
+			}
+			if (Number.isFinite(opts.retryAt) && opts.retryAt > nowMs) wait = Math.min(wait, opts.retryAt - nowMs);
+			else if (opts.retryDue === true) wait = Math.min(wait, 1000);
+			return Math.max(250, wait);
+		}
+
+		/**
+		 * The countdown label is computed from the last render's clock. That clock
+		 * can be several minutes old when the label first appears, after a model
+		 * switch into the last hour. A few seconds of drift is the render itself.
+		 * @param {number} shownAt
+		 * @param {number} wall
+		 * @param {boolean} active
+		 * @returns {boolean}
+		 */
+		function countdownStale(shownAt, wall, active) {
+			if (active !== true) return false;
+			if (!Number.isFinite(shownAt) || !Number.isFinite(wall)) return false;
+			return wall - shownAt > 5000;
+		}
+
+		/** The pill is absent and no catalog retry is waiting, so a timer would only redraw nothing. */
+		function pillNeedsClock(showPill, retryPending) {
+			return showPill === true || retryPending === true;
+		}
+
+		/**
+		 * The price effect re-asks only when a lookup has failed. A countdown tick
+		 * changes `now` every minute and must not re-enter the catalog request.
+		 * @param {number} now
+		 * @param {string|undefined} lastError
+		 * @returns {number}
+		 */
+		function priceEffectTick(now, lastError) {
+			return typeof lastError === "string" && lastError.length > 0 ? now : 0;
+		}
+
+		/**
+		 * Countdown text: 25 min / 2 h 5 min / 3 d 4 h.
+		 *
+		 * A positive span rounds up to the next minute. Rounding to nearest made
+		 * the last half minute read "0 min" while the window was still open.
+		 * A zero or negative span is the only thing that reads 0.
+		 */
 		function fmtSpan(ms, t) {
-			const totalMinutes = Math.max(0, Math.round(ms / MINUTE_MS));
-			if (totalMinutes < 60) return totalMinutes + " " + textKey(t, "minute");
+			if (!Number.isFinite(ms) || ms <= 0) return "0 " + textKey(t, "minute");
+			const totalMinutes = Math.max(1, Math.ceil(ms / MINUTE_MS - 1e-9));
+			// 60 stays "60 min". Treating 60 as an hour made 59 min 1 s read
+			// "1 h" for the whole last minute of that hour.
+			if (totalMinutes <= 60) return totalMinutes + " " + textKey(t, "minute");
 			const hours = Math.floor(totalMinutes / 60);
 			const minutes = totalMinutes % 60;
-			if (hours < 24) {
+			// 24 stays "24 h", for the same reason 60 stays "60 min".
+			if (hours <= 24) {
 				return minutes === 0
 					? hours + " " + textKey(t, "hour")
 					: hours + " " + textKey(t, "hour") + " " + minutes + " " + textKey(t, "minute");
@@ -902,6 +1208,71 @@ window.__ModuleLoader__.load({
 		}
 
 		/* --------------------------------------------------------------- view */
+		/**
+		 * One press on the pill.
+		 *
+		 * The browser closes the popover on pointerdown, then delivers the click.
+		 * Toggling on the click reopens it, because React has not re-rendered yet
+		 * and `open` is still true. So pointerdown while open closes and arms
+		 * `swallowClick`; the click that follows is discarded.
+		 *
+		 * A keyboard activation has no pointerdown. While the panel is open that
+		 * click closes it; treating every click as "open" left Enter and Space
+		 * unable to dismiss the panel.
+		 *
+		 * @param {boolean} open
+		 * @param {boolean} swallowClick - armed by the pointerdown of this press.
+		 * @param {"pointerdown"|"click"} phase
+		 * @returns {{open: boolean, swallowClick: boolean}}
+		 */
+		function pillGesture(open, swallowClick, phase) {
+			if (phase === "pointerdown") {
+				if (!open) return { open: false, swallowClick: false };
+				return { open: false, swallowClick: true };
+			}
+			if (swallowClick) return { open: false, swallowClick: false };
+			return { open: !open, swallowClick: false };
+		}
+
+		/** Ids for the breakdown popover. One per mount, so two sessions do not collide. */
+		let breakdownSerial = 0;
+		function nextBreakdownId() {
+			breakdownSerial += 1;
+			return breakdownSerial;
+		}
+
+		/**
+		 * Where the breakdown panel sits relative to the pill.
+		 *
+		 * Below the pill when it fits, above it when the composer is at the
+		 * bottom of the viewport. `top` is the panel's top edge; `maxHeight` is
+		 * what remains in that direction, so the panel scrolls instead of leaving
+		 * the viewport.
+		 * @param {{left: number, top: number, bottom: number, width: number}} anchor
+		 * @param {{width: number, height: number}} view
+		 * @param {{width?: number, margin?: number, maxHeight?: number}} [options]
+		 * @returns {{left: number, top: number, maxHeight: number}}
+		 */
+		function panelBox(anchor, view, options) {
+			const opts = options || {};
+			const width = opts.width || 320;
+			const margin = opts.margin || 8;
+			const gap = 6;
+			const cap = opts.maxHeight || 240;
+			const viewWidth = Number.isFinite(view.width) && view.width > 0 ? view.width : width + margin * 2;
+			const viewHeight = Number.isFinite(view.height) && view.height > 0 ? view.height : cap + margin * 2;
+			const left = Math.max(margin, Math.min(anchor.left, viewWidth - Math.min(width, viewWidth - margin * 2) - margin));
+			const below = viewHeight - anchor.bottom - gap - margin;
+			const above = anchor.top - gap - margin;
+			const placeBelow = below >= 120 || below >= above;
+			const room = Math.max(80, placeBelow ? below : above);
+			const maxHeight = Math.min(cap, room);
+			const top = placeBelow
+				? anchor.bottom + gap
+				: Math.max(margin, anchor.top - gap - maxHeight);
+			return { left, top, maxHeight };
+		}
+
 		const style = {
 			anchor: {
 				minWidth: 0,
@@ -933,9 +1304,48 @@ window.__ModuleLoader__.load({
 				overflow: "hidden",
 				textOverflow: "ellipsis",
 			},
+			soon: {
+				color: "var(--dsw-alias-label-secondary)",
+			},
 			sep: {
 				color: "var(--dsw-alias-separator-primary)",
 				margin: "0 1px",
+			},
+			button: {
+				minWidth: 0,
+				display: "inline-flex",
+				appearance: "none",
+				background: "transparent",
+				border: 0,
+				padding: 0,
+				margin: 0,
+				color: "inherit",
+				font: "inherit",
+				fontSize: "calc(var(--dsh-content-font-size-secondary, 13px) - 1px)",
+				lineHeight: "calc(20px + var(--dsh-content-font-delta-secondary, 0px))",
+				cursor: "pointer",
+				textAlign: "inherit",
+			},
+			panel: {
+				position: "fixed",
+				margin: 0,
+				boxSizing: "border-box",
+				width: "320px",
+				maxHeight: "240px",
+				overflow: "auto",
+				padding: "8px 10px",
+				borderRadius: "var(--dsw-radius-sm, 6px)",
+				border: "1px solid var(--dsw-alias-separator-primary)",
+				background: "var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #1c1c1c))",
+				color: "var(--dsw-alias-label-secondary, inherit)",
+				font: "inherit",
+				fontSize: "12px",
+				lineHeight: "1.45",
+				textAlign: "left",
+				whiteSpace: "normal",
+			},
+			panelLine: {
+				padding: "1px 0",
 			},
 		};
 
@@ -976,33 +1386,13 @@ window.__ModuleLoader__.load({
 			const requests = useRequestRecords(props.useTrajectory);
 			const [now, setNow] = React.useState(() => Date.now());
 			const [liveRevision, setLiveRevision] = React.useState(0);
-
-			React.useEffect(() => {
-				let timer = null;
-				const hidden = () => {
-					try { return typeof document !== "undefined" && document.visibilityState === "hidden"; }
-					catch { return false; }
-				};
-				const arm = () => {
-					if (timer !== null) return;
-					setNow(Date.now());
-					timer = setInterval(() => setNow(Date.now()), 30000);
-				};
-				const disarm = () => {
-					if (timer === null) return;
-					clearInterval(timer);
-					timer = null;
-				};
-				// The 30s clock only redraws the pill and retries prices. A hidden
-				// page has no viewer, so the interval stops until it is visible.
-				const sync = () => { if (hidden()) disarm(); else arm(); };
-				try { document.addEventListener("visibilitychange", sync); } catch { /* non-DOM host */ }
-				sync();
-				return () => {
-					disarm();
-					try { document.removeEventListener("visibilitychange", sync); } catch { /* ignore */ }
-				};
-			}, []);
+			const [open, setOpen] = React.useState(false);
+			const buttonRef = React.useRef(null);
+			const swallowClickRef = React.useRef(false);
+			const countdownRef = React.useRef(false);
+			const periodRef = React.useRef(false);
+			const popIdRef = React.useRef("");
+			if (popIdRef.current === "") popIdRef.current = "session-meter-breakdown-" + nextBreakdownId();
 
 			React.useEffect(() => liveSubscribe(() => setLiveRevision((value) => value + 1)), []);
 
@@ -1015,25 +1405,51 @@ window.__ModuleLoader__.load({
 			// remount (session switch, page reload) re-derives from what loads.
 			const pinnedRef = React.useRef(null);
 			if (pinnedRef.current === null) pinnedRef.current = new Map();
-			const breakdown = costBreakdown({
+			const memoRef = React.useRef(null);
+			const stamp = inputStamp(requests, usage);
+			const breakdownInput = {
 				requests,
 				totals: usage,
 				current: { provider, model },
 				now,
 				pinned: pinnedRef.current,
-			});
+				_memo: memoRef.current,
+				_liveGeneration: live.generation,
+				_stamp: stamp,
+			};
+			const breakdown = costBreakdown(breakdownInput);
+			// References, not a fingerprint: the next clock tick hits `sameRefs`
+			// and does not re-hash the trajectory. A published new array misses
+			// the references and falls through to `key`, so the key is stored here
+			// but only recomputed when the result itself changed.
+			const previousMemo = memoRef.current;
+			memoRef.current = {
+				requests,
+				totals: usage,
+				model,
+				provider,
+				generation: live.generation,
+				pinned: breakdown.pinned,
+				stamp,
+				customLookup: false,
+				result: breakdown,
+				key: previousMemo && previousMemo.result === breakdown
+					? previousMemo.key
+					: breakdownKey(breakdownInput),
+			};
 			pinnedRef.current = breakdown.pinned;
 			const tokens = totalBilledTokens(usage);
 			const flip = nextFlipAt(now);
 
-			// Ask the Host for prices of every model this session touched. The 30 s
-			// clock is a dependency on purpose: a failed lookup must be retried, and
-			// nothing else would wake this component once the page settles.
-			const tick = Math.floor(now / 30000);
+			// Ask the Host for prices of every model this session touched. `now` is a
+			// dependency on purpose: the sleep above wakes at the retry time, and
+			// nothing else would ask again once the page settles. Settled names
+			// return before any request.
 			const asked = [model, ...breakdown.rows.map((row) => row.model)].filter(Boolean).join(",");
+			const priceTick = priceEffectTick(now, live.lastError);
 			React.useEffect(() => {
 				requestLivePrices(asked.split(","));
-			}, [asked, liveRevision, tick]);
+			}, [asked, liveRevision, priceTick]);
 
 			// The period marker follows the models: it only means something when a
 			// model in play is billed by the official peak/off-peak table. A session
@@ -1042,14 +1458,79 @@ window.__ModuleLoader__.load({
 			const showPeriod = breakdown.periodPriced === true;
 			const periodLabel = showPeriod ? textKey(t, peak ? "peak" : "offPeak") : undefined;
 			const costLabel = tokens > 0 && unpricedOnly(breakdown) ? textKey(t, "noPrice") : fmtMoney(breakdown.cost);
+			// Zero is not a cost. A period-priced model still announces the window.
+			const showCost = tokens > 0;
+			const showPill = showPeriod || showCost;
+			// The countdown used to live only in the hover title, so a window
+			// ending in a few minutes looked the same as one ending tonight.
+			// Show it on the pill for the last hour; longer waits stay in the title.
+			const soon = showPeriod && flip !== undefined && flip - now <= 60 * MINUTE_MS;
+			const soonLabel = soon ? fmtSpan(flip - now, t) : undefined;
+			countdownRef.current = soon;
+			periodRef.current = showPeriod;
+			const clockStale = countdownStale(now, Date.now(), soon);
 
-			const parts = [];
-			if (showPeriod) parts.push(textKey(t, peak ? "peakTip" : "offPeakTip"));
-			parts.push(textKey(t, showPeriod ? "estimate" : "estimateCatalog"));
-			if (showPeriod && flip !== undefined) parts.push(textKey(t, "nextChange") + " " + fmtSpan(flip - now, t));
+			// One effect so a stale clock does not also install a timer. The
+			// refresh changes `now`, and the next run is what schedules the sleep.
+			React.useEffect(() => {
+				if (clockStale) {
+					setNow(Date.now());
+					return undefined;
+				}
+				// An empty composer has nothing that changes with the clock. A failed
+				// price lookup still has to wake, because the retry is this timer.
+				if (!pillNeedsClock(showPill, live.lastError !== undefined)) return undefined;
+				let timer = null;
+				let stopped = false;
+				const hidden = () => {
+					try { return typeof document !== "undefined" && document.visibilityState === "hidden"; }
+					catch { return false; }
+				};
+				const clear = () => {
+					if (timer === null) return;
+					clearTimeout(timer);
+					timer = null;
+				};
+				const schedule = () => {
+					clear();
+					if (stopped || hidden()) return;
+					const nowMs = Date.now();
+					const wait = nextDelayMs(nowMs, {
+						flipAt: nextFlipAt(nowMs),
+						period: periodRef.current,
+						countdown: countdownRef.current,
+						retryAt: live.retryAt,
+						retryDue: live.lastError !== undefined && nowMs >= live.retryAt,
+					});
+					timer = setTimeout(() => {
+						timer = null;
+						if (!stopped) setNow(Date.now());
+					}, wait);
+				};
+				// A hidden page has no viewer. Waking on show also covers a machine
+				// that slept past the flip: the timeout alone would not have fired.
+				const onVisible = () => {
+					if (hidden()) { clear(); return; }
+					setNow(Date.now());
+				};
+				try { document.addEventListener("visibilitychange", onVisible); } catch { /* non-DOM host */ }
+				schedule();
+				return () => {
+					stopped = true;
+					clear();
+					try { document.removeEventListener("visibilitychange", onVisible); } catch { /* ignore */ }
+				};
+			}, [now, liveRevision, showPeriod, soon, clockStale, showPill]);
+
+			const summary = [];
+			if (showPeriod) summary.push(textKey(t, peak ? "peakTip" : "offPeakTip"));
+			// No tokens yet: the pill is only the period. "Estimated cost" would
+			// describe a bill that does not exist.
+			if (tokens > 0) summary.push(textKey(t, showPeriod ? "estimate" : "estimateCatalog"));
+			if (showPeriod && flip !== undefined) summary.push(textKey(t, "nextChange") + " " + fmtSpan(flip - now, t));
 			if (rate) {
 				const mark = current && current.reference ? "*" : "";
-				parts.push(
+				summary.push(
 					textKey(t, "model") + " " + (model || textKey(t, "unknown")) + mark
 					+ " " + textKey(t, "input") + " \u00a5" + rate.input
 					+ " \u00b7 " + textKey(t, "output") + " \u00a5" + rate.output
@@ -1057,40 +1538,173 @@ window.__ModuleLoader__.load({
 					+ " " + textKey(t, "perMillion"),
 				);
 			} else if (model) {
-				parts.push(textKey(t, "model") + " " + model);
+				summary.push(textKey(t, "model") + " " + model);
 			}
-			if (tokens > 0) parts.push(textKey(t, "tokens") + " " + fmtTokens(tokens));
-			// Always name the model(s) the log actually recorded, so a relay route
-			// reads back exactly as it was called. One row plus the rate line above
-			// is honest even when the selector has moved on since.
-			if (breakdown.rows.length > 0) {
-				parts.push(textKey(t, "byModel") + ":\n" + breakdown.rows.map((row) => modelLine(row, t)).join("\n"));
-				if (breakdown.rows.some((row) => row.reference)) parts.push(textKey(t, "referenceNote"));
-			}
+			if (tokens > 0) summary.push(textKey(t, "tokens") + " " + fmtTokens(tokens));
 			// Say why a model stayed unpriced instead of leaving a silent dash.
 			if (live.lastError !== undefined && breakdown.rows.some((row) => !row.priced)) {
-				parts.push(textKey(t, "catalogError") + " " + live.lastError);
+				summary.push(textKey(t, "catalogError") + " " + live.lastError);
 			}
-			const title = parts.join(" \u00b7 ");
+			// The per-model list used to live in the hover title. A long session
+			// made that attribute thousands of characters, and the browser tooltip
+			// truncated it. The list belongs to the panel; the title stays a summary.
+			// The list is also the expensive string. A clock tick reuses the
+			// breakdown object, so it reuses this text; the short summary above
+			// (the countdown) is rebuilt because it follows the clock.
+			// `byModel` stands in for the active language. A cached list from the
+			// other language must be rebuilt, or the panel stays in the old one.
+			const localeTag = textKey(t, "byModel");
+			let detailText = previousMemo && previousMemo.result === breakdown && previousMemo.localeTag === localeTag
+				? previousMemo.detailText
+				: undefined;
+			if (detailText === undefined) {
+				const detail = [];
+				if (breakdown.rows.length > 0) {
+					detail.push(textKey(t, "byModel") + ":\n" + breakdown.rows.map((row) => modelLine(row, t)).join("\n"));
+					if (breakdown.rows.some((row) => row.reference)) detail.push(textKey(t, "referenceNote"));
+				}
+				detailText = detail.join("\n");
+			}
+			memoRef.current.detailText = detailText;
+			memoRef.current.localeTag = localeTag;
+			const titleParts = detailText.length > 0 ? summary.concat(textKey(t, "details")) : summary;
+			const title = titleParts.join(" \u00b7 ");
+			// The per-model text is the stable part. Folding the countdown into it
+			// made a new multi-kilobyte string on every tick, which React then wrote
+			// back into the DOM attribute. The attribute keeps the stable part; the
+			// countdown stays in the hover title and, while open, at the top of the
+			// panel.
+			const lines = [];
+			if (open) {
+				const shown = detailText.length > 0 ? summary.join("\n") + "\n" + detailText : summary.join("\n");
+				const chunks = shown.split("\n");
+				for (let index = 0; index < chunks.length; index += 1) {
+					if (chunks[index].length > 0) lines.push(chunks[index]);
+				}
+			}
+
+			// The dock clips overflow and is the containing block for `position:
+			// fixed`, so the breakdown is a top-layer popover, shown from here.
+			React.useEffect(() => {
+				if (!open) return undefined;
+				const el = typeof document !== "undefined" ? document.getElementById(popIdRef.current) : null;
+				const anchor = buttonRef.current;
+				if (!el || !anchor || typeof el.showPopover !== "function") return undefined;
+				let frame = 0;
+				const useFrame = typeof requestAnimationFrame === "function" && typeof cancelAnimationFrame === "function";
+				const writeBox = () => {
+					const rect = anchor.getBoundingClientRect();
+					const box = panelBox(rect, {
+						width: typeof window !== "undefined" ? window.innerWidth : 0,
+						height: typeof window !== "undefined" ? window.innerHeight : 0,
+					});
+					el.style.left = box.left + "px";
+					el.style.top = box.top + "px";
+					el.style.maxHeight = box.maxHeight + "px";
+				};
+				// First placement is synchronous: waiting a frame shows the panel at
+				// the browser's default popover position, then jumps it.
+				writeBox();
+				const place = () => {
+					if (frame !== 0) return;
+					const schedule = useFrame ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+					frame = schedule(() => {
+						frame = 0;
+						writeBox();
+					});
+				};
+				try { el.showPopover(); } catch { /* already showing */ }
+				const onToggle = (event) => {
+					if (event.newState === "closed") setOpen(false);
+				};
+				el.addEventListener("toggle", onToggle);
+				// The pill moves when the window resizes or the transcript scrolls.
+				// The text of the panel is not a dependency: rebuilding this effect
+				// on every cost tick called hidePopover, and that closed the panel
+				// the moment a request finished.
+				const onMove = () => place();
+				try {
+					window.addEventListener("resize", onMove);
+					window.addEventListener("scroll", onMove, true);
+				} catch { /* non-DOM host */ }
+				return () => {
+					el.removeEventListener("toggle", onToggle);
+					try {
+						window.removeEventListener("resize", onMove);
+						window.removeEventListener("scroll", onMove, true);
+					} catch { /* ignore */ }
+					if (frame !== 0) {
+						if (useFrame) cancelAnimationFrame(frame);
+						else clearTimeout(frame);
+						frame = 0;
+					}
+					try {
+						if (typeof el.matches === "function" && el.matches(":popover-open") && typeof el.hidePopover === "function") el.hidePopover();
+					} catch { /* already closed */ }
+				};
+			}, [open]);
 
 			const dotColor = peak
 				? "var(--dsw-alias-state-warn-primary)"
 				: "var(--dsw-alias-state-success-primary)";
 
+			// Nothing to say yet: an empty button still occupies the composer row.
+			if (!showPill) return null;
+
+			// The dialog is a sibling of the button, not a child: a button must not
+			// contain another interactive layer, and the popover escapes the dock.
 			return h(
 				"span",
 				{
 					style: style.anchor,
-					title,
 					"data-session-meter": showPeriod ? (peak ? "peak" : "off-peak") : "flat",
+					"data-breakdown": detailText,
 				},
 				h(
-					"span",
-					{ style: style.pill },
-					showPeriod && h("span", { style: { ...style.dot, background: dotColor } }),
-					showPeriod && h("span", { style: style.label }, periodLabel),
-					showPeriod && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
-					h("span", { style: style.label }, textKey(t, "spend") + " " + costLabel),
+					"button",
+					{
+						type: "button",
+						ref: buttonRef,
+						style: style.button,
+						title: open ? undefined : title,
+						"aria-expanded": open,
+						"aria-controls": open ? popIdRef.current : undefined,
+						onPointerDown: (event) => {
+							const next = pillGesture(open, swallowClickRef.current, "pointerdown");
+							swallowClickRef.current = next.swallowClick;
+							if (!next.swallowClick) return;
+							// This press is the popover's light-dismiss. Keep it from also
+							// arriving as a click that opens the panel again.
+							event.preventDefault();
+							event.stopPropagation();
+							setOpen(false);
+						},
+						onClick: () => {
+							const next = pillGesture(open, swallowClickRef.current, "click");
+							swallowClickRef.current = next.swallowClick;
+							if (next.open === open) return;
+							setOpen(next.open);
+						},
+					},
+					h(
+						"span",
+						{ style: style.pill },
+						showPeriod && h("span", { style: { ...style.dot, background: dotColor } }),
+						showPeriod && h("span", { style: style.label }, periodLabel),
+						soonLabel !== undefined && h("span", { style: style.soon }, soonLabel),
+						showPeriod && showCost && tokens > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
+						showCost && h("span", { style: style.label }, textKey(t, "spend") + " " + costLabel),
+					),
+				),
+				open && h(
+					"div",
+					{
+						id: popIdRef.current,
+						popover: "auto",
+						role: "dialog",
+						style: style.panel,
+					},
+					lines.map((line, index) => h("div", { key: index, style: style.panelLine }, line)),
 				),
 			);
 		}
@@ -1144,11 +1758,14 @@ window.__ModuleLoader__.load({
 			rateAt,
 			live,
 			liveRateFor,
+			priceQueryBatch,
 			requestLivePrices,
 			liveSubscribe,
 			bucketsOf,
 			modelOfRequest,
 			costBreakdown,
+			breakdownKey,
+			inputStamp,
 			pinnedInstants,
 			requestKey,
 			UNKNOWN_PEAK_AT,
@@ -1157,6 +1774,12 @@ window.__ModuleLoader__.load({
 			totalBilledTokens,
 			fmtMoney,
 			fmtTokens,
+			nextDelayMs,
+			countdownStale,
+			pillNeedsClock,
+			priceEffectTick,
+			panelBox,
+			pillGesture,
 			fmtSpan,
 			modelLine,
 			unpricedOnly,

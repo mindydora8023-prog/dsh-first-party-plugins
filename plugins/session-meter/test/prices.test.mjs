@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildCatalog, classifyNames, cnyEntry, nameCandidates, selectModels, usdToCnyOf } from '../lib/prices.js';
+import { buildCatalog, classifyNames, cnyEntry, nameCandidates, scaleRates, selectModels, usdToCnyOf } from '../lib/prices.js';
 
 const FX = 7.2;
 
@@ -59,6 +59,26 @@ test('model names expand to the spellings a relay might use', () => {
 	assert.equal(nameCandidates('relay/model-free').includes('model'), true, 'release suffix stripped');
 	assert.deepEqual(nameCandidates(''), []);
 	assert.deepEqual(nameCandidates(undefined), []);
+});
+
+test('a context-window tag is stripped, a snapshot date is not', () => {
+	const candidates = nameCandidates('cursor/grok-4.7@500k');
+	assert.equal(candidates[0], 'cursor/grok-4.7@500k', 'the routed name is still tried first');
+	assert.equal(candidates.includes('grok-4.7'), true, 'catalog id without the window tag');
+	assert.equal(candidates.includes('grok-4'), false, 'must not collapse onto a different model');
+	assert.equal(nameCandidates('cursor/grok-4.7@1m').includes('grok-4.7'), true);
+	const catalog = buildCatalog({
+		xai: { models: {
+			'grok-4.7': { cost: { input: 2, output: 6, cache_read: 0.5 } },
+			'grok-4': { cost: { input: 9, output: 9 } },
+			'claude-opus-4-5@20251101': { cost: { input: 5, output: 25 } },
+			'claude-opus-4-5': { cost: { input: 1, output: 1 } },
+		} },
+	}, FX);
+	const hits = selectModels(catalog, ['cursor/grok-4.7@500k', 'anthropic/claude-opus-4-5@20251101']);
+	assert.equal(hits['cursor/grok-4.7@500k'].input, 14.4);
+	assert.equal(hits['cursor/grok-4.7@500k'].output, 43.2);
+	assert.equal(hits['anthropic/claude-opus-4-5@20251101'].input, 36, 'the dated key wins over the bare sibling');
 });
 
 test('selectModels answers only the names that resolved', () => {
@@ -134,6 +154,18 @@ test('the three groups partition the request exactly once each', () => {
 	assert.deepEqual(split.unpriced, ['relay/mystery-model']);
 	const all = [...split.catalog, ...split.builtin, ...split.unpriced].sort();
 	assert.deepEqual(all, [...names].sort(), 'no name is dropped or double-counted');
+});
+
+test('rescaling a catalog applies a new exchange rate without rebuilding it', () => {
+	const catalog = buildCatalog({
+		openai: { models: { 'gpt-6-sol': { cost: { input: 2, output: 10, cache_read: 0.2 } } } },
+	}, FX);
+	const scaled = scaleRates(catalog, 2);
+	assert.equal(scaled['gpt-6-sol'].input, 28.8);
+	assert.equal(scaled['openai/gpt-6-sol'].output, 144);
+	assert.notEqual(scaled, catalog, 'a real factor allocates a new table');
+	assert.equal(scaleRates(catalog, 1), catalog, 'an unchanged rate reuses the table');
+	assert.equal(scaleRates(catalog, 0), catalog, 'a bad factor is ignored');
 });
 
 test('the classifier tolerates a missing or malformed request list', () => {

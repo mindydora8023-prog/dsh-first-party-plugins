@@ -5,7 +5,7 @@
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
 | [archived-sessions](plugins/archived-sessions/README.md) | 0.5.1 | 归档恢复、删除预检、孤儿子代理与超期清理 | 工作区实现 |
-| [session-meter](plugins/session-meter/README.md) | 0.3.0 | 会话费用、峰谷时段、分模型用量 | 工作区实现；运行时外部价格数据 |
+| [session-meter](plugins/session-meter/README.md) | 0.3.50 | 会话费用、峰谷时段、分模型用量 | 工作区实现；运行时外部价格数据 |
 | [filekit](plugins/filekit/README.md) | 0.1.0 | CSV/TSV、DOCX、XLSX、PDF 有界读取 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
 | [github](plugins/github/README.md) | 0.1.0 | GitHub 查询与 Issue/评论写入工具 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
 | [gmail](plugins/gmail/README.md) | 0.1.0 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |

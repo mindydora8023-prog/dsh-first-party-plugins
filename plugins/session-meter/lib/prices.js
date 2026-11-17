@@ -20,9 +20,47 @@ const DEEPSEEK_MARKER = 'deepseek';
 /** Trailing release-suffix noise that relays append to an official model id. */
 const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental)$/;
 
+/**
+ * Context-window tag a route appends after the real id (`grok-4.7@500k`,
+ * `@1m`, `@128k`). models.dev does not include it. Dated snapshots
+ * (`claude-opus-4-5@20251101`) have no k/m/b unit, so they stay: that date
+ * IS the catalog key.
+ */
+const CONTEXT_SUFFIX = /@\d+(?:\.\d+)?[kmb]$/;
+
 /** Round to 6 decimals so a converted price stays readable in JSON. */
 function round6(value) {
   return Math.round(value * 1e6) / 1e6;
+}
+
+/**
+ * Rescale an already-converted catalog when only the exchange rate moved.
+ *
+ * A 304 from models.dev means the USD quotes did not change. Re-downloading
+ * and re-indexing ~11k models just to apply a new CNY rate would repeat the
+ * expensive half of a refresh. Factor 1 returns the same object: the daily
+ * refresh must not allocate a new rate for every key when FX is unchanged.
+ *
+ * @param {Record<string, object>} models - CNY rates from {@link buildCatalog}.
+ * @param {number} factor - `newUsdToCny / oldUsdToCny`.
+ * @returns {Record<string, object>}
+ */
+export function scaleRates(models, factor) {
+  if (!models || typeof models !== 'object') return Object.create(null);
+  if (!Number.isFinite(factor) || factor <= 0) return models;
+  if (factor === 1) return models;
+  const out = Object.create(null);
+  for (const [key, rate] of Object.entries(models)) {
+    if (!rate || typeof rate !== 'object') continue;
+    const scale = (value) => (typeof value === 'number' && Number.isFinite(value) ? round6(value * factor) : value);
+    out[key] = {
+      input: scale(rate.input),
+      output: scale(rate.output),
+      cacheRead: scale(rate.cacheRead),
+      cacheWrite: scale(rate.cacheWrite),
+    };
+  }
+  return out;
 }
 
 /**
@@ -108,20 +146,25 @@ export function buildCatalog(modelsDev, usdToCny) {
 export function nameCandidates(model) {
   if (typeof model !== 'string' || model.length === 0) return [];
   const lower = model.toLowerCase();
-  const slash = lower.lastIndexOf('/');
-  const tail = slash >= 0 ? lower.slice(slash + 1) : lower;
+  const forms = [lower];
+  const bare = lower.replace(CONTEXT_SUFFIX, '');
+  if (bare !== lower) forms.push(bare);
   const collapseMinor = (value) => value.replace(/\.(\d+)(?=[-/])/g, '');
   const stripSuffix = (value) => value.replace(RELEASE_SUFFIX, '');
   const out = [];
   const push = (value) => {
     if (value.length > 0 && !out.includes(value)) out.push(value);
   };
-  push(lower);
-  push(tail);
-  for (const value of [tail, collapseMinor(tail)]) {
-    push(stripSuffix(value));
-    push(collapseMinor(stripSuffix(value)));
-    push(stripSuffix(collapseMinor(value)));
+  for (const form of forms) {
+    const slash = form.lastIndexOf('/');
+    const tail = slash >= 0 ? form.slice(slash + 1) : form;
+    push(form);
+    push(tail);
+    for (const value of [tail, collapseMinor(tail)]) {
+      push(stripSuffix(value));
+      push(collapseMinor(stripSuffix(value)));
+      push(stripSuffix(collapseMinor(value)));
+    }
   }
   return out;
 }
