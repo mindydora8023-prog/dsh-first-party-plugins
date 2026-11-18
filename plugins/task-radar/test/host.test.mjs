@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import { __internals, createHandler } from '../lib/index.js';
@@ -73,7 +74,7 @@ test('handler serves radar with the current config', async () => {
   const cfg = { enabled: true, system: { enabled: true } };
   const handler = createHandler(() => cfg, () => {}, [], 'C:/tmp/cfg.json');
   const res = fakeRes();
-  await handler({ method: 'GET', url: '/task-radar/radar' }, res);
+  await handler({ method: 'GET', url: '/api/task-radar/radar' }, res);
   assert.equal(res.status, 200);
   const payload = JSON.parse(res.body);
   assert.equal(payload.ok, true);
@@ -85,14 +86,9 @@ test('handler serves radar with the current config', async () => {
 test('handler persists a valid config', async () => {
   let saved = null;
   const handler = createHandler(() => ({}), (v) => { saved = v; }, [], 'C:/tmp/cfg.json');
-  const req = {
-    method: 'POST',
-    url: '/task-radar/config',
-    on(event, cb) {
-      if (event === 'data') cb(Buffer.from(JSON.stringify({ config: { events: { finished: false }, system: { enabled: false } } })));
-      if (event === 'end') cb();
-    },
-  };
+  const req = Object.assign(Readable.from([Buffer.from(JSON.stringify({ config: { events: { finished: false }, system: { enabled: false } } }))]), {
+    method: 'POST', url: '/api/task-radar/config',
+  });
   const res = fakeRes();
   await handler(req, res);
   assert.equal(res.status, 200);
@@ -110,7 +106,7 @@ test('test endpoint submits only the injected Windows channel and leaves journal
     return true;
   });
   const res = fakeRes();
-  await handler({ method: 'POST', url: '/task-radar/test' }, res);
+  await handler({ method: 'POST', url: '/api/task-radar/test' }, res);
   assert.equal(res.status, 200);
   assert.deepEqual(JSON.parse(res.body), { ok: true, submitted: true });
   assert.equal(sends.length, 1);
@@ -125,17 +121,32 @@ test('test endpoint reports no submission when Toast is disabled or sender decli
     throw new Error('disabled Toast must not dispatch');
   });
   const first = fakeRes();
-  await disabled({ method: 'POST', url: '/task-radar/test' }, first);
+  await disabled({ method: 'POST', url: '/api/task-radar/test' }, first);
   assert.deepEqual(JSON.parse(first.body), { ok: true, submitted: false });
   const unsupported = createHandler(() => ({ toast: { enabled: true } }), () => {}, [], '/fixture/cfg.json', () => false);
   const second = fakeRes();
-  await unsupported({ method: 'POST', url: '/task-radar/test' }, second);
+  await unsupported({ method: 'POST', url: '/api/task-radar/test' }, second);
   assert.deepEqual(JSON.parse(second.body), { ok: true, submitted: false });
 });
 
 test('handler returns 404 for an unknown path', async () => {
   const handler = createHandler(() => ({}), () => {}, [], 'C:/tmp/cfg.json');
   const res = fakeRes();
-  await handler({ method: 'GET', url: '/task-radar/nope' }, res);
+  await handler({ method: 'GET', url: '/api/task-radar/nope' }, res);
   assert.equal(res.status, 404);
+});
+
+test('radar exposes a stable journal generation that changes for a new instance', async () => {
+  const first = createHandler(() => ({}), () => {}, [], '/fixture/config.json');
+  const second = createHandler(() => ({}), () => {}, [], '/fixture/config.json');
+  const ids = [];
+  for (const handler of [first, first, second]) {
+    const res = fakeRes();
+    await handler({ method: 'GET', url: '/api/task-radar/radar' }, res);
+    ids.push(JSON.parse(res.body).journalId);
+  }
+  assert.equal(typeof ids[0], 'string');
+  assert.ok(ids[0].length > 0);
+  assert.equal(ids[0], ids[1]);
+  assert.notEqual(ids[0], ids[2]);
 });

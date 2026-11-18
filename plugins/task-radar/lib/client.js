@@ -1,7 +1,7 @@
 /**
  * Browser half of dsh-plugin-task-radar.
  *
- * One job: poll GET /task-radar/radar for the host-side journal and, for every
+ * One job: poll GET /api/task-radar/radar for the host-side journal and, for every
  * NEW entry, fire a browser OS-level notification (Windows Action Center / macOS
  * Notification Center / GNOME) via `new Notification(...)`. That is the channel
  * that reaches the user while the window is minimised or another app is in
@@ -21,7 +21,12 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     const NS = 'taskRadar';
-    const API = '/task-radar';
+    const API = '/api/task-radar';
+    function hostFetch(input, init) {
+      const carrier = window.__DSH_TRANSPORT__;
+      return carrier && typeof carrier.fetch === 'function'
+        ? carrier.fetch(input, init) : fetch(input, init);
+    }
 
     /* ------------------------------------------------ locale dictionaries */
     const en = {
@@ -59,12 +64,21 @@ window.__ModuleLoader__.load({
       'badge.on': 'ON',
       'badge.off': 'OFF',
       'btn.save': 'Save',
-      'btn.test': 'Send a test',
+      'btn.test': 'Test saved Windows toast',
+      'test.hint': 'Uses saved Windows toast settings only. Unsaved edits and browser notifications are not included.',
       'btn.saved': 'Saved',
       'btn.saving': 'Saving...',
       'test.sent': 'Windows test request submitted. Check your system notifications.',
       'test.noToast': 'No Windows toast was submitted. This test does not send a browser notification.',
-      'load.error': 'Task radar: host API unreachable. Reopen this page.',
+      'load.error': 'Task radar settings could not be loaded.',
+      'load.loading': 'Loading settings...',
+      'btn.retry': 'Retry',
+      'btn.savedEarlier': 'Submitted changes saved; newer edits remain unsaved.',
+      'save.error': 'Save failed. Your changes remain unsaved.',
+      'save.unknown': 'Save result is uncertain. Copy any unsaved edits before reopening settings to check.',
+      'test.sending': 'Sending test...',
+      'test.error': 'Test request failed.',
+      'test.unknown': 'Test result is uncertain. Check notifications before trying again.',
       'kind.turnStart': 'Turn started',
       'kind.finished': 'Turn finished',
       'kind.aborted': 'Turn aborted',
@@ -106,12 +120,21 @@ window.__ModuleLoader__.load({
       'badge.on': '\u5df2\u5f00',
       'badge.off': '\u5df2\u5173',
       'btn.save': '\u4fdd\u5b58',
-      'btn.test': '\u53d1\u9001\u6d4b\u8bd5',
+      'btn.test': '\u6d4b\u8bd5\u5df2\u4fdd\u5b58\u7684 Windows \u901a\u77e5',
+      'test.hint': '\u4ec5\u6d4b\u8bd5\u5df2\u4fdd\u5b58\u7684 Windows Toast \u8bbe\u7f6e\uff0c\u672a\u4fdd\u5b58\u4fee\u6539\u548c\u6d4f\u89c8\u5668\u901a\u77e5\u4e0d\u53c2\u4e0e\u6b64\u6d4b\u8bd5\u3002',
       'btn.saved': '\u5df2\u4fdd\u5b58',
       'btn.saving': '\u4fdd\u5b58\u4e2d',
       'test.sent': 'Windows \u6d4b\u8bd5\u8bf7\u6c42\u5df2\u63d0\u4ea4\uff0c\u8bf7\u5728\u7cfb\u7edf\u901a\u77e5\u4e2d\u6838\u5bf9\u3002',
       'test.noToast': '\u672a\u63d0\u4ea4 Windows Toast\u3002\u6b64\u6d4b\u8bd5\u4e0d\u53d1\u9001\u6d4f\u89c8\u5668\u901a\u77e5\u3002',
-      'load.error': '\u4efb\u52a1\u96f7\u8fbe\uff1a\u5bbf\u4e3b API \u4e0d\u53ef\u8fbe\uff0c\u8bf7\u91cd\u65b0\u6253\u5f00\u9875\u9762\u3002',
+      'load.error': '\u4efb\u52a1\u96f7\u8fbe\u8bbe\u7f6e\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5\u3002',
+      'load.loading': '\u6b63\u5728\u52a0\u8f7d\u8bbe\u7f6e\u2026',
+      'btn.retry': '\u91cd\u8bd5',
+      'btn.savedEarlier': '\u5df2\u4fdd\u5b58\u63d0\u4ea4\u65f6\u7684\u8bbe\u7f6e\uff1b\u540e\u7eed\u4fee\u6539\u4ecd\u5f85\u4fdd\u5b58\u3002',
+      'save.error': '\u4fdd\u5b58\u5931\u8d25\uff0c\u4fee\u6539\u4ecd\u672a\u4fdd\u5b58\u3002',
+      'save.unknown': '\u4fdd\u5b58\u7ed3\u679c\u672a\u786e\u5b9a\uff0c\u8bf7\u5148\u590d\u5236\u4fdd\u7559\u672a\u4fdd\u5b58\u7684\u4fee\u6539\uff0c\u518d\u91cd\u65b0\u6253\u5f00\u8bbe\u7f6e\u6838\u5bf9\u3002',
+      'test.sending': '\u6b63\u5728\u53d1\u9001\u6d4b\u8bd5\u2026',
+      'test.error': '\u6d4b\u8bd5\u8bf7\u6c42\u5931\u8d25\u3002',
+      'test.unknown': '\u6d4b\u8bd5\u7ed3\u679c\u672a\u786e\u5b9a\uff0c\u8bf7\u5148\u6838\u5bf9\u901a\u77e5\u518d\u64cd\u4f5c\u3002',
       'kind.turnStart': '\u5f00\u59cb\u8fd0\u884c',
       'kind.finished': '\u5df2\u5b8c\u6210',
       'kind.aborted': '\u5df2\u4e2d\u6b62',
@@ -129,21 +152,24 @@ window.__ModuleLoader__.load({
 
     /* --------------------------------------------------- theme shortcuts */
     const C = {
-      text: 'var(--dsw-alias-label-primary, #e6edf3)',
-      muted: 'var(--dsw-alias-label-secondary, #9aa4b2)',
-      faint: 'var(--dsw-alias-label-tertiary, #6b7280)',
-      border: 'var(--dsw-alias-border-l2, #30363d)',
-      card: 'var(--dsw-alias-bg-layer-1, rgba(255,255,255,0.02))',
-      cardBorder: 'var(--dsw-alias-border-l1, rgba(255,255,255,0.08))',
-      accent: 'var(--dsw-alias-state-success-primary, #3fae6b)',
-      accentSoft: 'rgba(63,174,107,0.14)',
-      warn: 'var(--dsw-alias-state-warn-primary, #e0a33a)',
-      danger: 'var(--dsw-alias-state-error-primary, #ef4444)',
-      inputBg: 'var(--dsw-alias-bg-overlay, rgba(0,0,0,0.25))',
+      text: 'var(--dsw-alias-label-primary)',
+      muted: 'var(--dsw-alias-label-secondary)',
+      faint: 'var(--dsw-alias-label-tertiary)',
+      border: 'var(--dsw-alias-border-l2)',
+      card: 'var(--dsw-alias-settings-card-fill)',
+      cardBorder: 'var(--dsw-alias-settings-card-stroke)',
+      accent: 'var(--dsw-alias-state-business-primary)',
+      accentSoft: 'var(--dsw-alias-state-business-tertiary)',
+      onAccent: 'var(--dsw-alias-label-on-color)',
+      warn: 'var(--dsw-alias-state-warn-primary)',
+      danger: 'var(--dsw-alias-state-error-primary)',
+      inputBg: 'var(--dsw-alias-bg-base)',
     };
 
     /* ------------------------------------------------------------ watcher */
-    const watcher = { timer: null, lastAt: 0, cfg: null, inFlight: false, system: true, seeded: false, onVisible: null };
+    const POLL_TIMEOUT_MS = 10000;
+    const watcher = { timer: null, lastAt: 0, lastSequence: 0, journalId: null, seen: new Set(),
+      cfg: null, inFlight: false, request: null, active: true, system: false, seeded: false, onVisible: null };
     let appCtx = null;
 
     /**
@@ -162,7 +188,7 @@ window.__ModuleLoader__.load({
 
     function showSystemNotification(kind, title, body, location, sessionId) {
       try {
-        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
         const text = location ? body + '\n' + location : body;
         const note = new Notification(title, { body: text, tag: 'task-radar-' + kind + '-' + (sessionId || 'nosession'), renotify: true, silent: false });
         note.onclick = () => {
@@ -170,56 +196,138 @@ window.__ModuleLoader__.load({
           openSessionById(sessionId);
           try { note.close(); } catch { /* ignore */ }
         };
-      } catch { /* permission/engine refused */ }
+        return true;
+      } catch { return false; }
     }
 
     function requestSystemPermission() {
       try {
         if (typeof Notification === 'undefined') return Promise.resolve('unsupported');
         if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
-        return Notification.requestPermission();
+        return Promise.resolve(Notification.requestPermission()).catch(() => 'denied');
       } catch {
         return Promise.resolve('denied');
       }
     }
 
-    async function tick() {
-      if (watcher.inFlight) return;
-      watcher.inFlight = true;
+    const RECEIPT_KEY = ['task-radar', 'notification', 'receipts', 'v1'].join('.');
+    const RECEIPT_LIMIT = 512;
+    const RECEIPT_GENERATIONS = 4;
+
+    function readReceipts(storage) {
+      const raw = storage.getItem(RECEIPT_KEY);
+      if (!raw || raw.length > 65536) return [];
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { return []; }
+      if (!Array.isArray(parsed)) return [];
+      return parsed.slice(0, RECEIPT_GENERATIONS).filter((item) => item && typeof item.id === 'string' && item.id.length <= 128 && Array.isArray(item.sequences))
+        .map((item) => ({ id: item.id, sequences: item.sequences.slice(-RECEIPT_LIMIT).filter((n) => Number.isSafeInteger(n) && n > 0) }));
+    }
+
+    // A short origin-wide lock protects receipts for events actually shown.
+    // Never publish a shared high watermark: a newer tab can see sequence 102
+    // before an older tab receives 101. Bounded receipts may permit a duplicate
+    // after eviction; they never claim that an unseen event was delivered.
+    async function deliverSystemEntry(entry, journalId, current) {
+      const send = () => {
+        if (!current()) return false;
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return true;
+        return showSystemNotification(entry.kind, entry.title, entry.body, entry.location, entry.session);
+      };
+      let delivered = false;
+      let storage;
+      let locks;
       try {
-        const response = await fetch(API + '/radar', { credentials: 'same-origin' });
-        if (!response.ok) return;
-        const payload = await response.json();
-        if (!payload || payload.ok !== true) return;
+        locks = window.navigator && window.navigator.locks;
+        storage = window.localStorage;
+      } catch { return send(); }
+      if (!journalId || !Number.isSafeInteger(entry.sequence) || !locks || typeof locks.request !== 'function' || !storage) return send();
+      try {
+        return await locks.request('task-radar.notification-receipts', { mode: 'exclusive', ifAvailable: true }, (lock) => {
+          if (!current() || !lock) return false;
+          const receipts = readReceipts(storage);
+          let journal = receipts.find((item) => item.id === journalId);
+          if (journal && journal.sequences.includes(entry.sequence)) return true;
+          if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return true;
+          delivered = showSystemNotification(entry.kind, entry.title, entry.body, entry.location, entry.session);
+          if (!delivered) return false;
+          journal = journal || { id: journalId, sequences: [] };
+          journal.sequences.push(entry.sequence);
+          journal.sequences = journal.sequences.slice(-RECEIPT_LIMIT);
+          storage.setItem(RECEIPT_KEY, JSON.stringify([journal, ...receipts.filter((item) => item.id !== journalId)].slice(0, RECEIPT_GENERATIONS)));
+          return true;
+        });
+      } catch {
+        // Storage or Web Locks can be disabled. Preserve single-page delivery;
+        // a write failure after display must not send again in this same poll.
+        return delivered || send();
+      }
+    }
+
+    async function tick() {
+      if (!watcher.active || watcher.inFlight) return;
+      watcher.inFlight = true;
+      const controller = new AbortController();
+      const request = { cancel: null };
+      watcher.request = request;
+      const current = () => watcher.active && watcher.request === request && !controller.signal.aborted;
+      let deadline;
+      const cancelled = new Promise((_, reject) => {
+        request.cancel = () => {
+          controller.abort();
+          reject(new Error('task-radar poll cancelled'));
+        };
+        deadline = window.setTimeout(request.cancel, POLL_TIMEOUT_MS);
+      });
+      try {
+        // Race the entire body read too. Some transports do not settle promptly
+        // after abort; releasing this request must not depend on their behavior.
+        const work = (async () => {
+          const response = await hostFetch(API + '/radar', { credentials: 'same-origin', signal: controller.signal });
+          return response.ok ? response.json() : null;
+        })();
+        const payload = await Promise.race([work, cancelled]);
+        if (!watcher.active || watcher.request !== request || !payload || payload.ok !== true) return;
         const cfg = payload.config || {};
         watcher.cfg = cfg;
-        watcher.system = !!(cfg.system && cfg.system.enabled === true);
+        watcher.system = cfg.enabled !== false && !!(cfg.system && cfg.system.enabled === true);
         const journal = Array.isArray(payload.journal) ? payload.journal : [];
-        // The host journal is in-memory and survives page reloads / new tabs, so
-        // the FIRST successful poll only seeds the watermark. Replaying it would
-        // re-toast up to JOURNAL_LIMIT events that predate this page -- and the
-        // native toast already covered them when they happened.
-        if (watcher.seeded !== true) {
-          let newest = 0;
-          for (const entry of journal) {
-            if (entry && typeof entry.at === 'number' && entry.at > newest) newest = entry.at;
-          }
-          watcher.lastAt = newest;
-          watcher.seeded = true;
-          return;
+        const journalId = typeof payload.journalId === 'string' ? payload.journalId : null;
+        const sequenced = journalId !== null;
+        if (watcher.journalId !== journalId) {
+          watcher.lastSequence = 0;
+          watcher.lastAt = 0;
+          watcher.seen.clear();
+          watcher.journalId = journalId;
         }
+        const seed = watcher.seeded !== true;
+        // Legacy hosts have no sequence: retain identities at the timestamp
+        // boundary so distinct events in the same millisecond still arrive.
+        const boundary = watcher.lastAt;
+        const seen = new Set(watcher.seen);
         for (const entry of journal) {
-          if (!entry || typeof entry.at !== 'number') continue;
-          if (entry.at <= watcher.lastAt) continue;
-          if (cfg.enabled === false || (cfg.events && cfg.events[entry.kind] === false)) {
-            watcher.lastAt = Math.max(watcher.lastAt, entry.at);
-            continue;
+          if (!entry || !Number.isFinite(entry.at)) continue;
+          const identity = sequenced ? null : JSON.stringify(entry);
+          if (sequenced) {
+            if (!Number.isSafeInteger(entry.sequence) || entry.sequence <= watcher.lastSequence) continue;
+          } else if (entry.at < boundary || seen.has(identity)) continue;
+          if (!seed && cfg.enabled !== false && !(cfg.events && cfg.events[entry.kind] === false) && watcher.system) {
+            const consumed = await Promise.race([deliverSystemEntry(entry, journalId, current), cancelled]);
+            if (!current()) return;
+            if (!consumed) break;
           }
-          if (watcher.system) showSystemNotification(entry.kind, entry.title, entry.body, entry.location, entry.session);
+          if (sequenced) watcher.lastSequence = entry.sequence;
+          else seen.add(identity);
           watcher.lastAt = Math.max(watcher.lastAt, entry.at);
         }
-      } catch { /* offline is fine */ } finally {
-        watcher.inFlight = false;
+        watcher.seen = new Set(journal.filter((entry) => entry && entry.at === watcher.lastAt).map((entry) => JSON.stringify(entry)).filter((identity) => seen.has(identity)));
+        watcher.seeded = true;
+      } catch { /* offline, deadline or disposal; a later poll can recover */ } finally {
+        window.clearTimeout(deadline);
+        if (watcher.request === request) {
+          watcher.request = null;
+          watcher.inFlight = false;
+        }
       }
     }
 
@@ -235,22 +343,15 @@ window.__ModuleLoader__.load({
       watcher.timer = null;
     }
 
-    /**
-     * Poll while the page can show a notification. A hidden tab cannot display
-     * one (the native toast already covered the event), so the 2.5 s timer is
-     * stopped until the page is visible again; the resume poll catches up.
-     */
+    // Background pages can show Web Notifications. Keep polling when hidden;
+    // browsers may throttle timers, so visibility restoration also polls now.
     function startWatcher() {
-      const hidden = () => {
-        try { return document.visibilityState === 'hidden'; } catch { return false; }
-      };
       const sync = () => {
-        if (hidden()) disarmWatcher();
-        else armWatcher();
+        try { if (document.visibilityState !== 'hidden') void tick(); } catch { /* non-DOM host */ }
       };
       watcher.onVisible = sync;
       try { document.addEventListener('visibilitychange', sync); } catch { /* non-DOM host */ }
-      sync();
+      armWatcher();
     }
 
     /* ------------------------------------------------- settings primitives */
@@ -260,6 +361,7 @@ window.__ModuleLoader__.load({
         type: 'button',
         role: 'switch',
         'aria-checked': on,
+        'aria-label': props.label,
         disabled: props.disabled === true,
         onClick: () => { if (props.disabled !== true) props.onChange(!on); },
         style: {
@@ -283,13 +385,16 @@ window.__ModuleLoader__.load({
           width: '18px',
           height: '18px',
           borderRadius: '50%',
-          background: on ? '#fff' : C.muted,
+          background: on ? C.onAccent : C.muted,
           transition: 'left .15s',
         },
       }));
     }
 
     function Row(props) {
+      const child = props.children;
+      const control = child && [Toggle, NumInput, TextInput].includes(child.type)
+        ? React.cloneElement(child, { label: props.label }) : child;
       return h('div', {
         style: {
           display: 'flex',
@@ -304,7 +409,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { fontSize: '13.5px', color: C.text } }, props.label),
           props.hint ? h('div', { style: { fontSize: '12px', color: C.faint, marginTop: '2px' } }, props.hint) : null,
         ),
-        props.children,
+        control,
       );
     }
 
@@ -336,8 +441,11 @@ window.__ModuleLoader__.load({
     function NumInput(props) {
       return h('input', {
         type: 'number',
+        'aria-label': props.label,
         value: props.value == null ? '' : String(props.value),
         min: props.min,
+        max: props.max,
+        step: props.step,
         onChange: (e) => props.onChange(e.target.value),
         style: {
           width: '92px',
@@ -355,6 +463,7 @@ window.__ModuleLoader__.load({
     function TextInput(props) {
       return h('input', {
         type: 'text',
+        'aria-label': props.label,
         value: props.value == null ? '' : String(props.value),
         placeholder: props.placeholder || '',
         onChange: (e) => props.onChange(e.target.value),
@@ -398,7 +507,7 @@ window.__ModuleLoader__.load({
             ),
             h('div', { style: { fontSize: '12px', color: C.faint, marginTop: '4px', lineHeight: '16px' } }, props.desc),
           ),
-          h(Toggle, { value: props.enabled, onChange: props.onToggle }),
+          h(Toggle, { label: props.name, value: props.enabled, onChange: props.onToggle }),
         ),
         props.children ? h('div', { style: { marginTop: '10px' } }, props.children) : null,
       );
@@ -418,82 +527,144 @@ window.__ModuleLoader__.load({
       }, props.text);
     }
 
+    function settingsInitialState() {
+      return { config: null, loading: true, dirty: false, busy: '', status: '', reason: '' };
+    }
+
+    function validSettings(config) {
+      return config && typeof config === 'object' && !Array.isArray(config) &&
+        ['events', 'toast', 'system'].every((key) => config[key] && typeof config[key] === 'object' && !Array.isArray(config[key]));
+    }
+
+    // One form model owns drafts and requests. Responses may normalize the
+    // submitted revision but must never replace edits made while it was saving.
+    function createSettingsModel() {
+      let state = settingsInitialState();
+      let active = true;
+      let revision = 0;
+      let loading = false;
+      const listeners = new Set();
+      const requests = new Set();
+      function update(patch) {
+        if (!active) return;
+        state = { ...state, ...patch };
+        for (const listener of listeners) listener(state);
+      }
+      async function request(path, options = {}) {
+        const controller = new AbortController();
+        let deadline;
+        let cancel;
+        const cancelled = new Promise((_, reject) => {
+          cancel = () => { controller.abort(); reject(new Error('request-timeout-or-cancelled')); };
+          deadline = window.setTimeout(cancel, POLL_TIMEOUT_MS);
+        });
+        requests.add(cancel);
+        try {
+          const work = (async () => {
+            const response = await hostFetch(API + path, { credentials: 'same-origin', ...options, signal: controller.signal });
+            const payload = await response.json();
+            if (!response.ok || !payload || payload.ok !== true) {
+              throw Object.assign(new Error(payload && payload.reason || 'http-' + response.status), {
+                certain: response.status >= 400 && response.status < 500 || payload && payload.reason === 'plugin-unloaded',
+              });
+            }
+            return payload;
+          })();
+          return await Promise.race([work, cancelled]);
+        } finally {
+          window.clearTimeout(deadline);
+          requests.delete(cancel);
+        }
+      }
+      async function load() {
+        if (!active || loading || state.busy) return;
+        loading = true;
+        update({ loading: true, reason: '' });
+        try {
+          const payload = await request('/radar');
+          if (!validSettings(payload.config)) throw new Error('invalid-response');
+          update({ config: payload.config, loading: false, dirty: false, status: '', reason: '' });
+        } catch (error) {
+          update({ loading: false, reason: String(error.message || error).slice(0, 160) });
+        } finally { loading = false; }
+      }
+      async function action(kind) {
+        if (!active || !state.config || state.busy || loading) return;
+        const submittedRevision = revision;
+        const body = kind === 'save' ? JSON.stringify({ config: state.config }) : undefined;
+        update({ busy: kind, status: kind === 'save' ? 'btn.saving' : 'test.sending', reason: '' });
+        try {
+          const payload = await request(kind === 'save' ? '/config' : '/test', {
+            method: 'POST', ...(body ? { headers: { 'content-type': 'application/json' }, body } : {}),
+          });
+          if (kind === 'save') {
+            if (!validSettings(payload.config)) throw new Error('invalid-response');
+            if (revision === submittedRevision) update({ config: payload.config, dirty: false, status: 'btn.saved' });
+            else update({ status: 'btn.savedEarlier' });
+          } else update({ status: payload.submitted === true ? 'test.sent' : 'test.noToast' });
+        } catch (error) {
+          update({ status: kind + (error.certain ? '.error' : '.unknown'), reason: String(error.message || error).slice(0, 160) });
+        } finally { update({ busy: '' }); }
+      }
+      return {
+        getState: () => state,
+        subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); },
+        load,
+        save: () => action('save'),
+        test: () => action('test'),
+        set(mutator) {
+          if (!active || !state.config) return;
+          const next = JSON.parse(JSON.stringify(state.config));
+          mutator(next);
+          revision += 1;
+          update({ config: next, dirty: true, status: '', reason: '' });
+        },
+        refreshPermission() { update({}); },
+        dispose() {
+          active = false;
+          for (const cancel of requests) cancel();
+          requests.clear();
+          listeners.clear();
+        },
+      };
+    }
+
     function SettingsPage(props) {
       const t = props.t;
-      const [local, setLocal] = React.useState(null);
-      const [status, setStatus] = React.useState('');
-      const [dirty, setDirty] = React.useState(false);
-
+      const [local, setLocal] = React.useState(settingsInitialState);
+      const model = React.useRef(null);
       React.useEffect(() => {
-        let alive = true;
-        fetch(API + '/radar', { credentials: 'same-origin' })
-          .then((r) => r.json())
-          .then((payload) => {
-            if (!alive || !payload || payload.ok !== true) return;
-            setLocal({ config: payload.config });
-          })
-          .catch(() => {});
-        return () => { alive = false; };
+        const current = createSettingsModel();
+        model.current = current;
+        const unsubscribe = current.subscribe(setLocal);
+        void current.load();
+        return () => { unsubscribe(); current.dispose(); model.current = null; };
       }, []);
 
-      if (local === null) {
-        return h('div', { style: { padding: '16px', color: C.muted } }, h('p', null, textKey(t, 'load.error')));
+      const buttonStyle = (primary) => ({
+        padding: '7px 18px', borderRadius: '9px', fontSize: '13px', fontWeight: 600,
+        cursor: 'pointer', border: '1px solid ' + (primary ? C.accent : C.border),
+        background: primary ? C.accent : 'transparent', color: primary ? C.onAccent : C.text,
+      });
+
+      if (local.config === null) {
+        return h('div', { style: { padding: '16px', color: C.muted }, role: 'status', 'aria-live': 'polite' },
+          h('p', null, textKey(t, local.loading ? 'load.loading' : 'load.error')),
+          !local.loading ? h('button', { type: 'button', style: buttonStyle(false), onClick: () => { void model.current?.load(); } }, textKey(t, 'btn.retry')) : null,
+        );
       }
 
       const cfg = local.config;
-      const set = (mutator) => {
-        const next = JSON.parse(JSON.stringify(cfg));
-        mutator(next);
-        setLocal({ config: next });
-        setDirty(true);
-        setStatus('');
-      };
-
-      const save = () => {
-        setStatus(textKey(t, 'btn.saving'));
-        fetch(API + '/config', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ config: local.config }),
-        })
-          .then((r) => r.json())
-          .then((payload) => {
-            if (payload && payload.ok) {
-              setLocal({ config: payload.config });
-              setDirty(false);
-              setStatus(textKey(t, 'btn.saved'));
-            } else {
-              setStatus('[' + (payload && payload.reason) + ']');
-            }
-          })
-          .catch(() => setStatus('error'));
-      };
-
-      const test = () => {
-        fetch(API + '/test', { method: 'POST', credentials: 'same-origin' })
-          .then((r) => r.json())
-          .then((payload) => setStatus(payload && payload.ok === true
-            ? textKey(t, payload.submitted === true ? 'test.sent' : 'test.noToast')
-            : 'error'))
-          .catch(() => setStatus('error'));
-      };
+      const dirty = local.dirty;
+      const status = local.status ? textKey(t, local.status) + (local.reason ? ' [' + local.reason + ']' : '') : '';
+      const set = (mutator) => model.current?.set(mutator);
+      const save = () => { void model.current?.save(); };
+      const test = () => { void model.current?.test(); };
 
       const supported = typeof Notification !== 'undefined';
       const perm = supported ? Notification.permission : 'unsupported';
       const permTone = perm === 'granted' ? 'ok' : perm === 'denied' ? 'bad' : 'muted';
       const permText = { granted: 'sys.granted', denied: 'sys.denied', default: 'sys.default' }[perm] || 'sys.unsupported';
-
-      const buttonStyle = (primary) => ({
-        padding: '7px 18px',
-        borderRadius: '9px',
-        fontSize: '13px',
-        fontWeight: 600,
-        cursor: 'pointer',
-        border: '1px solid ' + (primary ? C.accent : C.border),
-        background: primary ? C.accent : 'transparent',
-        color: primary ? '#fff' : C.text,
-      });
 
       return h('div', { style: { padding: '6px 16px 28px', maxWidth: '760px', color: C.text } },
         h('div', { style: { marginBottom: '14px' } },
@@ -540,10 +711,10 @@ window.__ModuleLoader__.load({
             h(Row, { label: textKey(t, 'sys.permission'), first: true, tight: true },
               h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
                 h(Badge, { text: textKey(t, permText), tone: permTone }),
-                (supported && perm !== 'granted')
+                (supported && perm === 'default')
                   ? h('button', {
                     type: 'button',
-                    onClick: () => { requestSystemPermission().then(() => setLocal({ config: { ...cfg } })); },
+                    onClick: () => { const current = model.current; void requestSystemPermission().then(() => current?.refreshPermission()); },
                     style: { ...buttonStyle(false), padding: '4px 12px', fontSize: '12px' },
                   }, textKey(t, 'sys.request'))
                   : null,
@@ -555,20 +726,21 @@ window.__ModuleLoader__.load({
 
         h(Card, { title: textKey(t, 'section.advanced') },
           h(Row, { label: textKey(t, 'opt.cooldown'), first: true },
-            h(NumInput, { value: Math.round((cfg.cooldownMs || 0) / 1000), min: 0, onChange: (v) => set((n) => { n.cooldownMs = Math.max(0, Number(v) || 0) * 1000; }) }),
+            h(NumInput, { value: cfg.cooldownMs === '' ? '' : Number(cfg.cooldownMs) / 1000, min: 0, max: 86400, step: 0.001, onChange: (v) => set((n) => { n.cooldownMs = v === '' ? '' : Number(v) * 1000; }) }),
           ),
           h(Row, { label: textKey(t, 'opt.summary') },
-            h(NumInput, { value: cfg.summaryMaxChars, min: 1, onChange: (v) => set((n) => { n.summaryMaxChars = Math.max(1, Number(v) || 48); }) }),
+            h(NumInput, { value: cfg.summaryMaxChars, min: 1, max: 4096, step: 1, onChange: (v) => set((n) => { n.summaryMaxChars = v; }) }),
           ),
           h(Row, { label: textKey(t, 'opt.titlePrefix') },
             h(TextInput, { value: cfg.titlePrefix, onChange: (v) => set((n) => { n.titlePrefix = v; }) }),
           ),
         ),
 
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' } },
-          h('button', { type: 'button', onClick: save, style: buttonStyle(true) }, textKey(t, 'btn.save')),
-          h('button', { type: 'button', onClick: test, style: buttonStyle(false) }, textKey(t, 'btn.test')),
-          h('span', { style: { fontSize: '12.5px', color: dirty ? C.warn : C.muted } }, status || (dirty ? '*' : '')),
+        h('p', { style: { fontSize: '12px', color: C.faint } }, textKey(t, 'test.hint')),
+        h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginTop: '4px' } },
+          h('button', { type: 'button', onClick: save, disabled: !!local.busy || !dirty, style: { ...buttonStyle(true), opacity: local.busy || !dirty ? 0.5 : 1 } }, textKey(t, 'btn.save')),
+          h('button', { type: 'button', onClick: test, disabled: !!local.busy, style: { ...buttonStyle(false), opacity: local.busy ? 0.5 : 1 } }, textKey(t, 'btn.test')),
+          h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12.5px', color: dirty ? C.warn : C.muted } }, status || (dirty ? '*' : '')),
         ),
       );
     }
@@ -576,6 +748,14 @@ window.__ModuleLoader__.load({
     /* -------------------------------------------------------------- wiring */
     function apply(ctx) {
       appCtx = ctx;
+      watcher.active = true;
+      watcher.cfg = null;
+      watcher.system = false;
+      watcher.seeded = false;
+      watcher.lastAt = 0;
+      watcher.lastSequence = 0;
+      watcher.journalId = null;
+      watcher.seen.clear();
       const locale = ctx.locale;
       if (locale && typeof locale.register === 'function') {
         ctx.effect(() => locale.register(NS, { zh, en }), 'task-radar dictionaries');
@@ -616,6 +796,11 @@ window.__ModuleLoader__.load({
       } catch { /* non-DOM host; the Settings button still works */ }
 
       ctx.effect(() => () => {
+        watcher.active = false;
+        if (watcher.request) watcher.request.cancel();
+        watcher.request = null;
+        watcher.inFlight = false;
+        appCtx = null;
         disarmWatcher();
         if (watcher.onVisible !== null) {
           try { document.removeEventListener('visibilitychange', watcher.onVisible); } catch { /* ignore */ }
@@ -628,7 +813,7 @@ window.__ModuleLoader__.load({
       name: 'task-radar',
       inject: ['slots', 'locale', 'uiWorkspace'],
       apply,
-      __internals: { NS, API, zh, en, textKey, tick, watcher, SettingsPage, showSystemNotification, openSessionById },
+      __internals: { NS, API, zh, en, textKey, tick, watcher, SettingsPage, createSettingsModel, requestSystemPermission, showSystemNotification, openSessionById },
     };
     return moduleExports;
   },

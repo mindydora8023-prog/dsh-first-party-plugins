@@ -26,6 +26,9 @@ export const KIND_LABELS = Object.freeze({
 });
 
 const STR_LIMIT = 4096;
+// Keep notification summaries compact and cooldowns within one day.
+const SUMMARY_MAX_CHARS = 4096;
+const COOLDOWN_MAX_MS = 24 * 60 * 60 * 1000;
 
 export const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
@@ -67,16 +70,26 @@ function objectAt(value) {
   return typeof value === 'object' && value !== null ? value : {};
 }
 
-/**
- * Clamp the cooldown, but keep an explicit 0 meaningful (0 = no cooldown).
- * `... || DEFAULT` used to swallow 0 into the default 4000ms; a negative or
- * non-numeric value still falls back to the default.
- */
-function cooldown(value) {
-  if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.cooldownMs;
+/** Accept only finite numbers or non-blank numeric strings, without coercing objects. */
+function finiteNumber(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && value.trim() === '') return undefined;
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return DEFAULT_CONFIG.cooldownMs;
-  return Math.floor(n);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Keep an explicit 0 meaningful (0 = no cooldown); negative values use the default. */
+function cooldown(value) {
+  const n = finiteNumber(value);
+  if (n === undefined || n < 0) return DEFAULT_CONFIG.cooldownMs;
+  return Math.max(0, Math.min(COOLDOWN_MAX_MS, Math.floor(n)));
+}
+
+/** Preserve the legacy zero fallback and negative-summary lower bound. */
+function summaryLimit(value) {
+  const n = finiteNumber(value);
+  if (n === undefined || n === 0) return DEFAULT_CONFIG.summaryMaxChars;
+  return Math.max(1, Math.min(SUMMARY_MAX_CHARS, Math.floor(n)));
 }
 
 /** Merge an arbitrary stored/input value over the defaults and sanitize it. */
@@ -89,7 +102,7 @@ export function normalizeConfig(value) {
     enabled: bool(source.enabled, DEFAULT_CONFIG.enabled),
     rootsOnly: bool(source.rootsOnly, DEFAULT_CONFIG.rootsOnly),
     cooldownMs: cooldown(source.cooldownMs),
-    summaryMaxChars: Math.max(1, Math.floor(Number(source.summaryMaxChars) || DEFAULT_CONFIG.summaryMaxChars)),
+    summaryMaxChars: summaryLimit(source.summaryMaxChars),
     titlePrefix: str(source.titlePrefix).trim().slice(0, 32) || DEFAULT_CONFIG.titlePrefix,
     events: {
       turnStart: bool(events.turnStart, DEFAULT_CONFIG.events.turnStart),

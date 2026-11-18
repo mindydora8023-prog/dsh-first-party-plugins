@@ -10,7 +10,7 @@
  *     ToastNotificationManager -- -EncodedCommand, env-passed strings, sanitized
  *     subprocess env);
  *   - browser OS notification (the client half): it cannot see host events, so a
- *     bounded in-memory journal is exposed at GET /task-radar/radar for the
+ *     bounded in-memory journal is exposed at GET /api/task-radar/radar for the
  *     client to poll and turn into `new Notification(...)`.
  *
  * The "workspace . session" location line is resolved from workspaceRegistry +
@@ -25,21 +25,24 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 import { statePath } from './state-dir.js';
 import { DEFAULT_CONFIG, KIND_LABELS, normalizeConfig } from './config.js';
+import { readConfigFile, CONFIG_FILE_MAX_BYTES } from './config-file.js';
+import { adaptHandler } from './fetch-handler.js';
 
 export const name = 'dsh-plugin-task-radar';
 export const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-/** `webServer` is optional (route registered when present). */
-export const inject = ['webServer'];
+/** Native notifications work without a browser carrier. */
+export const inject = [];
 
-const PROFILE = '/task-radar';
+const PROFILE = '/api/task-radar';
 const JOURNAL_LIMIT = 24;
 
 // -- paths -----------------------------------------------------------------
@@ -55,22 +58,25 @@ export function configFilePath() {
   return statePath('task-radar', 'config.json');
 }
 
-function readConfigFile(file) {
-  try {
-    const raw = readFileSync(file, 'utf8');
-    if (Buffer.byteLength(raw) > 256 * 1024) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
 /** Atomic write: tmp then rename, so a crash never leaves a half file. */
 function writeConfigFile(file, value) {
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = file + '.tmp';
-  writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
-  renameSync(tmp, file);
+  const tmp = file + '.' + randomUUID() + '.tmp';
+  let created = false;
+  try {
+    const fd = openSync(tmp, 'wx', 0o600);
+    created = true;
+    try {
+      writeFileSync(fd, JSON.stringify(value, null, 2), 'utf8');
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, file);
+  } finally {
+    if (created) {
+      try { unlinkSync(tmp); } catch { /* renamed or cleanup unavailable */ }
+    }
+  }
 }
 
 // -- toast (Windows) -------------------------------------------------------
@@ -289,11 +295,15 @@ export function apply(ctx, options = {}) {
   let cfg = normalizeConfig(stored);
 
   function persist(next) {
-    cfg = normalizeConfig(next);
-    try { writeConfigFile(file, cfg); } catch { /* persistence failure never breaks notify */ }
+    const candidate = normalizeConfig(next);
+    // Publish only after the atomic replacement succeeds. A failed save keeps
+    // both active notification behavior and the last durable config unchanged.
+    writeConfigFile(file, candidate);
+    cfg = candidate;
   }
 
   const journal = [];
+  const journalId = randomUUID();
   const states = new Map();
   // Cap per-agent state so a long-lived host that never fires agent/disposed for
   // some sessions cannot grow this Map without bound. Evict the oldest entry
@@ -315,15 +325,18 @@ export function apply(ctx, options = {}) {
   }
 
   function isRoot(session) {
-    const depth = session && session.header && session.header.delegationDepth;
+    const header = session && session.header;
+    if (header && header.origin === 'subagent') return false;
+    const depth = header && header.delegationDepth;
     return depth == null || depth === 0;
   }
   function tracked(session) {
     return cfg.rootsOnly ? isRoot(session) : true;
   }
 
+  let journalSequence = 0;
   function pushJournal(entry) {
-    journal.push(entry);
+    journal.push({ ...entry, sequence: ++journalSequence });
     while (journal.length > JOURNAL_LIMIT) journal.shift();
   }
 
@@ -334,8 +347,8 @@ export function apply(ctx, options = {}) {
     const id = session && session.id != null ? String(session.id) : (state && state.id) || '';
     const now = nowOf();
     if (state) {
-      const last = (state.lastAt && state.lastAt[kind]) || 0;
-      if (now - last < cfg.cooldownMs) return;
+      const last = state.lastAt && state.lastAt[kind];
+      if (typeof last === 'number' && now >= last && now - last < cfg.cooldownMs) return;
       state.lastAt = state.lastAt || {};
       state.lastAt[kind] = now;
     }
@@ -373,7 +386,16 @@ export function apply(ctx, options = {}) {
     if (status === 'running') {
       const wasRunning = state.running;
       state.running = true;
-      if (!wasRunning && cfg.events.turnStart) emit('turnStart', state, agent.session);
+      if (!wasRunning) {
+        // Running is published before the next user/message is admitted. Never
+        // describe a new run using the previous run's prompt or question.
+        state.lastPrompt = '';
+        state.lastReason = null;
+        state.waiting = false;
+        state.waitingCallId = null;
+        state.waitingText = '';
+        if (cfg.events.turnStart) emit('turnStart', state, agent.session);
+      }
       return;
     }
     if (!state.running) return;
@@ -382,6 +404,9 @@ export function apply(ctx, options = {}) {
     const kind = REASON_KIND[state.lastReason] || 'finished';
     state.turnStarted = false;
     state.lastReason = null;
+    state.waiting = false;
+    state.waitingCallId = null;
+    state.waitingText = '';
     if (!active) return;
     emit(kind, state, agent.session);
   }
@@ -398,9 +423,15 @@ export function apply(ctx, options = {}) {
       case 'turn/end':
         state.lastReason = event.data && event.data.reason ? event.data.reason.kind : null;
         break;
-      case 'user/message':
-        state.lastPrompt = summarizePrompt(event.data && event.data.message, cfg.summaryMaxChars);
+      case 'user/message': {
+        // Current DSH stores the UserMessage itself; accept the historical
+        // wrapper too. Injected runtime/skill context must not rename the task.
+        const message = event.data && (event.data.message || event.data);
+        if (message && (!message.source || message.source.kind === 'user')) {
+          state.lastPrompt = summarizePrompt(message, cfg.summaryMaxChars);
+        }
         break;
+      }
       case 'tool/call': {
         const call = event.data;
         if (call && call.name === 'ask_user_question') {
@@ -413,7 +444,9 @@ export function apply(ctx, options = {}) {
       }
       case 'tool/result': {
         const result = event.data;
-        if (state.waiting && result && result.message && result.message.callId === state.waitingCallId) {
+        const message = result && result.message;
+        const callId = message && (message.toolCallId ?? (message.source && message.source.callId) ?? message.callId);
+        if (state.waiting && callId != null && callId === state.waitingCallId) {
           state.waiting = false;
           state.waitingCallId = null;
           state.waitingText = '';
@@ -432,7 +465,7 @@ export function apply(ctx, options = {}) {
     if (!state) return;
     const wasRunning = state.running;
     states.delete(agent.id);
-    if (wasRunning) emit('waiting', state, agent.session);
+    if (wasRunning && tracked(agent.session || state.session)) emit('waiting', state, agent.session);
   }
 
   // Seed: existing running agents are treated as active so their finish notifies.
@@ -443,6 +476,7 @@ export function apply(ctx, options = {}) {
         if (agent && tracked(agent.session) && agent.status === 'running') {
           const state = stateFor(agent.id);
           state.id = agent.id;
+          state.session = agent.session;
           state.running = true;
           state.turnStarted = true;
         }
@@ -462,43 +496,123 @@ export function apply(ctx, options = {}) {
 
   // -- routes --------------------------------------------------------------
 
-  ctx.inject(['webServer'], (scoped) => {
-    const server = typeof scoped.get === 'function' ? scoped.get('webServer') : scoped.webServer;
-    if (server === undefined || server === null) return;
-    const handler = createHandler(() => cfg, persist, journal, file, (_ctx, current, payload) => toastSender(ctx, current, payload));
-    scoped.effect(() => server.register({ kind: 'prefix', path: PROFILE, handler }), 'task-radar routes');
-  });
-}
-
-function json(res, status, value) {
-  const body = JSON.stringify(value);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
-  res.end(body);
-}
-
-function readBody(req, limit) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on('data', (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error('body too large'));
-        try { req.destroy(); } catch { /* ignore */ }
-        return;
+  // Connection owns authenticated routes across browser and shell carriers.
+  // Raw webServer routes would skip its Host/Origin and Peer checks.
+  ctx.inject(['connection'], (scoped) => {
+    const connection = typeof scoped.get === 'function' ? scoped.get('connection') : scoped.connection;
+    if (!connection) return;
+    scoped.effect(() => {
+      const lifetime = new AbortController();
+      const handler = createHandler(() => cfg, persist, journal, file, (_ctx, current, payload) => toastSender(ctx, current, payload), journalId, lifetime.signal);
+      const fetch = adaptHandler(handler);
+      const unregister = [];
+      const stop = async () => {
+        lifetime.abort();
+        await Promise.allSettled(unregister.splice(0).map((off) => {
+          try { return off(); } catch (error) { return Promise.reject(error); }
+        }));
+      };
+      try {
+        for (const [path, methods] of [['radar', ['GET', 'HEAD']], ['config', ['POST']], ['test', ['POST']]]) {
+          unregister.push(connection.fetch.register({ path: PROFILE + '/' + path, methods, requestBody: path === 'radar' ? 'buffered' : 'streaming', fetch }));
+        }
+      } catch (error) {
+        void stop();
+        throw error;
       }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+      return stop;
+    }, 'task-radar routes');
   });
 }
 
-export function createHandler(getCfg, persist, journal, file, toastSender = fireToast) {
+function json(res, status, value, { head = false, close = false } = {}) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body), ...(close ? { connection: 'close' } : {}) });
+  res.end(head ? undefined : body);
+}
+
+export const REQUEST_BODY_TIMEOUT_MS = 10000;
+export const REQUEST_BODY_LIMIT = CONFIG_FILE_MAX_BYTES;
+
+class RequestBodyError extends Error {
+  constructor(status, reason) {
+    super(reason);
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
+function readBody(req, limit, timeoutMs = REQUEST_BODY_TIMEOUT_MS, signal) {
+  return new Promise((resolve, reject) => {
+    if (req.aborted || (req.destroyed && !req.readableEnded)) {
+      reject(new RequestBodyError(400, 'request-aborted'));
+      return;
+    }
+    if (signal && signal.aborted) {
+      reject(new RequestBodyError(503, 'plugin-unloaded'));
+      return;
+    }
+    let size = 0;
+    let settled = false;
+    const chunks = [];
+    const timer = setTimeout(() => fail(408, 'request-timeout'), timeoutMs);
+    function finish(error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      if (error) {
+        chunks.length = 0;
+        req.pause();
+        reject(error);
+      } else {
+        resolve(Buffer.concat(chunks).toString('utf8'));
+        chunks.length = 0;
+      }
+      // Keep the error observer until close: IncomingMessage can emit an
+      // ECONNRESET after aborted or after a response closes an unread upload.
+      if (req.destroyed) detach();
+    }
+    function fail(status, reason) { finish(new RequestBodyError(status, reason)); }
+    function detach() {
+      req.removeListener('error', onError);
+      req.removeListener('close', onClose);
+    }
+    function onAbort() { fail(503, 'plugin-unloaded'); }
+    function onError() { fail(400, req.aborted ? 'request-aborted' : 'request-read-error'); }
+    function onClose() {
+      fail(400, 'request-aborted');
+      detach();
+    }
+    function onEnd() { finish(); }
+    function onData(chunk) {
+      if (settled) return;
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      if (size > limit) { fail(413, 'body-too-large'); return; }
+      chunks.push(bytes);
+    }
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    req.on('error', onError);
+    req.on('close', onClose);
+    req.on('end', onEnd);
+    req.on('data', onData);
+    const declared = Number(req.headers && req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > limit) fail(413, 'body-too-large');
+  });
+}
+
+export function createHandler(getCfg, persist, journal, file, toastSender = fireToast, journalId = randomUUID(), signal) {
   return async (req, res) => {
+    if (signal && signal.aborted) {
+      json(res, 503, { ok: false, reason: 'plugin-unloaded' }, { close: true });
+      return;
+    }
     let url;
     try {
-      url = new URL(req.url || '/', 'http://task-radar.invalid');
+      url = new URL(req.url || '/', 'http://api/task-radar.invalid');
     } catch {
       json(res, 400, { ok: false, reason: 'bad-url' });
       return;
@@ -508,11 +622,13 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
 
     try {
       if (path === PROFILE + '/radar' && (method === 'GET' || method === 'HEAD')) {
-        json(res, 200, { ok: true, version, journal: journal.slice(), config: getCfg() });
+        json(res, 200, { ok: true, version, journalId, journal: journal.slice(), config: getCfg() }, { head: method === 'HEAD' });
         return;
       }
       if (path === PROFILE + '/config' && method === 'POST') {
-        const raw = await readBody(req, 256 * 1024);
+        const raw = await readBody(req, REQUEST_BODY_LIMIT, REQUEST_BODY_TIMEOUT_MS, signal);
+        if (req.aborted) return;
+        if (signal && signal.aborted) throw new RequestBodyError(503, 'plugin-unloaded');
         let incoming;
         try {
           incoming = JSON.parse(raw);
@@ -520,7 +636,12 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
           json(res, 400, { ok: false, reason: 'bad-json' });
           return;
         }
-        persist(incoming && incoming.config ? incoming.config : incoming);
+        const candidate = incoming && Object.hasOwn(incoming, 'config') ? incoming.config : incoming;
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+          json(res, 400, { ok: false, reason: 'invalid-config' });
+          return;
+        }
+        persist(candidate);
         json(res, 200, { ok: true, config: getCfg(), file });
         return;
       }
@@ -536,6 +657,11 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
       }
       json(res, 404, { ok: false, reason: 'not-found' });
     } catch (error) {
+      if (req.aborted || res.destroyed || res.writableEnded) return;
+      if (error instanceof RequestBodyError) {
+        json(res, error.status, { ok: false, reason: error.reason }, { close: true });
+        return;
+      }
       json(res, 500, { ok: false, reason: 'internal', message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) });
     }
   };
@@ -549,6 +675,7 @@ export const __internals = {
   composeLocation,
   summarizePrompt,
   extractQuestion,
+  readBody,
   createHandler,
   DEFAULT_CONFIG,
 };
