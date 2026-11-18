@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP on demand",
+    "description": "A settings page lists the MCP servers that can be mounted and which are on now. The model can still mount one for a task and release it afterwards, instead of keeping hundreds of tools in every request."
+  }
+}

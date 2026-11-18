@@ -2,9 +2,15 @@
 
 最近核对：2026-11-18。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
+## 0.3.5：加入 mcp-on-demand 0.2.0
+
+第十款插件。设置页列出可挂载的 MCP 服务器、是否已挂载，并可以启用或释放。模型仍用 `mcpod_list` / `mcpod_enable` / `mcpod_disable` 走同一套操作。
+
+公开补丁只留一个 `example` 服务器（`node ./server.mjs`）。本机 REA 与 agent-desktop 的命令与路径不进仓。
+
 ## 0.3.4：收短每轮提示，归档清扫不再全量列举
 
-仍是九款插件。mcp-on-demand 留在本机 profile：它的 bundle 配置写着本机 REA 与 agent-desktop 路径，放进公开仓会带上机器路径。
+当时是九款插件。mcp-on-demand 留在本机 profile：它的 bundle 配置写着本机 REA 与 agent-desktop 路径，放进公开仓会带上机器路径。这条已被 0.3.5 取代：插件进仓，机器路径仍不进。
 
 - github 0.1.1、gmail 0.1.1、filekit 0.1.1、ops-lite 0.1.1：每个工具说明收成一句。系统提示只留仓库写法、写操作确认、文档与纯文本的分界、分页和 `retry: never`。默认值仍由执行函数处理。
 - archived-sessions 0.5.2：每小时清扫只对归档 id 调 `findLog`。没有 `findLog` 的宿主仍走原来的 `list()`。删除事务、幽灵条目和级联边界没变。

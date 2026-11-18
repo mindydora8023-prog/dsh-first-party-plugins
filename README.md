@@ -1,6 +1,6 @@
 # DSH 自开发插件
 
-面向 DeepSeek Harness 的九款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
+面向 DeepSeek Harness 的十款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
@@ -13,6 +13,7 @@
 | [next-say](plugins/next-say/README.md) | 0.2.0 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [task-radar](plugins/task-radar/README.md) | 0.2.1 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
 | [magpie-models](plugins/magpie-models/README.md) | 0.1.1 | 轮询网关模型目录并写回模型选择器 | 工作区实现 |
+| [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.2.0 | 按需挂载 MCP：设置页列出服务器，模型也可启用后释放 | 工作区实现 |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 

@@ -1,0 +1,16 @@
+# Bundle patch for dsh-plugin-mcp-on-demand.
+# Replace `example` with your own server. Nothing mounts until mcpod_enable
+# or the settings page enables it. Do not commit machine-specific paths.
+- insert:
+    - id: mcp-on-demand
+      name: 'dsh-plugin-mcp-on-demand'
+      config:
+        defaultTtlMs: 900000
+        servers:
+          example:
+            transport: stdio
+            command: node
+            args:
+              - ./server.mjs
+            startupTimeoutMs: 30000
+            ttlMs: 900000
