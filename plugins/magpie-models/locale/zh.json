@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Magpie 模型同步",
+    "description": "轮询 Magpie 网关的模型目录，把新模型写进 DSH 选择器。网关不通或返回空列表时保留现有清单。"
+  }
+}

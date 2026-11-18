@@ -1,6 +1,6 @@
 # DSH 自开发插件
 
-面向 DeepSeek Harness 的八款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
+面向 DeepSeek Harness 的九款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
@@ -11,13 +11,14 @@
 | [gmail](plugins/gmail/README.md) | 0.1.0 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
 | [ops-lite](plugins/ops-lite/README.md) | 0.1.0 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.0 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
-| [task-radar](plugins/task-radar/README.md) | 0.1.2 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [task-radar](plugins/task-radar/README.md) | 0.2.1 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [magpie-models](plugins/magpie-models/README.md) | 0.1.0 | 轮询网关模型目录并写回模型选择器 | 工作区实现 |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 
 ## 安装
 
-需要 Node.js 22 或以上和 DeepSeek Harness。发布源码来自 DSH 0.2.2-rc.1 的本地环境；其他宿主版本需验证服务与客户端接口。
+需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 0.2.1 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本；其他插件的原始发布环境为 DSH 0.2.2-rc.1。各包的宿主版本要求以其清单与说明为准。升级或重载前先检查正在运行的会话，安排好操作时机。
 
 下载或克隆本仓库，选取需要的插件。在 DSH 插件管理中使用本地包安装入口；或者关闭宿主后，合并目标 profile 的配置。以下仅以两个插件示例，请替换绝对路径并保留原配置：
 

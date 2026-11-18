@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+credentials.json
+*-status.json
+*-state.json
+*.log
+*.jsonl
+*.tgz
+attachments/
+coverage/
+.DS_Store
+Thumbs.db

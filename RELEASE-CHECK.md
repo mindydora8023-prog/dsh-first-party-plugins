@@ -1,6 +1,14 @@
 # 发布检查记录
 
-最近核对：2026-11-17。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+最近核对：2026-11-18。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+
+## 0.3.3：加入 magpie-models 0.1.0
+
+新增第九款插件：把 OpenAI 兼容网关的模型目录写回 DSH 的模型选择器。选择器只读 profile 里 `llm-pi-ai` 的 `providers.*.models`，端点发现的结果不落盘，所以网关新增模型不会自己出现；插件按间隔请求 `GET {baseURL}/models`，按每条模型的 `native_endpoints` 分到 chat 与 responses 两条路由，再经宿主 `configEditor` 只替换发生变化的路由模型表。网关不通、返回空列表或清单未变时不写入。
+
+随包文件：`lib/plan.js`（纯函数：清单解析、端点分流、目录合并）、`lib/index.js`（定时器、请求与写入）、两个语言文件、图标、bundle 补丁、MIT 主许可证。无第三方代码，因此不附 THIRD_PARTY_NOTICES。
+
+测试 10 条，全部针对纯函数：端点分流（含两端点只进 responses）、`none` 保留为 `off: none`、`ultra` 并入 `max`、网关缺 `max_output_tokens` 时保留既有上限、清单相同时不报变化、空清单不清空既有路由、网关删除的模型被摘掉。定时请求与真实写入属宿主行为，由工作区实跑验证：同步后 profile 出现网关上新增的模型，状态文件在下一个间隔按预期刷新。
 
 ## 0.3.2：next-say 0.2.0
 
