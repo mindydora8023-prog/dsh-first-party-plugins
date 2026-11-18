@@ -384,12 +384,16 @@ export function apply(ctx) {
   status.priced_models = pricedCount;
   writeStatus();
 
-  // Kick the first refresh off the apply path: boot must not wait on the network.
-  if (stale()) void refresh();
+  // A DeepSeek-only machine never reads this catalog: those ids are priced
+  // by the built-in table. Downloading it at boot spent a megabyte and a
+  // request for models the page will not use. The first non-DeepSeek name is
+  // what starts it.
+  let catalogWanted = false;
+  const wantsCatalog = (names) => names.some((name) => !name.toLowerCase().includes('deepseek'));
 
   ctx.effect(() => {
     const timer = setInterval(() => {
-      if (stale()) void refresh();
+      if (catalogWanted && stale()) void refresh();
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);
   }, 'session-meter price refresh');
@@ -407,19 +411,20 @@ export function apply(ctx) {
       return;
     }
     const url = new URL(req.url ?? '/', 'http://session-meter.invalid');
-    // A stale snapshot is still a valid answer. Waiting here used to pin the
-    // pill on the full models.dev download whenever the cache was older than
-    // the refresh window, including the refresh apply() had already started.
-    // Serve the snapshot and let that refresh finish in the background. Only
-    // an empty cache (first run, or a cache the loader rejected) has to wait.
-    if (stale()) {
-      const pending = refresh();
-      if (state.fetchedAt === 0) await pending;
-    }
     let names = [];
     const raw = url.searchParams.get('m');
     if (typeof raw === 'string' && raw.length > 0) {
       names = raw.split(',').map((name) => name.trim()).filter((name) => name.length > 0).slice(0, MAX_NAMES);
+    }
+    // DeepSeek names are priced from the built-in table, so they must not
+    // start the online catalog. A stale snapshot is still a valid answer:
+    // only an empty cache (first external model) waits for the download.
+    if (wantsCatalog(names)) {
+      catalogWanted = true;
+      if (stale()) {
+        const pending = refresh();
+        if (state.fetchedAt === 0) await pending;
+      }
     }
     if (responseCacheAt !== state.fetchedAt) {
       responseCache.clear();

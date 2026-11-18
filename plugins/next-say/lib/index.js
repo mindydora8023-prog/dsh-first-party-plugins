@@ -29,7 +29,6 @@ import {
   normalizeSuggestion,
   recentMessages,
   recentUserHistory,
-  resolveRoute,
 } from './predict.js';
 import {
   DEFAULTS,
@@ -292,29 +291,24 @@ function service(ctx, name) {
 /**
  * Which provider/model the auxiliary call runs on.
  *
- * Order: an explicitly pinned route from the settings page, then the session's own
- * model, then the global default.
+ * Order: an explicitly pinned route from the settings page, and nothing else.
  *
- * The settings page has offered `provider` / `model` ("pin a cheaper model") since
- * the first version, but this function ignored them -- the fields were decorative
- * and picking a model there changed nothing. Silent settings are worse than absent
- * ones, so they are honoured here.
+ * An empty route used to fall through to the session model. That billed every
+ * finished turn at the main model's price, which is the opposite of what an
+ * optional suggestion should cost. Leaving both fields empty now means "do not
+ * predict". A half-filled route is already normalised back to empty.
+ *
+ * The settings page has offered `provider` / `model` since the first version,
+ * but this function ignored them -- the fields were decorative and picking a
+ * model there changed nothing. A complete pair is honoured.
  */
-function routeFor(ctx, session, settings) {
+function routeFor(_ctx, _session, settings) {
   const pinnedProvider = typeof settings?.provider === 'string' ? settings.provider.trim() : '';
   const pinnedModel = typeof settings?.model === 'string' ? settings.model.trim() : '';
   if (pinnedProvider !== '' && pinnedModel !== '') {
     return { provider: pinnedProvider, model: pinnedModel };
   }
-
-  const selection = service(ctx, 'agentDefaultModel');
-  let fallback;
-  try {
-    fallback = typeof selection?.currentSelection === 'function' ? selection.currentSelection() : undefined;
-  } catch {
-    fallback = undefined;
-  }
-  return resolveRoute(session, fallback);
+  return undefined;
 }
 
 /**

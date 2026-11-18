@@ -21,7 +21,7 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
 ## 两道保险
 
 1. **TTL**：每台服务器有自己的时长（见下表）。模型忘了 `mcpod_disable` 时到点自动释放，Ghidra/Java 子进程不会在后台挂一整天。
-   已挂载时再调一次 `mcpod_enable`（可带新的 `ttl_seconds`）就是**续期**，不会重挂、不会重新付启动成本。
+   已挂载时再调一次 `mcpod_enable`（可带新的 `ttl_seconds`）就是**续期**，不会重挂、不会重新付启动成本。版本 0.2.1 起，真正调用 `mcp__<服务器>__*` 也会把释放时间重新算满；停手之后才开始倒计时，分析过程中不会被中途卸掉。
 2. **卸载即释放**：插件被停用或卸载时，所有活着的注册都会 dispose（`ctx.effect` 里登记）。
 
 | 服务器 | TTL | 为什么是这个数 |

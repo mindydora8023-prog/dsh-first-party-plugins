@@ -29,7 +29,11 @@ async function bounded(promise) {
   }
 }
 function generate(llm, timeoutMs = 30) {
-  return __internals.generate({ get: (name) => name === 'llm' ? llm : undefined }, session, { ...DEFAULTS, timeoutMs });
+  return __internals.generate(
+    { get: (name) => name === 'llm' ? llm : undefined },
+    session,
+    { ...DEFAULTS, timeoutMs, provider: 'p', model: 'm' },
+  );
 }
 
 test('deadline settles even when prepareCall ignores cancellation', async () => {

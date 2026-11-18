@@ -78,7 +78,7 @@ test('booleans are coerced strictly', () => {
   assert.equal(normalizeSettings({ historyEnabled: 'true' }).historyEnabled, false);
 });
 
-test('a half route is treated as follow-the-session', () => {
+test('a half route is treated as no prediction', () => {
   // provider without model would make every call fail; better to inherit.
   const settings = normalizeSettings({ provider: 'deepseek', model: '' });
   assert.equal(settings.provider, '');

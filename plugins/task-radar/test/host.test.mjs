@@ -136,6 +136,17 @@ test('handler returns 404 for an unknown path', async () => {
   assert.equal(res.status, 404);
 });
 
+test('radar reports whether any task is running', async () => {
+  const quiet = createHandler(() => ({}), () => {}, [], '/fixture/config.json', undefined, 'journal-a', undefined, () => false);
+  const busy = createHandler(() => ({}), () => {}, [], '/fixture/config.json', undefined, 'journal-b', undefined, () => true);
+  const first = fakeRes();
+  const second = fakeRes();
+  await quiet({ method: 'GET', url: '/api/task-radar/radar' }, first);
+  await busy({ method: 'GET', url: '/api/task-radar/radar' }, second);
+  assert.equal(JSON.parse(first.body).active, false);
+  assert.equal(JSON.parse(second.body).active, true);
+});
+
 test('radar exposes a stable journal generation that changes for a new instance', async () => {
   const first = createHandler(() => ({}), () => {}, [], '/fixture/config.json');
   const second = createHandler(() => ({}), () => {}, [], '/fixture/config.json');

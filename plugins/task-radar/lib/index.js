@@ -503,7 +503,13 @@ export function apply(ctx, options = {}) {
     if (!connection) return;
     scoped.effect(() => {
       const lifetime = new AbortController();
-      const handler = createHandler(() => cfg, persist, journal, file, (_ctx, current, payload) => toastSender(ctx, current, payload), journalId, lifetime.signal);
+      const activeNow = () => {
+        for (const state of states.values()) {
+          if (state.running === true || state.waiting === true) return true;
+        }
+        return false;
+      };
+      const handler = createHandler(() => cfg, persist, journal, file, (_ctx, current, payload) => toastSender(ctx, current, payload), journalId, lifetime.signal, activeNow);
       const fetch = adaptHandler(handler);
       const unregister = [];
       const stop = async () => {
@@ -604,7 +610,7 @@ function readBody(req, limit, timeoutMs = REQUEST_BODY_TIMEOUT_MS, signal) {
   });
 }
 
-export function createHandler(getCfg, persist, journal, file, toastSender = fireToast, journalId = randomUUID(), signal) {
+export function createHandler(getCfg, persist, journal, file, toastSender = fireToast, journalId = randomUUID(), signal, activeNow = () => false) {
   return async (req, res) => {
     if (signal && signal.aborted) {
       json(res, 503, { ok: false, reason: 'plugin-unloaded' }, { close: true });
@@ -622,7 +628,11 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
 
     try {
       if (path === PROFILE + '/radar' && (method === 'GET' || method === 'HEAD')) {
-        json(res, 200, { ok: true, version, journalId, journal: journal.slice(), config: getCfg() }, { head: method === 'HEAD' });
+        // `active` lets a page poll slowly while nothing is running. Windows
+        // Toast does not use this route; the browser notification does.
+        let active = false;
+        try { active = activeNow() === true; } catch { active = false; }
+        json(res, 200, { ok: true, version, journalId, active, journal: journal.slice(), config: getCfg() }, { head: method === 'HEAD' });
         return;
       }
       if (path === PROFILE + '/config' && method === 'POST') {

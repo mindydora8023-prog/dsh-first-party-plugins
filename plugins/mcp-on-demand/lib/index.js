@@ -43,6 +43,21 @@ export function apply(ctx, rawConfig) {
     const authored = buildTools(inner, config, { live, manager })
     const byName = Object.fromEntries(authored.map((definition) => [definition.name, definition]))
     const definitions = authored.map((definition) => defineTool(definition))
+
+    // A mounted server's tools cost prompt tokens on every later request.
+    // Restart its release from the last real mcp__<server>__* call, so an
+    // analysis that is still running is not torn down mid-way, and one that
+    // stopped does not sit until the original deadline.
+    const offActivity = typeof inner.on === 'function'
+      ? inner.on('tools/pre-execute', (exec, next) => {
+        try {
+          authored.noteActivity(exec?.name)
+        } catch (error) {
+          inner.logger.warn('mcp-on-demand: activity note failed: %s', error?.message ?? String(error))
+        }
+        return typeof next === 'function' ? next() : undefined
+      })
+      : undefined
     const disposers = definitions.map((definition) => inner.tools.register(definition))
 
     // The settings panel reads this route. A missing connection leaves the
@@ -94,6 +109,13 @@ export function apply(ctx, rawConfig) {
     })
 
     inner.effect(() => () => {
+      if (typeof offActivity === 'function') {
+        try {
+          offActivity()
+        } catch (error) {
+          inner.logger.warn('mcp-on-demand: activity listener disposal failed: %s', error?.message ?? String(error))
+        }
+      }
       for (const [serverName, entry] of live) {
         live.delete(serverName)
         if (entry.timer !== undefined) clearTimeout(entry.timer)

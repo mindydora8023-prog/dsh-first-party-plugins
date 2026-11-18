@@ -33,7 +33,9 @@ function harness(ttlMs = 60000) {
       list: () => [],
     }),
   }
-  const tools = Object.fromEntries(buildTools(ctx, config, state).map((tool) => [tool.name, tool]))
+  const built = buildTools(ctx, config, state)
+  const tools = Object.fromEntries(built.map((tool) => [tool.name, tool]))
+  tools.noteActivity = built.noteActivity
   return { tools, live, disposed, mounts: () => mounts }
 }
 
@@ -85,6 +87,28 @@ test('an unknown server is refused without touching the manager', async () => {
   assert.equal(refused.running, false)
   assert.equal(refused.status, 'unknown server')
   assert.equal(mounts(), 0)
+})
+
+test('a real mcp tool call restarts the release clock', async () => {
+  const { tools, live, disposed } = harness()
+  // enable() itself waits 400ms, so the TTL has to outlive that wait.
+  await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 1 })
+  const before = live.get('REA').expiresAt
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(tools.noteActivity('mcp__REA__open_binary'), true)
+  assert.ok(live.get('REA').expiresAt > before, 'the deadline moved forward')
+  assert.equal(tools.noteActivity('mcpod_list'), false)
+  assert.equal(tools.noteActivity('mcp__other__tool'), false)
+  await tools.mcpod_disable.execute({ name: 'REA' })
+  assert.deepEqual(disposed, ['REA'])
+})
+
+test('a server mounted without a time-to-live is not released by later calls', async () => {
+  const { tools, live } = harness()
+  await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 0 })
+  assert.equal(tools.noteActivity('mcp__REA__open_binary'), false)
+  assert.equal(live.get('REA').timer, undefined)
+  await tools.mcpod_disable.execute({ name: 'REA' })
 })
 
 test('a time-to-live disposes the server without another call', async () => {

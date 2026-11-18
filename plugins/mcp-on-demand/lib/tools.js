@@ -71,9 +71,10 @@ export function buildTools(ctx, config, state) {
   /**
    * (Re)schedule the automatic release of a mounted server.
    *
-   * Called on mount and again whenever the model re-enables an already mounted
-   * server, which is how it extends a long analysis without remounting (and
-   * therefore without paying the Ghidra startup again).
+   * Called on mount, on a repeated enable, and after a real `mcp__name__*` call.
+   * The last of those is what keeps a long analysis mounted: the clock starts
+   * again from the last use, so an idle server leaves instead of sitting for
+   * the whole configured window.
    *
    * @param {string} name
    * @param {number} ttlMs 0 disables the automatic release
@@ -98,6 +99,24 @@ export function buildTools(ctx, config, state) {
     }, ttlMs)
     if (typeof timer.unref === 'function') timer.unref()
     entry.timer = timer
+  }
+
+  /**
+   * Push a mounted server's release back to a full TTL from now.
+   *
+   * `tools/pre-execute` calls this for `mcp__<name>__*`. A server mounted with
+   * the automatic release turned off stays that way.
+   *
+   * @param {string} toolName
+   * @returns {boolean} whether a mounted server was extended
+   */
+  function noteActivity(toolName) {
+    const match = /^mcp__([^_].*?)__/.exec(typeof toolName === 'string' ? toolName : '')
+    if (match === null) return false
+    const entry = state.live.get(match[1])
+    if (entry === undefined || !(entry.ttlMs > 0)) return false
+    scheduleRelease(match[1], entry.ttlMs)
+    return true
   }
 
   /** The TTL an enable call asks for, falling back to the server's own. */
@@ -258,7 +277,7 @@ export function buildTools(ctx, config, state) {
       }
 
       const requestedTtl = requestedTtlFor(args, definition)
-      state.live.set(name, { dispose, timer: undefined, since: Date.now() })
+      state.live.set(name, { dispose, timer: undefined, since: Date.now(), ttlMs: requestedTtl })
       scheduleRelease(name, requestedTtl)
 
       // Let the client connect so the reported status means something.
@@ -321,5 +340,5 @@ export function buildTools(ctx, config, state) {
     },
   }
 
-  return [mcpList, mcpEnable, mcpDisable]
+  return Object.assign([mcpList, mcpEnable, mcpDisable], { noteActivity })
 }

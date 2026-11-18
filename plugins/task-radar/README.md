@@ -1,6 +1,6 @@
 # 任务雷达
 
-为 DeepSeek Harness 提供任务通知：Windows 原生 Toast 与浏览器系统通知两条通道，可分别开关。版本 0.1.2。
+为 DeepSeek Harness 提供任务通知：Windows 原生 Toast 与浏览器系统通知两条通道，可分别开关。版本 0.2.2。没有任务在跑时，浏览器通知的轮询从 2.5 秒放宽到 12 秒；Windows Toast 仍由宿主直接发送，不靠这次轮询。
 
 插件包含 Pasumao 通知引擎的改编与本工作区的配置、浏览器 journal、设置集成等开发。来源与适用 MIT 原文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，不声明全包独立原创。
 

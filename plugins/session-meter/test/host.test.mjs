@@ -201,7 +201,10 @@ test('a refresh replaces an existing snapshot instead of leaving it stale', asyn
       usdToCny: 7,
       models: { 'old-model': { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } },
     }));
-    await withPlugin(async () => {
+    await withPlugin(async (captured) => {
+      attach(captured);
+      const ask = fakeResponse();
+      await captured.route.handler({ method: 'GET', url: '/session-meter/prices?m=gpt-6-sol' }, ask);
       let saved;
       for (let attempt = 0; attempt < 40; attempt += 1) {
         try {
@@ -324,16 +327,10 @@ test('a stale cache answers immediately and refreshes behind the response', asyn
   await withUpstream(async ({ cacheFile }) => {
     // Older than the 24 h window, so the route must treat it as stale.
     const staleAt = Date.now() - 48 * 3600 * 1000;
-    writeFileSync(cacheFile, JSON.stringify({
-      version: 2,
-      fetchedAt: staleAt,
-      usdToCny: 7,
-      models: { 'cached-model': { input: 1, output: 2, cacheRead: 1, cacheWrite: 1 } },
-    }));
     let catalogHits = 0;
     let releaseCatalog;
     const held = new Promise((resolve) => { releaseCatalog = resolve; });
-    const server = createServer((req, res) => {
+    const heldServer = createServer((req, res) => {
       res.setHeader('content-type', 'application/json; charset=utf-8');
       if ((req.url ?? '').startsWith('/catalog')) {
         catalogHits += 1;
@@ -342,16 +339,20 @@ test('a stale cache answers immediately and refreshes behind the response', asyn
         res.end(JSON.stringify({ rates: { CNY: 7 } }));
       }
     });
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const origin = `http://127.0.0.1:${server.address().port}`;
-    process.env.SESSION_METER_PRICES_URL = `${origin}/catalog`;
-    process.env.SESSION_METER_FX_URL = `${origin}/fx`;
+    await new Promise((resolve) => heldServer.listen(0, '127.0.0.1', resolve));
+    process.env.SESSION_METER_PRICES_URL = `http://127.0.0.1:${heldServer.address().port}/catalog`;
+    process.env.SESSION_METER_FX_URL = `http://127.0.0.1:${heldServer.address().port}/fx`;
+    writeFileSync(cacheFile, JSON.stringify({
+      version: 2,
+      fetchedAt: staleAt,
+      usdToCny: 7,
+      models: { 'cached-model': { input: 1, output: 2, cacheRead: 1, cacheWrite: 1 } },
+    }));
     try {
       await withPlugin(async (captured) => {
         attach(captured);
-        // Let the background refresh from apply() reach the held catalog first,
-        // so the assertion below is about the request path, not about boot.
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // A DeepSeek-only name would not start the catalog. Ask for the cached
+        // foreign model so the refresh is the request's, not boot's.
         const res = fakeResponse();
         const pending = captured.route.handler({
           method: 'GET',
@@ -364,13 +365,16 @@ test('a stale cache answers immediately and refreshes behind the response', asyn
         assert.equal(settled, 'answered', 'a stale snapshot must not wait on the refresh');
         const payload = JSON.parse(res.body());
         assert.equal(payload.models['cached-model'].input, 1);
+        for (let attempt = 0; attempt < 20 && catalogHits === 0; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
         assert.equal(catalogHits > 0, true, 'the refresh still starts');
         releaseCatalog();
         await pending;
       });
     } finally {
       releaseCatalog();
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => heldServer.close(resolve));
     }
   });
 });
@@ -404,14 +408,14 @@ test('a matching etag skips the catalog body and keeps the cached rates', async 
     try {
       await withPlugin(async (captured) => {
         attach(captured);
+        const res = fakeResponse();
+        await captured.route.handler({ method: 'GET', url: '/session-meter/prices?m=cached-model' }, res);
         let status;
         for (let attempt = 0; attempt < 40; attempt += 1) {
           status = JSON.parse(readFileSync(statusFile, 'utf8'));
           if (status.last_refresh_not_modified === true) break;
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
-        const res = fakeResponse();
-        await captured.route.handler({ method: 'GET', url: '/session-meter/prices?m=cached-model' }, res);
         const payload = JSON.parse(res.body());
         assert.equal(sawValidator, true, 'the stored etag is sent');
         assert.equal(status.last_error, null, '304 must not be reported as a failed refresh');
@@ -423,6 +427,34 @@ test('a matching etag skips the catalog body and keeps the cached rates', async 
         const again = fakeResponse();
         await captured.route.handler({ method: 'GET', url: '/session-meter/prices?m=cached-model' }, again);
         assert.equal(JSON.parse(again.body()).fetchedAt, staleAt, 'the next answer keeps the same catalog instant');
+      });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+test('a DeepSeek-only query does not download the online catalog', async () => {
+  await withUpstream(async () => {
+    let catalogHits = 0;
+    const server = createServer((req, res) => {
+      if ((req.url ?? '').startsWith('/catalog')) catalogHits += 1;
+      res.end('{}');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    process.env.SESSION_METER_PRICES_URL = `http://127.0.0.1:${server.address().port}/catalog`;
+    process.env.SESSION_METER_FX_URL = `http://127.0.0.1:${server.address().port}/fx`;
+    try {
+      await withPlugin(async (captured) => {
+        attach(captured);
+        const res = fakeResponse();
+        await captured.route.handler({
+          method: 'GET',
+          url: '/session-meter/prices?m=' + encodeURIComponent('workbuddy/deepseek-v4.1-flash'),
+        }, res);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(catalogHits, 0, 'DeepSeek ids are priced from the built-in table');
+        assert.equal(JSON.parse(res.body()).ok, false);
       });
     } finally {
       await new Promise((resolve) => server.close(resolve));

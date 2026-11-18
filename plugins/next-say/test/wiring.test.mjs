@@ -222,6 +222,11 @@ async function hit(host, options) {
   return { status: response.status, body: response.payload === '' ? undefined : JSON.parse(response.payload) };
 }
 
+/** Prediction no longer inherits the session model. Tests that spend a call pin one. */
+function pinRoute(host) {
+  return hit(host, { method: 'POST', url: '/next-say/settings', body: { provider: 'p', model: 'm' } });
+}
+
 /** A session object shaped like the real one for our two reads. */
 /**
  * A session whose LOG carries the turn history, because the plugin derives the
@@ -424,6 +429,7 @@ test('predict claims the turn, and a second prediction for it is refused', async
   const echo = fakeLlm();
   const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], [4]);
   await withHost({ sessions: { s1: session }, llm: echo }, async (host) => {
+    await pinRoute(host);
     const ok = await hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', turn: 4 } });
     assert.equal(ok.body.ok, true);
 
@@ -537,6 +543,7 @@ test('predict refuses when disabled, paused, or manual-only', async () => {
 
 test('predict reports no-history rather than inventing a suggestion', async () => {
   await withHost({ sessions: { s1: fakeSession('s1', []) } }, async (host) => {
+    await pinRoute(host);
     const result = await hit(host, {
       method: 'POST',
       url: '/next-say/predict',
@@ -547,17 +554,21 @@ test('predict reports no-history rather than inventing a suggestion', async () =
   });
 });
 
-test('predict reports no-route when neither the session nor the default resolves', async () => {
-  const session = { id: 's1', deriveMessages: () => [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] };
+test('predict reports no-route when settings do not pin one, even if the session has a model', async () => {
+  const session = {
+    id: 's1',
+    requestHeader: () => ({ config: { provider: 'session-provider', model: 'session-model' } }),
+    deriveMessages: () => [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+  };
   const previous = process.env.DSH_HOME;
   const dir = mkdtempSync(join(tmpdir(), 'next-say-wiring-'));
   process.env.DSH_HOME = dir;
   try {
     const host = createFakeHost({ sessions: { s1: session }, llm: { prepareCall: async () => ({ stream: async function* () {} }) } });
-    // With no route AND no llm, "no-route" must still win: the refusal reason
-    // names the first missing thing, so a missing provider adapter cannot be
-    // reported as a missing route (or the reverse).
-    host.services.agentDefaultModel = { currentSelection: () => undefined };
+    // An empty prediction route wins over the session model and over a missing
+    // llm adapter. Inheriting the session would bill the suggestion at the main
+    // model's price.
+    host.services.agentDefaultModel = { currentSelection: () => ({ provider: 'default-provider', model: 'default-model' }) };
     host.services.llm = undefined;
     apply(host.ctx);
     const result = await hit(host, {
@@ -599,6 +610,7 @@ test('predict refuses a suggestion that repeats the current draft', async () => 
   const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi there' }] }]);
 
   await withHost({ sessions: { s1: session }, llm: echo }, async (host) => {
+    await pinRoute(host);
     const repeats = await hit(host, {
       method: 'POST',
       url: '/next-say/predict',
@@ -623,6 +635,7 @@ test('the same suggestion is accepted when the draft is different', async () => 
   const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi there' }] }]);
 
   await withHost({ sessions: { s1: session }, llm: echo }, async (host) => {
+    await pinRoute(host);
     const ok = await hit(host, {
       method: 'POST',
       url: '/next-say/predict',
@@ -643,6 +656,7 @@ test('concurrent automatic requests share a turn budget', async () => {
   } };
   const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], [4]);
   await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    await pinRoute(host);
     const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1' } });
     await new Promise((resolve) => setImmediate(resolve));
     const second = await hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', turn: 4 } });
@@ -663,6 +677,7 @@ test('disposing a session cancels its pending prediction', async () => {
     return new Promise(() => {});
   } };
   await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    await pinRoute(host);
     const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', turn: 1 } });
     await new Promise((resolve) => setImmediate(resolve));
     host.emit('session/disposed', session);
@@ -680,6 +695,7 @@ test('unloading aborts pending adapter work', async () => {
     return new Promise(() => {});
   } };
   await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    await pinRoute(host);
     const pending = hit(host, { method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', manual: true } });
     await new Promise((resolve) => setImmediate(resolve));
     host.dispose();

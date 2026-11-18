@@ -168,8 +168,14 @@ window.__ModuleLoader__.load({
 
     /* ------------------------------------------------------------ watcher */
     const POLL_TIMEOUT_MS = 10000;
+    // A running task is polled quickly. An idle host is polled slowly: the
+    // Windows toast does not depend on this timer, and a hidden page still
+    // needs some poll so a browser notification can appear.
+    const POLL_BUSY_MS = 2500;
+    const POLL_IDLE_MS = 12000;
     const watcher = { timer: null, lastAt: 0, lastSequence: 0, journalId: null, seen: new Set(),
-      cfg: null, inFlight: false, request: null, active: true, system: false, seeded: false, onVisible: null };
+      cfg: null, inFlight: false, request: null, active: true, system: false, seeded: false,
+      onVisible: null, busy: false, delay: POLL_BUSY_MS };
     let appCtx = null;
 
     /**
@@ -322,19 +328,25 @@ window.__ModuleLoader__.load({
         }
         watcher.seen = new Set(journal.filter((entry) => entry && entry.at === watcher.lastAt).map((entry) => JSON.stringify(entry)).filter((identity) => seen.has(identity)));
         watcher.seeded = true;
+        watcher.busy = payload.active === true;
       } catch { /* offline, deadline or disposal; a later poll can recover */ } finally {
         window.clearTimeout(deadline);
         if (watcher.request === request) {
           watcher.request = null;
           watcher.inFlight = false;
+          if (watcher.active && watcher.timer !== null) {
+            armWatcher(watcher.busy ? POLL_BUSY_MS : POLL_IDLE_MS);
+          }
         }
       }
     }
 
-    function armWatcher() {
-      if (watcher.timer !== null) return;
-      void tick();
-      watcher.timer = window.setInterval(() => { void tick(); }, 2500);
+    function armWatcher(delay) {
+      const next = delay === POLL_IDLE_MS ? POLL_IDLE_MS : POLL_BUSY_MS;
+      if (watcher.timer !== null && watcher.delay === next) return;
+      if (watcher.timer !== null) window.clearInterval(watcher.timer);
+      watcher.delay = next;
+      watcher.timer = window.setInterval(() => { void tick(); }, next);
     }
 
     function disarmWatcher() {
@@ -351,7 +363,8 @@ window.__ModuleLoader__.load({
       };
       watcher.onVisible = sync;
       try { document.addEventListener('visibilitychange', sync); } catch { /* non-DOM host */ }
-      armWatcher();
+      void tick();
+      armWatcher(POLL_BUSY_MS);
     }
 
     /* ------------------------------------------------- settings primitives */

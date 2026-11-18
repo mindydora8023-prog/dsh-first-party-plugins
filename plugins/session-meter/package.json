@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-session-meter",
-  "version": "0.3.50",
+  "version": "0.3.51",
   "private": true,
   "type": "module",
   "description": "输入框下方显示当前是高峰还是低谷，并按 DeepSeek 官方价格估算本会话花费",
