@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-magpie-models",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "把 Magpie 网关的模型目录写回 DSH 选择器，网关新增的模型会自动出现",

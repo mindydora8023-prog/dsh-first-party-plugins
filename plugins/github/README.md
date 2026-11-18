@@ -1,6 +1,6 @@
 # GitHub 原生工具
 
-为 DeepSeek Harness 提供 16 个 GitHub 工具，覆盖仓库、文件、提交、分支、Issue、PR、Actions 查询，以及创建 Issue 与发表评论。版本 0.1.0。
+为 DeepSeek Harness 提供 16 个 GitHub 工具，覆盖仓库、文件、提交、分支、Issue、PR、Actions 查询，以及创建 Issue 与发表评论。版本 0.1.1。工具说明只保留一句，系统提示不再重复讲用法；写操作仍要先向用户确认。
 
 使用 Node.js 内置 fetch 和子进程，无第三方 npm 运行时依赖。主体在本工作区开发，工具参数兼容模块带有 DeepSeek MIT 来源，见[来源说明](THIRD_PARTY_NOTICES.md)。
 

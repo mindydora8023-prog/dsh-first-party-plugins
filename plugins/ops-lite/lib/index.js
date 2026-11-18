@@ -125,13 +125,10 @@ async function register(ctx, config, dirs) {
       text: ({ scope }) => {
         if (ctx.tools.get('ops_read_files', scope) === undefined) return ''
         return [
-          'ops_read_files is the way to read plain text files: several in one bounded call, each with its own offset/limit.',
-          'Use it instead of a burst of single-file reads. CSV/TSV/DOCX/XLSX/PDF are NOT read here -- use the filekit document readers.',
-          'Every file reports complete/nextOffset and the call reports pending, so a partial read is visible as partial:',
-          '- when pending > 0, resend the remaining entries from that index;',
-          '- when a file says more lines, continue at its nextOffset;',
-          '- when a line says it was clipped, that line is incomplete and the next offset will not recover its suffix.',
-          'A failure carries effectState and retry; `retry: never` means call again only after inspecting state.',
+          'ops_read_files reads several plain-text files in one call, each with its own offset and limit.',
+          'CSV/TSV/DOCX/XLSX/PDF go to the filekit readers, not here.',
+          'pending > 0 means resend from nextIndex; a file with more lines continues at its nextOffset.',
+          'A clipped line is incomplete, and retry: never means inspect the reported state before calling again.',
         ].join('\n')
       },
     })

@@ -27,12 +27,12 @@ function jsonOutput() {
 
 const REPO_PARAM = {
   type: 'string',
-  description: 'Repository as "owner/name" (a full https://github.com/owner/name URL also works). Omit to use the configured default repository.',
+  description: 'owner/name, or a github.com repository URL. Omit to use the configured default.',
 }
 
 const PAGING = {
-  limit: { type: 'number', description: 'Maximum items to return (default: the plugin perPage setting, max 100).' },
-  page: { type: 'number', description: 'Page number to start from (default 1).' },
+  limit: { type: 'number', description: 'Maximum items (plugin default, max 100).' },
+  page: { type: 'number', description: 'Page number, starting at 1.' },
 }
 
 function integerArg(value, fallback, min, max) {
@@ -233,11 +233,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_status',
-    description:
-      'Check the GitHub connection: which credential source is in effect (plugin config, GITHUB_TOKEN, credentials.json, ' +
-      'Git Credential Manager stored login, or gh CLI), the authenticated account, token scopes, and the remaining API quota. ' +
-      'Without a token it reports anonymous mode (public reads only, 60 requests per hour). ' +
-      'Use it first when a GitHub tool fails, or to confirm which account is being used. Never returns the token itself.',
+    description: 'Report the signed-in GitHub account, credential source, scopes, and API quota. Never returns the token.',
     parameters: {
       refresh: { type: 'boolean', description: 'Ignore the cached token and re-read every credential source (default false).' },
     },
@@ -305,10 +301,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_search_repos',
-    description:
-      'Search repositories on GitHub with the search qualifier syntax (in:name, in:description, language:ts, stars:>1000, ' +
-      'topic:cli, user:owner, org:owner, pushed:>2026-01-01). Returns full names, descriptions, stars, language and default branch, ' +
-      'sorted by best match. Use it to find a repository before reading its files.',
+    description: 'Search repositories with GitHub qualifier syntax. Returns name, description, stars, language, and default branch.',
     parameters: {
       query: { type: 'string', required: true, description: 'GitHub repository search query, e.g. "language:typescript stars:>5000 cli".' },
       sort: { type: 'string', enum: ['best-match', 'stars', 'forks', 'updated', 'help-wanted-issues'], description: 'Sort order (default best-match).' },
@@ -346,10 +339,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_search_code',
-    description:
-      'Search file contents across GitHub with the code search qualifier syntax (repo:owner/name, path:, language:, filename:, ' +
-      'extension:). Returns the matching files with a text fragment. Note: code search needs an authenticated token and covers ' +
-      'the default branch of indexed repositories; prefer github_list_files and github_read_file when you know the repository.',
+    description: 'Search indexed file contents on the default branch. Needs a token. Returns the path and a text fragment.',
     parameters: {
       query: { type: 'string', required: true, description: 'Code search query, e.g. "repo:owner/name filename:package.json workspaces".' },
       limit: { type: 'number', description: 'Maximum results (default 20, max 100).' },
@@ -393,9 +383,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_search_issues',
-    description:
-      'Search issues and pull requests across GitHub (is:issue, is:pr, is:open, author:, assignee:, label:, repo:, mentions:, ' +
-      'created:>date). Returns number, title, state, labels, author and URL. Set repo to restrict the search to one repository.',
+    description: 'Search issues and pull requests with GitHub qualifier syntax. Pass repo to limit it to one repository.',
     parameters: {
       query: { type: 'string', required: true, description: 'Issue/PR search query, e.g. "repo:owner/name is:issue is:open label:bug".' },
       sort: { type: 'string', enum: ['best-match', 'created', 'updated', 'comments'], description: 'Sort order (default best-match).' },
@@ -436,9 +424,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_get_repo',
-    description:
-      'Read one repository: description, visibility, default branch, language, stars/forks, open issue count, topics, license, ' +
-      'last push, and whether it is archived. Start here when a task names a repository.',
+    description: 'Read one repository: description, default branch, language, stars, topics, license, and archive state.',
     parameters: { repo: REPO_PARAM },
     output: jsonOutput(),
     timeoutMs: 45000,
@@ -465,10 +451,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_list_files',
-    description:
-      'List the files and directories at a path in a repository (one tree level), or the whole tree of a ref when `recursive` is true. ' +
-      'Returns type, name, path and size. Use it to explore a repository before reading files; combine with a ref to look at a branch, ' +
-      'tag or commit sha instead of the default branch.',
+    description: 'List one directory level, or the whole tree when recursive is true. Returns type, name, path, and size.',
     parameters: {
       repo: REPO_PARAM,
       path: { type: 'string', description: 'Directory path inside the repository (default: the repository root).' },
@@ -523,9 +506,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_read_file',
-    description:
-      'Read one file from a repository at a ref (default: the default branch). Returns the decoded text, the byte size and, when ' +
-      'truncated, the note that it was cut off. Binary files are reported rather than decoded. Use github_list_files first to find the path.',
+    description: 'Read one text file at a ref. Binary files are reported, not decoded, and truncation is explicit.',
     parameters: {
       repo: REPO_PARAM,
       path: { type: 'string', required: true, description: 'File path inside the repository, e.g. "src/index.ts".' },
@@ -587,9 +568,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_commits',
-    description:
-      'List recent commits of a repository, optionally limited to a path, branch or author. Returns sha, author, date and the first ' +
-      'line of each commit message. Use it to see what changed recently, then github_read_file at that sha to inspect the version.',
+    description: 'List recent commits with sha, author, date, and the first message line. Filter by ref, path, or author.',
     parameters: {
       repo: REPO_PARAM,
       ref: { type: 'string', description: 'Branch, tag or sha to list from (default: the default branch).' },
@@ -619,7 +598,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_branches',
-    description: 'List the branches of a repository with the head sha of each, newest first. Useful before reading files at a branch or checking whether a branch already exists.',
+    description: 'List repository branches with each head sha, newest first.',
     parameters: {
       repo: REPO_PARAM,
       limit: { type: 'number', description: `Maximum branches (default ${config.perPage}, max 100).` },
@@ -651,9 +630,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_issues',
-    description:
-      'List issues of one repository (pull requests are excluded unless include_pull_requests is true). Returns number, title, state, ' +
-      'labels, author, comment count and dates. Set state:"all" to include closed issues, and labels for a comma-separated filter.',
+    description: 'List issues in one repository. Pull requests are omitted unless include_pull_requests is true.',
     parameters: {
       repo: REPO_PARAM,
       state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Issue state (default open).' },
@@ -721,9 +698,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_issue',
-    description:
-      'Read one issue or pull request with its body, labels, milestone, comment count, and the first comments. Set include_comments ' +
-      'to false for the issue alone. Works for both issue numbers and pull request numbers.',
+    description: 'Read one issue or pull request, including its body and the first comments.',
     parameters: {
       repo: REPO_PARAM,
       number: { type: 'number', required: true, description: 'Issue or pull request number.' },
@@ -766,9 +741,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_pulls',
-    description:
-      'List pull requests of one repository with state, title, author, head/base branches, draft flag, and merge state. ' +
-      'Use github_issue with the same number to read the discussion, or github_pull_files to see the diff.',
+    description: 'List pull requests with author, branches, draft flag, and merge state.',
     parameters: {
       repo: REPO_PARAM,
       state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Pull request state (default open).' },
@@ -810,9 +783,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_pull_files',
-    description:
-      'Read the changed files of a pull request: status (added/modified/removed), additions/deletions and the patch. ' +
-      'Patches are truncated per file and can be turned off with include_patch:false. Use it to review a pull request.',
+    description: 'List files changed by a pull request, with additions, deletions, and a truncated patch.',
     parameters: {
       repo: REPO_PARAM,
       number: { type: 'number', required: true, description: 'Pull request number.' },
@@ -853,9 +824,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_actions',
-    description:
-      'List recent GitHub Actions workflow runs of a repository, or one run in detail when run_id is given. Returns the workflow ' +
-      'name, status, conclusion, branch, commit sha and the run URL. Use it to check whether CI is green before proposing a merge.',
+    description: 'List recent Actions runs, or one run when run_id is set, including status and conclusion.',
     parameters: {
       repo: REPO_PARAM,
       branch: { type: 'string', description: 'Only runs for this branch.' },
@@ -896,9 +865,7 @@ export function buildTools(config, logger) {
   if (config.allowWrite) {
     tools.push({
       name: 'github_create_issue',
-      description:
-        'Open a new issue in a repository. Confirm the title and body with the user before calling this: it creates a public ' +
-        '(or organisation-visible) issue under the authenticated account. Returns the issue number and URL.',
+      description: 'Open an issue under the signed-in account. Confirm the title and body with the user before calling.',
       parameters: {
         repo: REPO_PARAM,
         title: { type: 'string', required: true, description: 'Issue title.' },
@@ -935,9 +902,7 @@ export function buildTools(config, logger) {
 
     tools.push({
       name: 'github_comment',
-      description:
-        'Add a comment to an issue or pull request. Confirm the text with the user first: it posts under the authenticated ' +
-        'account and notifies watchers. Use github_issue first to read the existing discussion.',
+      description: 'Post a comment on an issue or pull request. Confirm the exact text with the user before calling.',
       parameters: {
         repo: REPO_PARAM,
         number: { type: 'number', required: true, description: 'Issue or pull request number.' },

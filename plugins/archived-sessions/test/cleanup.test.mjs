@@ -122,6 +122,27 @@ test('one failing deletion does not abort the rest of the sweep', async () => {
   } finally { await rm(f.base, { recursive: true, force: true }) }
 })
 
+test('a sweep with findLog never lists the whole session store', async () => {
+  const f = await agesFixture()
+  try {
+    const ctx = contextOf(['old', 'recent'], f.entries)
+    let listed = false
+    ctx.sessionPersistence.findLog = async (id) => {
+      const entry = f.entries[id]
+      if (!entry?.path) return undefined
+      return { currentPath: entry.path, header: entry.header }
+    }
+    ctx.sessionPersistence.list = async () => { listed = true; return [] }
+    const report = await runAutoCleanup(ctx, {
+      now: f.now, days: 5,
+      deleteOne: async () => ({ removed: 1, children: 0, ghosts: 0 }),
+    })
+    assert.equal(listed, false)
+    assert.deepEqual(report.deletedIds, ['old'])
+    assert.equal(report.recent, 1)
+  } finally { await rm(f.base, { recursive: true, force: true }) }
+})
+
 test('dry run reports eligible ids without deleting', async () => {
   const f = await agesFixture()
   try {

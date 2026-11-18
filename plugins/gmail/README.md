@@ -1,6 +1,6 @@
 # Gmail 原生工具
 
-通过 IMAP/SMTP 为 DeepSeek Harness 提供搜索、读取、线程、发信、标签、归档、标星和新邮件游标工具，共 9 个。版本 0.1.0，仅使用 Node.js 内置模块。
+通过 IMAP/SMTP 为 DeepSeek Harness 提供搜索、读取、线程、发信、标签、归档、标星和新邮件游标工具，共 9 个。版本 0.1.1，仅使用 Node.js 内置模块。工具说明收成一句，系统提示只留搜索语法与写操作确认。
 
 本发行物是 DSH 插件，不包含工作区另外维护的 Python CLI 和 Windows 启动器。
 

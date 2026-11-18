@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-gmail",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Gmail 原生工具：IMAP 搜索/读取/线程总结 + SMTP 发信 + 标签归档（应用专用密码）",

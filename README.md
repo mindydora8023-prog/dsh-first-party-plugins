@@ -4,15 +4,15 @@
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
-| [archived-sessions](plugins/archived-sessions/README.md) | 0.5.1 | 归档恢复、删除预检、孤儿子代理与超期清理 | 工作区实现 |
+| [archived-sessions](plugins/archived-sessions/README.md) | 0.5.2 | 归档恢复、删除预检、孤儿子代理与超期清理 | 工作区实现 |
 | [session-meter](plugins/session-meter/README.md) | 0.3.50 | 会话费用、峰谷时段、分模型用量 | 工作区实现；运行时外部价格数据 |
-| [filekit](plugins/filekit/README.md) | 0.1.0 | CSV/TSV、DOCX、XLSX、PDF 有界读取 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
-| [github](plugins/github/README.md) | 0.1.0 | GitHub 查询与 Issue/评论写入工具 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
-| [gmail](plugins/gmail/README.md) | 0.1.0 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
-| [ops-lite](plugins/ops-lite/README.md) | 0.1.0 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
+| [filekit](plugins/filekit/README.md) | 0.1.1 | CSV/TSV、DOCX、XLSX、PDF 有界读取 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
+| [github](plugins/github/README.md) | 0.1.1 | GitHub 查询与 Issue/评论写入工具 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
+| [gmail](plugins/gmail/README.md) | 0.1.1 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
+| [ops-lite](plugins/ops-lite/README.md) | 0.1.1 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.0 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [task-radar](plugins/task-radar/README.md) | 0.2.1 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
-| [magpie-models](plugins/magpie-models/README.md) | 0.1.0 | 轮询网关模型目录并写回模型选择器 | 工作区实现 |
+| [magpie-models](plugins/magpie-models/README.md) | 0.1.1 | 轮询网关模型目录并写回模型选择器 | 工作区实现 |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 

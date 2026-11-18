@@ -12,22 +12,19 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { dirname } from 'node:path'
 
 import { assignModels, mergeProviders, modelsFromBody } from './plan.js'
+import { statePath } from './state-dir.js'
 
 /**
+ * Status lands in the per-user state directory, same rule as the other plugins.
+ * The hand-rolled path skipped XDG and the home fallback, so a non-Windows host
+ * wrote into the temp directory and looked like it had no history.
  * @returns {string}
  */
-function statusFile() {
-  const override = process.env.DSH_PLUGIN_STATE_DIR
-  const root = typeof override === 'string' && override.trim() !== ''
-    ? override.trim()
-    : process.env.LOCALAPPDATA
-      ? join(process.env.LOCALAPPDATA, 'dsh-plugins')
-      : join(tmpdir(), 'dsh-plugins')
-  return join(root, 'magpie-models', 'status.json')
+export function statusFile() {
+  return statePath('magpie-models', 'status.json')
 }
 
 /**

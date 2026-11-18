@@ -146,12 +146,10 @@ async function register(ctx, config, dirs) {  const { defineTool, source } = awa
       const visible = names.filter((toolName) => ctx.tools.get(toolName, scope) !== undefined)
       if (visible.length === 0) return ''
       return (
-        `GitHub is connected through ${visible.join(', ')} (real REST API calls, not a mock). ` +
-        'Start with github_get_repo or github_list_files, then github_read_file; use github_commits to see what changed recently ' +
-        'and github_issue for one issue or pull request with its comments. ' +
-        'Always pass repo as "owner/name" unless the task clearly concerns the configured default repository. ' +
-        'github_create_issue and github_comment are real writes under the signed-in account: confirm the exact title or text with the user first ' +
-        'and never open issues or comment on your own initiative. Never print or echo the access token.'
+        `GitHub is connected through ${visible.join(', ')} (real REST calls). ` +
+        'Pass repo as owner/name, or omit it for the configured default. ' +
+        'github_create_issue and github_comment write as the signed-in account: confirm the exact title or text first, and never post on your own initiative. ' +
+        'Never print the access token.'
       )
     },
   })

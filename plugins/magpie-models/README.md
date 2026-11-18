@@ -11,6 +11,6 @@ DSH 的模型选择器只读 `llm-pi-ai` 里的 `providers.*.models`，设置页
 
 思考档：网关的 `none` 写成 `off: none`；`ultra` 会并进 `max`（pi-ai 没有 ultra 这一档，已有 `max` 时保留 `max`）。网关没给输出上限时，保留该模型原先手写的 `maxTokens`。
 
-默认每 5 分钟一次，`baseURL` 为 `http://127.0.0.1:3425/v1`。密钥只从环境变量 `MAGPIE_GATEWAY_KEY` 读，不写进配置；本机隧道不要求密钥时照样请求。
+默认每 5 分钟一次，`baseURL` 为 `http://127.0.0.1:3425/v1`。密钥只从环境变量 `MAGPIE_GATEWAY_KEY` 读，不写进配置；本机隧道不要求密钥时照样请求。版本 0.1.1。同步状态写入共享的用户状态目录（Windows 上为 `%LOCALAPPDATA%/dsh-plugins/magpie-models/status.json`），不再只认 `LOCALAPPDATA`。
 
 配置项：`enabled`、`intervalMs`（最小 15000）、`timeoutMs`、`baseURL`、`apiKeyEnv`、`chatProvider`、`responsesProvider`、`llmEntryId`。

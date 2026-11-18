@@ -134,17 +134,12 @@ async function register(ctx, config, dirs) {
     text: ({ scope }) => {
       const visible = names.filter((toolName) => ctx.tools.get(toolName, scope) !== undefined)
       if (visible.length === 0) return ''
-      const lines = [
-        'filekit is connected through bounded read-only document tools:',
-        '- filekit_read_table: paged CSV/TSV rows (auto delimiter and BOM-aware encoding).',
-        '- filekit_read_docx: .docx main body as paragraphs and tables.',
-        '- filekit_read_xlsx: one worksheet of an .xlsx workbook as a paged table (dates rendered as ISO).',
-        '- filekit_read_pdf: PDF page text. Not OCR; scanned pages return no text.',
-        'All of them are bounded and pageable: when a result says "Use offset=N to continue", call again with that offset.',
-        'For plain text files use ops_read_files (ops-lite) instead: it reads several files in one call with per-file',
-        'windows and reports structured per-file completeness. filekit no longer duplicates that tool.',
-      ]
-      return `Available: ${visible.join(', ')}.\n${lines.slice(1).join('\n')}`
+      return [
+        `Available: ${visible.join(', ')}.`,
+        'filekit reads CSV/TSV, DOCX, XLSX, and PDF text only. It is not OCR, does not recalculate formulas, and rejects legacy .doc/.xls.',
+        'When a result says "Use offset=N to continue", call again with that offset.',
+        'Plain text files go to ops_read_files, not these tools.',
+      ].join('\n')
     },
   })
 

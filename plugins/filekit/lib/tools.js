@@ -64,11 +64,7 @@ async function prepare(ctx, exec, config, requested) {
 function buildTableTool(config, ctx) {
   return {
     name: 'filekit_read_table',
-    description:
-      'Read rows from a CSV or TSV file with bounded, paged output. Detects the delimiter and the '
-      + 'encoding from a BOM (UTF-8 default; UTF-16LE/BE accepted explicitly). Shows the header row once '
-      + 'and data rows with 1-based row numbers; long cells are truncated. Use offset/limit to page a large '
-      + 'export instead of loading it whole.',
+    description: 'Read a page of CSV or TSV rows. Delimiter and BOM encoding are detected; continue with offset.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the delimited file.' },
       offset: { type: 'integer', description: '1-based first DATA row to return. Default 1.' },
@@ -117,11 +113,7 @@ function buildTableTool(config, ctx) {
 function buildDocxTool(config, ctx) {
   return {
     name: 'filekit_read_docx',
-    description:
-      'Read a .docx main body as ordered paragraphs and tables, with bounded paged output. '
-      + 'Each paragraph is one numbered block; a table is one block rendered as rows of cells. '
-      + 'Only the document body is read: no headers/footers, footnotes, comments, images or tracked '
-      + 'changes, and legacy binary .doc is rejected (convert to .docx). Use offset/limit to page.',
+    description: 'Read a page of a .docx body as paragraphs and tables. Not headers, notes, or legacy .doc.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the .docx file.' },
       offset: { type: 'integer', description: '1-based first block to return. Default 1.' },
@@ -150,13 +142,7 @@ function buildDocxTool(config, ctx) {
 function buildXlsxTool(config, ctx) {
   return {
     name: 'filekit_read_xlsx',
-    description:
-      'Read one worksheet of an .xlsx workbook as a bounded, paged table. Shows the header row once, then '
-      + 'data rows with 1-based row numbers; long cells are truncated. Dates (cells with a date number '
-      + 'format) are rendered as ISO dates, booleans as TRUE/FALSE, and formula cells as their cached value '
-      + '(formulas are NOT recalculated). Merged cells show the top-left value; charts/images/pivot tables '
-      + 'are ignored. Legacy binary .xls is rejected (save as .xlsx). Use sheet to pick a worksheet and '
-      + 'offset/limit to page large sheets.',
+    description: 'Read a page of one .xlsx sheet. Formulas stay cached values; legacy .xls is rejected.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the .xlsx file.' },
       sheet: {
@@ -204,11 +190,7 @@ function buildXlsxTool(config, ctx) {
 function buildPdfTool(config, ctx) {
   return {
     name: 'filekit_read_pdf',
-    description:
-      'Read text from a PDF, one page range at a time, with bounded output. Handles classic PDFs with '
-      + 'Flate-compressed content and simple fonts. Not OCR: scanned/image-only pages return empty text. '
-      + 'Embedded/subset fonts and PDF 1.5+ cross-reference or object streams may be unsupported, and a '
-      + 'warning says so. Use offset/limit for the page range, and prefer pageCount from the footer to plan pages.',
+    description: 'Read text from a PDF page range. Not OCR: scanned pages come back empty.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the .pdf file.' },
       offset: { type: 'integer', description: '1-based first page to return. Default 1.' },

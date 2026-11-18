@@ -1,6 +1,6 @@
 # 有界多文件读取
 
-为 DeepSeek Harness 增加 `ops_read_files`：一次读取多个 UTF-8 文本文件，每个文件有独立的行号窗口、返回预算与续读位置。版本 0.1.0。
+为 DeepSeek Harness 增加 `ops_read_files`：一次读取多个 UTF-8 文本文件，每个文件有独立的行号窗口、返回预算与续读位置。版本 0.1.1。工具说明和系统提示都收短了，分页与 `retry: never` 的约定不变。
 
 - 文件层返回 complete/nextOffset，批量层返回 pending/nextIndex。
 - 输出预算按转义后字节计算，截断给出恢复位置。

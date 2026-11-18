@@ -129,12 +129,10 @@ async function register(ctx, config, dirs) {
       const visible = names.filter((toolName) => ctx.tools.get(toolName, scope) !== undefined)
       if (visible.length === 0) return ''
       return (
-        `Gmail is connected through ${visible.join(', ')}: a real Gmail mailbox over IMAP/SMTP (app password). ` +
-        'Start with gmail_search (it accepts full Gmail search syntax and returns uids plus thread ids), ' +
-        'then gmail_read for one message or gmail_thread for a whole conversation. ' +
-        'Reading never marks mail as read; gmail_mark changes read/star state, gmail_label and gmail_archive are writes. ' +
-        'gmail_send sends real mail, so confirm recipients, subject and body with the user first unless they already stated them. ' +
-        'Never print or echo the app password.'
+        `Gmail is connected through ${visible.join(', ')} (real IMAP/SMTP). ` +
+        'Search syntax belongs on the query argument. Reading does not mark mail as read. ' +
+        'gmail_send, gmail_mark, gmail_label, and gmail_archive write: confirm a send unless the user already stated the recipients, subject, and body. ' +
+        'Never print the app password.'
       )
     },
   })

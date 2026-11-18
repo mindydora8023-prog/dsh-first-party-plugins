@@ -204,12 +204,8 @@ export function buildReadFilesTool(ctx, config) {
   return {
     name: 'ops_read_files',
     description:
-      'Read bounded, line-numbered windows from 1 to N UTF-8 files in one call. Each file takes its '
-      + 'own offset and limit, so one call can pull the tops of several files instead of several separate '
-      + 'reads. Output is capped per line, per file and per call; a cut window names the offset to resume '
-      + 'from, and a clipped line says so rather than silently shortening the source. Every file reports '
-      + 'its own completeness plus a batch-level pending count, so a partial read never looks finished. '
-      + 'Binary and non-UTF-8 files are refused instead of decoded lossily.',
+      'Read several UTF-8 text files in one call, each with its own offset and limit. '
+      + 'A partial result names the offset to resume from. Not for CSV, DOCX, XLSX, or PDF.',
     parameters: {
       files: {
         type: 'array',

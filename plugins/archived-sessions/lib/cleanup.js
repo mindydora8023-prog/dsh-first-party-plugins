@@ -174,9 +174,10 @@ function lastActivityOf(createdAt, mtimeMs) {
 /**
  * Collect every archived session with its last-activity timestamp.
  *
- * Header and log path come from one `sessionPersistence.list()` call (each
- * snapshot carries `header` and `location.path`); live sessions and the registry
- * header index fill the gaps for ghosts. Pure read: nothing is mutated.
+ * Paths come from `findLog` on the archived ids only. Listing every session in
+ * the store is the fallback for a host that has no `findLog`, because a sweep
+ * runs hourly and the archive is a small slice of the store. Live sessions and
+ * the registry header index fill the gaps for ghosts. Pure read: nothing is mutated.
  *
  * @param {object} ctx host context.
  * @param {number} now reference time (ms).
@@ -190,9 +191,26 @@ export async function scanArchived(ctx, now, days) {
 
   const headers = new Map()
   const paths = new Map()
-  if (typeof ctx.sessionPersistence?.list === 'function') {
+  const backend = ctx.sessionPersistence
+  // One lookup per archived id. `list()` walks the whole session store, which is
+  // the wrong cost for an hourly sweep that only needs this id set.
+  if (typeof backend?.findLog === 'function') {
+    await mapLimited(archived, STAT_CONCURRENCY, async (id) => {
+      try {
+        const selected = await backend.findLog(id)
+        const file = typeof selected?.currentPath === 'string' && selected.currentPath !== ''
+          ? selected.currentPath
+          : selected?.location?.path
+        if (typeof file === 'string' && file !== '') paths.set(id, file)
+        const header = selected?.header
+        if (typeof header?.id === 'string' && !headers.has(header.id)) headers.set(header.id, header)
+      } catch {
+        /* a missing log is a ghost; the registry header decides its age */
+      }
+    })
+  } else if (typeof backend?.list === 'function') {
     try {
-      for (const item of await ctx.sessionPersistence.list()) {
+      for (const item of await backend.list()) {
         const header = item?.header ?? item
         if (typeof header?.id !== 'string') continue
         if (!headers.has(header.id)) headers.set(header.id, header)

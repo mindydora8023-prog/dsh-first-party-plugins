@@ -40,7 +40,7 @@ const GMAIL_SEARCH_HELP =
 
 const MAILBOX_PARAM = {
   type: 'string',
-  description: "Mailbox to operate on. Defaults to '[Gmail]/All Mail' (everything except Spam/Trash). Use 'INBOX' for the inbox only.",
+  description: "Mailbox name. Defaults to [Gmail]/All Mail; use INBOX for the inbox only.",
 }
 
 async function withImap(config, fn) {
@@ -223,8 +223,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_status',
-    description:
-      'Check the Gmail connection: signs in over IMAP, reports the account address, credential source, and message counts per folder. Use it first when mail tools fail, or to confirm which account is connected. Never returns the password.',
+    description: 'Check the Gmail account, credential source, and folder counts. Never returns the password.',
     parameters: {},
     output: jsonOutput(),
     timeoutMs: 60000,
@@ -260,9 +259,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_search',
-    description:
-      `Search or list mail and return per-message metadata (uid, thread_id, date, from, to, subject, read/starred state, labels). ${GMAIL_SEARCH_HELP} ` +
-      'Results are newest first. Pass preview:true to also get a short body snippet and attachment filenames for the first few messages. Use the returned uid with gmail_read and the thread_id with gmail_thread.',
+    description: 'Search mail and return uid, thread id, and headers, newest first. Use the uid with gmail_read.',
     parameters: {
       query: { type: 'string', description: `Gmail search query. ${GMAIL_SEARCH_HELP}` },
       unread: { type: 'boolean', description: 'Only unread messages.' },
@@ -296,8 +293,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_read',
-    description:
-      'Read one message in full by uid (get uids from gmail_search). Returns headers, the decoded plain-text body, and attachment filenames. Reading never marks the message as read. Set save_attachments:true to write attachments to disk and get their paths back.',
+    description: 'Read one message by uid, including its plain-text body. Reading does not mark it as read.',
     parameters: {
       uid: { type: 'string', required: true, description: 'Message uid from gmail_search.' },
       mailbox: MAILBOX_PARAM,
@@ -346,8 +342,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_thread',
-    description:
-      'Read a whole Gmail conversation by thread_id (from gmail_search). Returns every message in the thread oldest-first, each with its own body. Use this to summarise a back-and-forth instead of reading messages one by one.',
+    description: 'Read one Gmail conversation by thread id, oldest message first, each with its own body.',
     parameters: {
       thread_id: { type: 'string', required: true, description: 'Gmail thread id (X-GM-THRID) from gmail_search.' },
       mailbox: MAILBOX_PARAM,
@@ -395,8 +390,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_send',
-    description:
-      'Send an email from the connected Gmail account, optionally with file attachments. Gmail keeps a copy in Sent automatically. Confirm the recipients, subject and body with the user before sending unless they already stated them.',
+    description: 'Send mail from the connected account. Confirm recipients, subject, and body with the user first unless they already stated them.',
     parameters: {
       to: { type: 'array', items: { type: 'string' }, required: true, description: 'Recipient addresses.' },
       subject: { type: 'string', required: true, description: 'Subject line (Unicode is fine).' },
@@ -478,7 +472,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_mark',
-    description: 'Change the read or starred state of one or more messages by uid. This is a write operation.',
+    description: 'Mark messages read, unread, starred, or unstarred by uid. This writes mailbox state.',
     parameters: {
       uids: { type: 'array', items: { type: 'string' }, required: true, description: 'Message uids to update.' },
       action: {
@@ -514,8 +508,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_label',
-    description:
-      'Add and/or remove Gmail labels on messages by uid. Use gmail_status or read a message to discover label names. Removing the label "\\Inbox" archives a message. This is a write operation.',
+    description: 'Add or remove Gmail labels by uid. Removing Inbox archives the message. This is a write.',
     parameters: {
       uids: { type: 'array', items: { type: 'string' }, required: true, description: 'Message uids to update.' },
       add: { type: 'array', items: { type: 'string' }, description: 'Label names to add (created automatically by Gmail).' },
@@ -545,8 +538,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_archive',
-    description:
-      'Archive messages by uid: removes them from the inbox while keeping them in All Mail. This is the Gmail-native "archive" action. This is a write operation.',
+    description: 'Archive messages by uid: leave the inbox, keep them in All Mail. This is a write.',
     parameters: {
       uids: { type: 'array', items: { type: 'string' }, required: true, description: 'Message uids to archive.' },
       mailbox: MAILBOX_PARAM,
@@ -594,8 +586,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'gmail_new',
-    description:
-      'Return only the messages that arrived since the previous call: a durable "what is new" cursor kept in a state file, keyed by the query. Call it repeatedly to poll for new mail without re-reading the same messages. First call returns the current newest messages as a baseline.',
+    description: 'Return mail newer than the stored cursor. The first call samples the newest messages and starts the cursor there.',
     parameters: {
       query: { type: 'string', description: 'Optional Gmail search query to narrow the watch (e.g. "is:unread in:inbox").' },
       mailbox: MAILBOX_PARAM,
