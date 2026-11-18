@@ -632,7 +632,18 @@ export function createHandler(getCfg, persist, journal, file, toastSender = fire
         // Toast does not use this route; the browser notification does.
         let active = false;
         try { active = activeNow() === true; } catch { active = false; }
-        json(res, 200, { ok: true, version, journalId, active, journal: journal.slice(), config: getCfg() }, { head: method === 'HEAD' });
+        // A page that already has every entry does not need the journal or the
+        // config again. Windows Toast does not use this response at all.
+        let newest = 0;
+        for (const entry of journal) {
+          if (entry && Number.isSafeInteger(entry.sequence) && entry.sequence > newest) newest = entry.sequence;
+        }
+        const since = Number(url.searchParams.get('since'));
+        if (Number.isFinite(since) && since > 0 && newest <= since) {
+          json(res, 200, { ok: true, version, journalId, active, sequence: newest, unchanged: true }, { head: method === 'HEAD' });
+          return;
+        }
+        json(res, 200, { ok: true, version, journalId, active, sequence: newest, journal: journal.slice(), config: getCfg() }, { head: method === 'HEAD' });
         return;
       }
       if (path === PROFILE + '/config' && method === 'POST') {

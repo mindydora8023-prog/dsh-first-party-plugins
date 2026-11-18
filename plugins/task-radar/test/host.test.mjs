@@ -136,6 +136,24 @@ test('handler returns 404 for an unknown path', async () => {
   assert.equal(res.status, 404);
 });
 
+test('radar omits the journal when the caller is already caught up', async () => {
+  const journal = [{ kind: 'finished', at: 1, sequence: 4 }];
+  const handler = createHandler(() => ({ enabled: true }), () => {}, journal, '/fixture/config.json', undefined, 'journal-a', undefined, () => false);
+  const caughtUp = fakeRes();
+  await handler({ method: 'GET', url: '/api/task-radar/radar?since=4' }, caughtUp);
+  const quiet = JSON.parse(caughtUp.body);
+  assert.equal(quiet.unchanged, true);
+  assert.equal(quiet.sequence, 4);
+  assert.equal(quiet.journal, undefined);
+  assert.equal(quiet.config, undefined);
+  const behind = fakeRes();
+  await handler({ method: 'GET', url: '/api/task-radar/radar?since=3' }, behind);
+  const full = JSON.parse(behind.body);
+  assert.equal(full.unchanged, undefined);
+  assert.equal(full.journal.length, 1);
+  assert.equal(full.config.enabled, true);
+});
+
 test('radar reports whether any task is running', async () => {
   const quiet = createHandler(() => ({}), () => {}, [], '/fixture/config.json', undefined, 'journal-a', undefined, () => false);
   const busy = createHandler(() => ({}), () => {}, [], '/fixture/config.json', undefined, 'journal-b', undefined, () => true);

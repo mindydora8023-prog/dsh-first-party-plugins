@@ -88,7 +88,7 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
       },
     });
     vm.runInContext(source, context, { timeout: 1000 });
-    api.settingsStore.set({ ...api.DEFAULT_SETTINGS, mode: 'manual', ...options });
+    api.settingsStore.set({ ...api.DEFAULT_SETTINGS, mode: 'manual', provider: 'p', model: 'm', ...options });
     context.__row = api.GhostPainter;
     context.__control = api.ManualControl;
     context.__props = props;

@@ -85,8 +85,14 @@ test('an idle empty composer issues POST /next-say/predict', async () => {
   const { react, runEffects, cleanUp } = createReact();
   const mod = captured.factory((name) => (name === 'react' ? react : {}));
 
-  // Settings must be present and in auto mode, or the attempt is correctly skipped.
-  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true });
+  // Settings must name a route. An empty provider and model means do not predict.
+  mod.__internals.settingsStore.set({
+    ...mod.__internals.DEFAULT_SETTINGS,
+    mode: 'auto',
+    enabled: true,
+    provider: 'p',
+    model: 'm',
+  });
 
   const props = {
     t: (key) => key,
@@ -117,6 +123,31 @@ test('an idle empty composer issues POST /next-say/predict', async () => {
   globalThis.fetch = realFetch;
 });
 
+test('an empty prediction route does not poll or predict', async () => {
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  const captured = loadBundle((url) => {
+    calls.push(String(url));
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: false, reason: 'no-route' }) });
+  });
+  const { react, runEffects, cleanUp } = createReact();
+  const mod = captured.factory((name) => (name === 'react' ? react : {}));
+  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true });
+  const props = {
+    t: (key) => key,
+    sessionId: 'session-test',
+    useInput: (selector) => selector({ draft: '', phase: 'plain', draftRev: 1 }),
+    useSession: (selector) => selector({ running: false }),
+    inputActions: { captureInsertion: () => ({ draftRev: 1 }), insertText: () => true },
+  };
+  mod.__internals.GhostPainter(props);
+  runEffects();
+  await new Promise((resolve) => setTimeout(resolve, 1600));
+  cleanUp();
+  globalThis.fetch = realFetch;
+  assert.deepEqual(calls.filter((url) => url.includes('/next-say/predict') || url.includes('/next-say/turn')), []);
+});
+
 test('a composer with a draft does not predict', async () => {
   const realFetch = globalThis.fetch;
   const calls = [];
@@ -126,7 +157,7 @@ test('a composer with a draft does not predict', async () => {
   });
   const { react, runEffects, cleanUp } = createReact();
   const mod = captured.factory((name) => (name === 'react' ? react : {}));
-  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true });
+  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true, provider: 'p', model: 'm' });
 
   const props = {
     t: (key) => key,
@@ -153,7 +184,7 @@ test('a running turn does not predict', async () => {
   });
   const { react, runEffects, cleanUp } = createReact();
   const mod = captured.factory((name) => (name === 'react' ? react : {}));
-  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true });
+  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true, provider: 'p', model: 'm' });
 
   const props = {
     t: (key) => key,

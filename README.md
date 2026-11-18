@@ -10,8 +10,8 @@
 | [github](plugins/github/README.md) | 0.1.1 | GitHub 查询与 Issue/评论写入工具 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
 | [gmail](plugins/gmail/README.md) | 0.1.1 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
 | [ops-lite](plugins/ops-lite/README.md) | 0.1.1 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
-| [next-say](plugins/next-say/README.md) | 0.2.1 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
-| [task-radar](plugins/task-radar/README.md) | 0.2.2 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [next-say](plugins/next-say/README.md) | 0.2.2 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
+| [task-radar](plugins/task-radar/README.md) | 0.2.3 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
 | [magpie-models](plugins/magpie-models/README.md) | 0.1.1 | 轮询网关模型目录并写回模型选择器 | 工作区实现 |
 | [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.2.1 | 按需挂载 MCP：设置页列出服务器，模型也可启用后释放 | 工作区实现 |
 

@@ -289,11 +289,26 @@ window.__ModuleLoader__.load({
         // Race the entire body read too. Some transports do not settle promptly
         // after abort; releasing this request must not depend on their behavior.
         const work = (async () => {
-          const response = await hostFetch(API + '/radar', { credentials: 'same-origin', signal: controller.signal });
+          // since=0 would also match a restarted journal, so only a seeded
+          // cursor asks for the short answer.
+          const since = watcher.seeded === true && watcher.lastSequence > 0 ? ('?since=' + watcher.lastSequence) : '';
+          const response = await hostFetch(API + '/radar' + since, { credentials: 'same-origin', signal: controller.signal });
           return response.ok ? response.json() : null;
         })();
         const payload = await Promise.race([work, cancelled]);
         if (!watcher.active || watcher.request !== request || !payload || payload.ok !== true) return;
+        if (payload.unchanged === true) {
+          const nextId = typeof payload.journalId === 'string' ? payload.journalId : null;
+          if (nextId !== watcher.journalId) {
+            watcher.lastSequence = 0;
+            watcher.lastAt = 0;
+            watcher.seen.clear();
+            watcher.journalId = nextId;
+            watcher.seeded = false;
+          }
+          watcher.busy = payload.active === true;
+          return;
+        }
         const cfg = payload.config || {};
         watcher.cfg = cfg;
         watcher.system = cfg.enabled !== false && !!(cfg.system && cfg.system.enabled === true);

@@ -1104,6 +1104,8 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
         if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
+        // An empty route means "do not predict". Asking anyway only learns no-route.
+        if (typeof settings.provider !== 'string' || settings.provider.trim() === '' || typeof settings.model !== 'string' || settings.model.trim() === '') return undefined;
         if (running || !blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
         if (triedOnMount.current) return undefined;
@@ -1124,6 +1126,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
         if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
+        if (typeof settings.provider !== 'string' || settings.provider.trim() === '' || typeof settings.model !== 'string' || settings.model.trim() === '') return undefined;
         if (running) return undefined;
         if (!blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
