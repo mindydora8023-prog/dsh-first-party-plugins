@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Magpie model sync",
-    "description": "Polls the Magpie gateway model list and writes new models into the DSH picker. A failed or empty listing leaves the current list in place."
-  }
-}

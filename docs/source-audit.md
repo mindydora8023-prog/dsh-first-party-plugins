@@ -12,9 +12,8 @@
 | ops-lite | 自开发读取集成，完整性和失败策略有明确 dsh-ops 改编标记，工具助手含宿主移植 | 保留 DeepSeek、T-Auto MIT 与模块映射；修正 bundle 打包缺项；收录 |
 | next-say | 宿主集成、补全与输入层为本地开发；预测辅助模块与 dsh-prompt-predict 存在实质对应 | 将 predict.js 按上游改编处理，保留 ferrisching MIT；补生成器完整性检查；收录 |
 | task-radar | 通知发动机主干改编自 Pasumao；少量助手保守保留 chenchao 声明 | 0.3.0 批次已加完整 MIT、重绘图标及可复现生成器，修复打包、测试和文档；收录，见[专项记录](task-radar-audit.md) |
-| magpie-models | 全部为工作区实现：网关清单解析、端点分流与目录合并均为本次新写，没有移植宿主或其他项目的代码 | 无第三方模块，不加 THIRD_PARTY_NOTICES；随包附 MIT 主许可证；收录 |
 
-archived-sessions、session-meter 为首批已收录插件，继续保留。第三方 dsh-purge-community 不在本次发布范围。codex-quota 与 session-title-first-round 已退役，本次只记录状态，未新增溯源结论。
+archived-sessions、session-meter 为首批已收录插件，继续保留。第三方 dsh-purge-community 不在本次发布范围。codex-quota 与 session-title-first-round 已退役，本次只记录状态，未新增溯源结论。magpie-models 于 2026-11-19 从发行范围移除：本机 Magpie 自己写模型表，该插件不再使用。
 
 收录标准是本工作区开发或明确改编的功能插件、可限定的来源范围、已核实的分发许可与可审阅交付；不是“全仓所有行必须独立原创”。通知插件曾因来源材料和整理未完成而暂缓，现已按社区衍生作品明确署名后加入，并未将它重新描述为纯原创。
 

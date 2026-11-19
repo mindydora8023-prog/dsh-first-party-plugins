@@ -1,6 +1,10 @@
 # 发布检查记录
 
-最近核对：2026-11-18。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+
+## 0.3.7：移除 magpie-models
+
+本机 Magpie 自己写 DSH 的三路模型表。该插件每 5 分钟把同时带 chat 与 responses 的模型写进 `magpie-responses`，随即被 Magpie 盖回 `magpie-anthropic`。插件目录已从本仓删除。仓库现为九款插件。
 
 ## 0.3.5：加入 mcp-on-demand 0.2.0
 
