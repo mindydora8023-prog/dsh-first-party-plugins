@@ -2,6 +2,10 @@
 
 最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
+## 0.3.11：session-meter 0.3.52
+
+胶囊增加缓存节省，并在上下文超过一半时显示占用百分比。点击后的分模型清单按模型分块。价格来源、峰谷规则和按需下载目录没有改。session-meter 发布副本的客户端测试 83 条通过。
+
 ## next-say 0.2.3
 
 对照 dsh-ghost-prompt 的前缀跟随，以及 Copilot / Continue 的 accept next word。

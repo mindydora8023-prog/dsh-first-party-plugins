@@ -1335,7 +1335,11 @@ function renderAt(ms, options) {
 		return I.SessionMeter({
 			// The component reads `t` from its injected locale seat.
 			t: (key) => I.zh[key],
-			useProjection: (key) => (key === 'tokenUsage' ? usage : selection),
+			useProjection: (key) => {
+				if (key === 'tokenUsage') return usage;
+				if (key === 'contextPressure') return opts.pressure;
+				return selection;
+			},
 			useTrajectory: opts.requests === undefined
 				? undefined
 				: (selector) => selector({ requests: opts.requests }),
@@ -1548,5 +1552,160 @@ test('a single foreign model is named in the tooltip even without a second row',
 	const listed = tree.props['data-breakdown'];
 	assert.equal(listed.includes(I.zh.byModel), true, 'the stale selection does not hide the real model');
 	assert.equal(listed.includes('deepseek-flash'), true);
+});
+
+test('cache reads are reported as money the input rate would have charged', () => {
+	const rows = [{
+		model: 'deepseek-flash',
+		priced: true,
+		periodPriced: true,
+		usage: { cacheReadTokens: 1000000, uncachedInputTokens: 0, outputTokens: 0, cacheWriteTokens: 0 },
+	}];
+	const night = beijing('2026-10-22', 22, 0);
+	const morning = beijing('2026-10-22', 10, 0);
+	// Off-peak flash: input 1.0, cache read 0.02. The current window decides
+	// the rate a reader can check, so night and morning differ.
+	assert.ok(Math.abs(I.cacheSaved(rows, I.rateAt, night) - 0.98) < 1e-9);
+	assert.ok(Math.abs(I.cacheSaved(rows, I.rateAt, morning) - 1.96) < 1e-9);
+	const flat = [{ ...rows[0], periodPriced: false }];
+	assert.ok(Math.abs(I.cacheSaved(flat, I.rateAt, morning) - 0.98) < 1e-9, 'a flat row stays on the off-peak quote');
+	const none = [{ ...rows[0], usage: { ...rows[0].usage, cacheReadTokens: 0 } }];
+	assert.equal(I.cacheSaved(none, I.rateAt, night), 0);
+	const unpriced = [{ ...rows[0], priced: false }];
+	assert.equal(I.cacheSaved(unpriced, I.rateAt, night), 0, 'an unpriced row has no rate to save against');
+});
+
+test('the pill prints the cache saving next to the cost', () => {
+	const tree = renderAt(beijing('2026-10-22', 22, 0), {
+		requests: [{
+			startedAt: beijing('2026-10-22', 22, 0),
+			providerMetadata: { provider: 'deepseek-account', model: 'deepseek-flash' },
+			usage: { inputTokens: 1000000, cacheReadTokens: 1000000, outputTokens: 0 },
+		}],
+		usage: { uncachedInputTokens: 1000000, cacheReadTokens: 1000000, cacheWriteTokens: 0, outputTokens: 0 },
+	});
+	const text = textOf(tree);
+	assert.equal(text.includes(I.zh.saved), true, 'names the saving: ' + text);
+	// 1M reads at 0.02 instead of 1.0.
+	assert.equal(tree.props['data-cache-saved'], '\u00a50.980', 'off-peak saving: ' + tree.props['data-cache-saved']);
+	assert.equal(text.includes('\u00a50.980'), true);
+});
+
+test('context fill uses the next-prompt figure and bands it like a status line', () => {
+	assert.equal(I.contextFill(undefined), undefined);
+	assert.equal(I.contextFill({ pressureTokens: 0, contextWindow: 1000 }), undefined, 'nothing occupied yet');
+	const low = I.contextFill({ projectedTokens: 100, pressureTokens: 80, contextWindow: 1000 });
+	assert.equal(low.used, 100, 'the next-prompt figure wins over the last sample');
+	assert.equal(low.percent, 10);
+	assert.equal(low.band, 'low');
+	assert.equal(I.contextFill({ pressureTokens: 500, contextWindow: 1000 }).band, 'mid');
+	assert.equal(I.contextFill({ pressureTokens: 900, contextWindow: 1000 }).band, 'high');
+	const over = I.contextFill({ projectedTokens: 1500, contextWindow: 1000 });
+	assert.equal(over.percent, 100, 'past the window stays at 100');
+	assert.equal(over.band, 'high');
+	const blind = I.contextFill({ pressureTokens: 400 });
+	assert.equal(blind.band, 'unknown');
+	assert.equal(blind.percent, undefined);
+	assert.equal(blind.used, 400);
+});
+
+test('the pill shows the context percent and its band', () => {
+	const tree = renderAt(beijing('2026-10-22', 10, 0), {
+		requests: [{
+			startedAt: beijing('2026-10-22', 10, 0),
+			providerMetadata: { provider: 'magpie', model: 'auto/deepseek-v4.1-flash' },
+			usage: { inputTokens: 1000, outputTokens: 1000 },
+		}],
+		pressure: { projectedTokens: 90000, pressureTokens: 80000, contextWindow: 100000 },
+	});
+	const text = textOf(tree);
+	assert.equal(text.includes('90%'), true, 'percent of the window: ' + text);
+	assert.equal(text.includes(I.zh.context), false, 'the word stays in the hover: ' + text);
+	const span = JSON.stringify(tree);
+	assert.equal(span.includes('"high"'), true, 'the band is on the element');
+	const title = titlesOf(tree)[0];
+	assert.equal(title.includes(I.zh.contextHigh), true, 'the hover says why the colour changed');
+	assert.equal(title.includes('90K'), true, 'the hover keeps the token count');
+});
+
+test('a route without a window still shows the occupied tokens', () => {
+	const tree = renderAt(beijing('2026-10-22', 10, 0), {
+		requests: [{
+			startedAt: beijing('2026-10-22', 10, 0),
+			providerMetadata: { provider: 'magpie', model: 'auto/deepseek-v4.1-flash' },
+			usage: { inputTokens: 1, outputTokens: 1 },
+		}],
+		pressure: { pressureTokens: 4000 },
+	});
+	const text = textOf(tree);
+	assert.equal(text.includes(I.zh.context), false, 'no window, so the pill stays on the cost: ' + text);
+	assert.equal(text.includes('%'), false);
+	const title = titlesOf(tree)[0];
+	assert.equal(title.includes(I.zh.contextUnknown), true);
+	assert.equal(title.includes('4K'), true, 'the hover still has the token count: ' + title);
+});
+
+test('a context window under half full stays off the pill', () => {
+	const tree = renderAt(beijing('2026-10-22', 10, 0), {
+		requests: [{
+			startedAt: beijing('2026-10-22', 10, 0),
+			providerMetadata: { provider: 'magpie', model: 'auto/deepseek-v4.1-flash' },
+			usage: { inputTokens: 1, outputTokens: 1 },
+		}],
+		pressure: { projectedTokens: 12000, contextWindow: 100000 },
+	});
+	assert.equal(textOf(tree).includes('%'), false, 'the host ring already shows a quiet fill');
+	assert.equal(titlesOf(tree)[0].includes(I.zh.contextLow), true);
+	assert.equal(titlesOf(tree)[0].includes('12%'), true);
+});
+
+test('a context window past half full is printed on the pill', () => {
+	const tree = renderAt(beijing('2026-10-22', 10, 0), {
+		requests: [{
+			startedAt: beijing('2026-10-22', 10, 0),
+			providerMetadata: { provider: 'magpie', model: 'auto/deepseek-v4.1-flash' },
+			usage: { inputTokens: 1, outputTokens: 1 },
+		}],
+		pressure: { projectedTokens: 60000, contextWindow: 100000 },
+	});
+	assert.equal(textOf(tree).includes('60%'), true, textOf(tree));
+	assert.equal(JSON.stringify(tree).includes('"mid"'), true);
+});
+
+test('pace needs two requests at least a minute apart', () => {
+	const one = new Map([['a', { at: beijing('2026-10-22', 10, 0) }]]);
+	assert.equal(I.burnPerHour(10, one, beijing('2026-10-22', 12, 0)), undefined);
+	const close = new Map([
+		['a', { at: beijing('2026-10-22', 10, 0) }],
+		['b', { at: beijing('2026-10-22', 10, 0) + 20000 }],
+	]);
+	assert.equal(I.burnPerHour(10, close, beijing('2026-10-22', 10, 0) + 20000), undefined, 'under a minute is not a pace');
+	const hour = new Map([
+		['a', { at: beijing('2026-10-22', 10, 0) }],
+		['b', { at: beijing('2026-10-22', 12, 0) }],
+	]);
+	assert.ok(Math.abs(I.burnPerHour(10, hour, beijing('2026-10-22', 12, 0)) - 5) < 1e-9, '10 CNY over 2 h');
+	const short = new Map([
+		['a', { at: beijing('2026-10-22', 10, 0) }],
+		['b', { at: beijing('2026-10-22', 10, 20) }],
+	]);
+	assert.equal(I.burnPerHour(3, short, beijing('2026-10-22', 10, 20)), 3, 'under an hour the figure is the session so far');
+	assert.equal(I.burnPerHour(0, hour, beijing('2026-10-22', 12, 0)), undefined);
+});
+
+test('the breakdown lists each model as its own block with the buckets', () => {
+	const row = {
+		model: 'deepseek-flash',
+		priced: true,
+		cost: 1,
+		usage: { uncachedInputTokens: 1000000, outputTokens: 500000, cacheReadTokens: 2000000, cacheWriteTokens: 0 },
+	};
+	const lines = I.modelLines(row, (key) => I.zh[key]);
+	assert.equal(lines[0], 'deepseek-flash');
+	assert.equal(lines[1].includes('\u00a51.00'), true);
+	assert.equal(lines[2].includes(I.zh.input), true);
+	assert.equal(lines[2].includes(I.zh.output), true);
+	assert.equal(lines[2].includes(I.zh.cacheRead), true);
+	assert.equal(lines.length, 3);
 });
 

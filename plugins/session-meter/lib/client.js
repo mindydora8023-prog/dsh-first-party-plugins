@@ -119,6 +119,14 @@ window.__ModuleLoader__.load({
 			minute: "min",
 			hour: "h",
 			day: "d",
+			context: "Context",
+			saved: "Cache saved",
+			burn: "Pace",
+			perHour: "/h",
+			contextLow: "Context is under half full",
+			contextMid: "Context is over half full",
+			contextHigh: "Context is near the window limit",
+			contextUnknown: "The route did not report a context window",
 		};
 
 		/** Chinese copy; kept as \u escapes so this file never carries raw CJK. */
@@ -147,6 +155,14 @@ window.__ModuleLoader__.load({
 			minute: "\u5206\u949f",
 			hour: "\u5c0f\u65f6",
 			day: "\u5929",
+			context: "\u4e0a\u4e0b\u6587",
+			saved: "\u7f13\u5b58\u7701\u4e0b",
+			burn: "\u8282\u594f",
+			perHour: "/\u5c0f\u65f6",
+			contextLow: "\u4e0a\u4e0b\u6587\u4e0d\u5230\u4e00\u534a",
+			contextMid: "\u4e0a\u4e0b\u6587\u5df2\u8d85\u8fc7\u4e00\u534a",
+			contextHigh: "\u4e0a\u4e0b\u6587\u63a5\u8fd1\u7a97\u53e3\u4e0a\u9650",
+			contextUnknown: "\u8fd9\u6761\u8def\u7531\u6ca1\u6709\u62a5\u544a\u4e0a\u4e0b\u6587\u7a97\u53e3",
 		};
 
 		/** Copy used when no locale seat is injected (tests, locale-less hosts). */
@@ -1098,6 +1114,97 @@ window.__ModuleLoader__.load({
 			return "\u00a5" + value.toFixed(2);
 		}
 
+		/**
+		 * How full the next prompt is, against the route's advertised window.
+		 *
+		 * `projectedTokens` is what the next request's prompt would cost (the
+		 * token-meter's own definition: last provider sample plus the surface
+		 * delta). `pressureTokens` is that sample alone, used when the projection
+		 * has not derived the next-prompt figure yet. Neither is this session's
+		 * billed total: output is excluded, so the number does not climb while a
+		 * turn streams.
+		 *
+		 * The bands are the ones ccusage prints on its status line: under half,
+		 * half to four fifths, and past that. A route that never advertised a
+		 * window still reports the token count, with no percentage and no band.
+		 *
+		 * @param {{projectedTokens?: number, pressureTokens?: number, contextWindow?: number}|undefined} pressure
+		 * @returns {{used: number, window: number|undefined, percent: number|undefined, band: "low"|"mid"|"high"|"unknown"}|undefined}
+		 */
+		function contextFill(pressure) {
+			if (!pressure || typeof pressure !== "object") return undefined;
+			const projected = numberOrZero(pressure.projectedTokens);
+			const sampled = numberOrZero(pressure.pressureTokens);
+			const used = projected > 0 ? projected : sampled;
+			if (used <= 0) return undefined;
+			const window = numberOrZero(pressure.contextWindow);
+			if (window <= 0) return { used, window: undefined, percent: undefined, band: "unknown" };
+			const percent = Math.min(100, Math.round((used / window) * 100));
+			const band = percent >= 80 ? "high" : percent >= 50 ? "mid" : "low";
+			return { used, window, percent, band };
+		}
+
+		/**
+		 * What the cache reads were worth: the same tokens billed at the input
+		 * rate instead of the cache-read rate. A table that quotes cache reads at
+		 * the input rate saves nothing, and the pill stays quiet rather than
+		 * printing a zero.
+		 *
+		 * @param {Array<{usage: object, priced?: boolean, periodPriced?: boolean}>} rows
+		 * @param {(model: string|undefined, at: number) => {rate: object}|undefined} lookup
+		 * @param {number} now - only consulted for a row the period table prices,
+		 *   because that row's own instants are already folded into its cost and
+		 *   the current window is the rate a reader can check.
+		 * @returns {number}
+		 */
+		function cacheSaved(rows, lookup, now) {
+			if (!Array.isArray(rows) || typeof lookup !== "function") return 0;
+			let saved = 0;
+			for (let index = 0; index < rows.length; index += 1) {
+				const row = rows[index];
+				if (!row || row.priced !== true) continue;
+				const reads = numberOrZero(row.usage && row.usage.cacheReadTokens);
+				if (reads <= 0) continue;
+				const hit = lookup(row.model, row.periodPriced === true ? now : UNKNOWN_OFFPEAK_AT);
+				if (!hit || !hit.rate) continue;
+				const input = numberOrZero(hit.rate.input);
+				const read = numberOrZero(hit.rate.cacheRead);
+				if (input <= read) continue;
+				saved += ((reads / 1000000) * (input - read));
+			}
+			return saved;
+		}
+
+		/**
+		 * Spend per hour across the span the requests actually cover.
+		 *
+		 * One request, or a span under a minute, is not a pace: dividing the bill
+		 * by a few seconds prints a number nobody spent. Under an hour the figure
+		 * is the session so far, not an extrapolation.
+		 *
+		 * @param {number} cost
+		 * @param {Map<string, {at?: number}>|undefined} pinned
+		 * @param {number} now
+		 * @returns {number|undefined}
+		 */
+		function burnPerHour(cost, pinned, now) {
+			if (!Number.isFinite(cost) || cost <= 0) return undefined;
+			if (!(pinned instanceof Map) || pinned.size < 2) return undefined;
+			let oldest;
+			let newest;
+			for (const entry of pinned.values()) {
+				if (!entry || !Number.isFinite(entry.at)) continue;
+				if (oldest === undefined || entry.at < oldest) oldest = entry.at;
+				if (newest === undefined || entry.at > newest) newest = entry.at;
+			}
+			if (oldest === undefined) return undefined;
+			const end = Number.isFinite(now) && now > newest ? now : newest;
+			const span = end - oldest;
+			if (!Number.isFinite(span) || span < MINUTE_MS) return undefined;
+			if (span < 60 * MINUTE_MS) return cost;
+			return cost * (60 * MINUTE_MS) / span;
+		}
+
 		/** Compact token count: 1234 -> 1.23K, 1234567 -> 1.23M. */
 		function fmtTokens(value) {
 			if (!Number.isFinite(value)) return "\u2014";
@@ -1307,6 +1414,14 @@ window.__ModuleLoader__.load({
 			soon: {
 				color: "var(--dsw-alias-label-secondary)",
 			},
+			// Context bands follow ccusage's status line: quiet, then warning, then
+			// danger. The rest of the pill stays tertiary so one number can shout.
+			fill: {
+				low: "var(--dsw-alias-state-success-primary)",
+				mid: "var(--dsw-alias-state-warn-primary)",
+				high: "var(--dsw-alias-state-danger-primary, var(--dsw-alias-state-warn-primary))",
+				unknown: "var(--dsw-alias-label-tertiary)",
+			},
 			sep: {
 				color: "var(--dsw-alias-separator-primary)",
 				margin: "0 1px",
@@ -1349,13 +1464,30 @@ window.__ModuleLoader__.load({
 			},
 		};
 
-		/** Tooltip line for one model that produced tokens. */
-		function modelLine(row, t) {
+		/**
+		 * One model row for the breakdown panel: the name, then one fact per line.
+		 * A single run-on line was the whole reason a long session's panel could
+		 * not be scanned.
+		 * @returns {string[]}
+		 */
+		function modelLines(row, t) {
 			const label = row.model || textKey(t, "unknown");
 			const tokens = fmtTokens(totalBilledTokens(row.usage));
 			const amount = row.priced ? fmtMoney(row.cost) : textKey(t, "noPrice");
 			const marks = (row.reference ? "*" : "") + (row.estimated ? " ~" : "");
-			return label + "  " + tokens + " " + textKey(t, "tokensUnit") + "  " + amount + marks;
+			const lines = [label + marks, tokens + " " + textKey(t, "tokensUnit") + "  " + amount];
+			const usage = row.usage || {};
+			const parts = [];
+			if (numberOrZero(usage.uncachedInputTokens) > 0) parts.push(textKey(t, "input") + " " + fmtTokens(usage.uncachedInputTokens));
+			if (numberOrZero(usage.outputTokens) > 0) parts.push(textKey(t, "output") + " " + fmtTokens(usage.outputTokens));
+			if (numberOrZero(usage.cacheReadTokens) > 0) parts.push(textKey(t, "cacheRead") + " " + fmtTokens(usage.cacheReadTokens));
+			if (parts.length > 0) lines.push(parts.join(" \u00b7 "));
+			return lines;
+		}
+
+		/** One line, for callers that still want the compact form. */
+		function modelLine(row, t) {
+			return modelLines(row, t).join("  ");
 		}
 
 		/* A host without the Trajectory feature still renders; hooks must run in a
@@ -1383,6 +1515,9 @@ window.__ModuleLoader__.load({
 			const useProjection = props.useProjection;
 			const usage = useProjection("tokenUsage");
 			const selection = useProjection("modelSelection");
+			// Newest prompt size against the route window. Absent on a host that
+			// does not publish the projection; the pill then omits the fill.
+			const pressure = useProjection("contextPressure");
 			const requests = useRequestRecords(props.useTrajectory);
 			const [now, setNow] = React.useState(() => Date.now());
 			const [liveRevision, setLiveRevision] = React.useState(0);
@@ -1440,6 +1575,15 @@ window.__ModuleLoader__.load({
 			pinnedRef.current = breakdown.pinned;
 			const tokens = totalBilledTokens(usage);
 			const flip = nextFlipAt(now);
+			const fill = contextFill(pressure);
+			const saved = cacheSaved(breakdown.rows, (model, at) => rateAt(model, at), now);
+			const burn = burnPerHour(breakdown.cost, breakdown.pinned, now);
+			// The host draws its own context ring on this same row, and hides that
+			// ring while a turn is running. A second "context 12%" on every idle
+			// session only lengthens the pill. The percent earns a place here once
+			// the window is half full: that is the moment the colour is a warning,
+			// and the moment a long turn has hidden the host ring.
+			const showFill = fill !== undefined && (fill.band === "mid" || fill.band === "high");
 
 			// Ask the Host for prices of every model this session touched. `now` is a
 			// dependency on purpose: the sleep above wakes at the retry time, and
@@ -1541,6 +1685,18 @@ window.__ModuleLoader__.load({
 				summary.push(textKey(t, "model") + " " + model);
 			}
 			if (tokens > 0) summary.push(textKey(t, "tokens") + " " + fmtTokens(tokens));
+			if (saved > 0) summary.push(textKey(t, "saved") + " " + fmtMoney(saved));
+			if (burn !== undefined) summary.push(textKey(t, "burn") + " " + fmtMoney(burn) + textKey(t, "perHour"));
+			if (fill !== undefined) {
+				const fillText = fill.percent === undefined
+					? fmtTokens(fill.used)
+					: fmtTokens(fill.used) + " (" + fill.percent + "%)";
+				const bandKey = fill.band === "high" ? "contextHigh"
+					: fill.band === "mid" ? "contextMid"
+					: fill.band === "low" ? "contextLow"
+					: "contextUnknown";
+				summary.push(textKey(t, "context") + " " + fillText + " \u00b7 " + textKey(t, bandKey));
+			}
 			// Say why a model stayed unpriced instead of leaving a silent dash.
 			if (live.lastError !== undefined && breakdown.rows.some((row) => !row.priced)) {
 				summary.push(textKey(t, "catalogError") + " " + live.lastError);
@@ -1560,7 +1716,8 @@ window.__ModuleLoader__.load({
 			if (detailText === undefined) {
 				const detail = [];
 				if (breakdown.rows.length > 0) {
-					detail.push(textKey(t, "byModel") + ":\n" + breakdown.rows.map((row) => modelLine(row, t)).join("\n"));
+					const blocks = breakdown.rows.map((row) => modelLines(row, t).join("\n"));
+					detail.push(textKey(t, "byModel") + ":\n" + blocks.join("\n\n"));
 					if (breakdown.rows.some((row) => row.reference)) detail.push(textKey(t, "referenceNote"));
 				}
 				detailText = detail.join("\n");
@@ -1659,6 +1816,8 @@ window.__ModuleLoader__.load({
 					style: style.anchor,
 					"data-session-meter": showPeriod ? (peak ? "peak" : "off-peak") : "flat",
 					"data-breakdown": detailText,
+					"data-cache-saved": saved > 0 ? fmtMoney(saved) : undefined,
+					"data-burn": burn !== undefined ? fmtMoney(burn) : undefined,
 				},
 				h(
 					"button",
@@ -1694,6 +1853,17 @@ window.__ModuleLoader__.load({
 						soonLabel !== undefined && h("span", { style: style.soon }, soonLabel),
 						showPeriod && showCost && tokens > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
 						showCost && h("span", { style: style.label }, textKey(t, "spend") + " " + costLabel),
+						saved > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
+						saved > 0 && h("span", { style: style.label }, textKey(t, "saved") + " " + fmtMoney(saved)),
+						showFill && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
+						showFill && h(
+							"span",
+							{
+								style: { ...style.label, color: style.fill[fill.band] },
+								"data-context-band": fill.band,
+							},
+							fill.percent + "%",
+						),
 					),
 				),
 				open && h(
@@ -1782,6 +1952,10 @@ window.__ModuleLoader__.load({
 			pillGesture,
 			fmtSpan,
 			modelLine,
+			modelLines,
+			contextFill,
+			cacheSaved,
+			burnPerHour,
 			unpricedOnly,
 			SessionMeter,
 		};
