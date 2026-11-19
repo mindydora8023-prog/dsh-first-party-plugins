@@ -2,6 +2,10 @@
 
 最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
+## 0.3.8：task-radar 0.3.0
+
+页内卡片可点开对应会话，Windows Toast 默认 8 秒后消失，静音时段可跨午夜，后台标签会标出未读提醒。浏览器系统通知默认关掉，避免和 Toast 各弹一次。没有 `schema: 2` 的旧配置在下次加载时迁移一次：取消常驻、关掉浏览器通道、打开页内卡片。
+
 ## 0.3.7：移除 magpie-models
 
 本机 Magpie 自己写 DSH 的三路模型表。该插件每 5 分钟把同时带 chat 与 responses 的模型写进 `magpie-responses`，随即被 Magpie 盖回 `magpie-anthropic`。插件目录已从本仓删除。仓库现为九款插件。

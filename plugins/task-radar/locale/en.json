@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Task radar",
-    "description": "System notifications when a task starts or finishes: a native Windows toast plus a browser system notification, body labelled workspace · session, per-event toggles (finished / aborted / error / waiting), all configurable in Settings"
+    "description": "Clickable in-page card that opens the session when a task finishes, auto-dismissing Windows toast, and quiet hours. Browser notifications stay off by default so the same event is not shown twice."
   }
 }

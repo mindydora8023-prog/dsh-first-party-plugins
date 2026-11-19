@@ -61,6 +61,16 @@ window.__ModuleLoader__.load({
       'sys.default': 'not requested yet',
       'sys.request': 'Allow notifications',
       'sys.unsupported': 'not supported here',
+      'page.name': 'In-page card',
+      'page.desc': 'Shown in this window. Click it to open the session. Still works when system notifications are blocked.',
+      'toast.duration': 'Auto dismiss (seconds)',
+      'toast.durationHint': 'Used when keep-on-screen is off. 3-30 seconds.',
+      'quiet.title': 'Quiet hours',
+      'quiet.hint': 'No reminders while local time is inside this window. The window may cross midnight.',
+      'quiet.enabled': 'Enable quiet hours',
+      'quiet.start': 'Start',
+      'quiet.end': 'End',
+      'notice.dismiss': 'Dismiss',
       'badge.on': 'ON',
       'badge.off': 'OFF',
       'btn.save': 'Save',
@@ -117,6 +127,16 @@ window.__ModuleLoader__.load({
       'sys.default': '\u5c1a\u672a\u8bf7\u6c42',
       'sys.request': '\u5141\u8bb8\u901a\u77e5',
       'sys.unsupported': '\u5f53\u524d\u73af\u5883\u4e0d\u652f\u6301',
+      'page.name': '\u9875\u5185\u5361\u7247',
+      'page.desc': '\u663e\u793a\u5728\u672c\u7a97\u53e3\u91cc\uff0c\u70b9\u51fb\u6253\u5f00\u5bf9\u5e94\u4f1a\u8bdd\u3002\u7cfb\u7edf\u901a\u77e5\u88ab\u62e6\u622a\u65f6\u4ecd\u7136\u53ef\u7528\u3002',
+      'toast.duration': '\u81ea\u52a8\u6d88\u5931\uff08\u79d2\uff09',
+      'toast.durationHint': '\u5173\u95ed\u300c\u5e38\u9a7b\u300d\u540e\u751f\u6548\uff0c3\u201330 \u79d2\u3002',
+      'quiet.title': '\u9759\u97f3\u65f6\u6bb5',
+      'quiet.hint': '\u672c\u5730\u65f6\u95f4\u843d\u5728\u6b64\u65f6\u6bb5\u5185\u4e0d\u63d0\u9192\uff0c\u65f6\u6bb5\u53ef\u4ee5\u8de8\u8fc7\u5348\u591c\u3002',
+      'quiet.enabled': '\u542f\u7528\u9759\u97f3\u65f6\u6bb5',
+      'quiet.start': '\u5f00\u59cb',
+      'quiet.end': '\u7ed3\u675f',
+      'notice.dismiss': '\u5173\u95ed',
       'badge.on': '\u5df2\u5f00',
       'badge.off': '\u5df2\u5173',
       'btn.save': '\u4fdd\u5b58',
@@ -175,8 +195,85 @@ window.__ModuleLoader__.load({
     const POLL_IDLE_MS = 12000;
     const watcher = { timer: null, lastAt: 0, lastSequence: 0, journalId: null, seen: new Set(),
       cfg: null, inFlight: false, request: null, active: true, system: false, seeded: false,
-      onVisible: null, busy: false, delay: POLL_BUSY_MS };
+      onVisible: null, busy: false, delay: POLL_BUSY_MS, baseTitle: null, pendingTitle: 0 };
     let appCtx = null;
+    const NOTICE_LIMIT = 3;
+    const notices = [];
+    const noticeListeners = new Set();
+    let noticeSeq = 0;
+
+    function publishNotices() {
+      const snapshot = notices.slice();
+      for (const listener of noticeListeners) listener(snapshot);
+    }
+
+    function dismissNotice(id) {
+      const index = notices.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      const [item] = notices.splice(index, 1);
+      if (item.timer != null) window.clearTimeout(item.timer);
+      publishNotices();
+    }
+
+    function clearNotices() {
+      for (const item of notices) {
+        if (item.timer != null) window.clearTimeout(item.timer);
+      }
+      notices.splice(0, notices.length);
+      publishNotices();
+    }
+
+    function pageDurationMs() {
+      const value = watcher.cfg && watcher.cfg.toast && Number(watcher.cfg.toast.durationMs);
+      if (Number.isFinite(value) && value >= 3000 && value <= 30000) return value;
+      return 8000;
+    }
+
+    function pushNotice(entry) {
+      const item = {
+        id: ++noticeSeq,
+        kind: entry.kind,
+        title: entry.title || '',
+        body: entry.body || '',
+        location: entry.location || '',
+        session: entry.session || '',
+        timer: null,
+      };
+      notices.push(item);
+      while (notices.length > NOTICE_LIMIT) {
+        const dropped = notices.shift();
+        if (dropped && dropped.timer != null) window.clearTimeout(dropped.timer);
+      }
+      item.timer = window.setTimeout(() => dismissNotice(item.id), pageDurationMs());
+      publishNotices();
+    }
+
+    function activateNotice(id) {
+      const item = notices.find((entry) => entry.id === id);
+      if (!item) return;
+      openSessionById(item.session);
+      dismissNotice(id);
+    }
+
+    function noteHidden(kind) {
+      try {
+        if (!document || document.visibilityState !== 'hidden') return;
+        if (watcher.baseTitle == null) watcher.baseTitle = String(document.title || '');
+        watcher.pendingTitle += 1;
+        const label = kind === 'waiting'
+          ? '\u9700\u8981\u4f60\u9009\u62e9'
+          : (watcher.pendingTitle + ' \u4e2a\u4efb\u52a1\u63d0\u9192');
+        document.title = '\uD83D\uDD14 ' + label + ' \u2014 ' + watcher.baseTitle;
+      } catch { /* non-DOM host */ }
+    }
+
+    function restoreTitle() {
+      try {
+        if (watcher.baseTitle != null && document) document.title = watcher.baseTitle;
+      } catch { /* ignore */ }
+      watcher.baseTitle = null;
+      watcher.pendingTitle = 0;
+    }
 
     /**
      * Reveal a session in the running app. Uses the client `uiWorkspace` service
@@ -332,10 +429,15 @@ window.__ModuleLoader__.load({
           if (sequenced) {
             if (!Number.isSafeInteger(entry.sequence) || entry.sequence <= watcher.lastSequence) continue;
           } else if (entry.at < boundary || seen.has(identity)) continue;
-          if (!seed && cfg.enabled !== false && !(cfg.events && cfg.events[entry.kind] === false) && watcher.system) {
-            const consumed = await Promise.race([deliverSystemEntry(entry, journalId, current), cancelled]);
-            if (!current()) return;
-            if (!consumed) break;
+          const pageOn = !!(cfg.page && cfg.page.enabled === true);
+          if (!seed && cfg.enabled !== false && !(cfg.events && cfg.events[entry.kind] === false) && (watcher.system || pageOn)) {
+            if (watcher.system) {
+              const consumed = await Promise.race([deliverSystemEntry(entry, journalId, current), cancelled]);
+              if (!current()) return;
+              if (!consumed) break;
+            }
+            if (pageOn) pushNotice(entry);
+            noteHidden(entry.kind);
           }
           if (sequenced) watcher.lastSequence = entry.sequence;
           else seen.add(identity);
@@ -374,7 +476,12 @@ window.__ModuleLoader__.load({
     // browsers may throttle timers, so visibility restoration also polls now.
     function startWatcher() {
       const sync = () => {
-        try { if (document.visibilityState !== 'hidden') void tick(); } catch { /* non-DOM host */ }
+        try {
+          if (document.visibilityState !== 'hidden') {
+            restoreTitle();
+            void tick();
+          }
+        } catch { /* non-DOM host */ }
       };
       watcher.onVisible = sync;
       try { document.addEventListener('visibilitychange', sync); } catch { /* non-DOM host */ }
@@ -561,7 +668,7 @@ window.__ModuleLoader__.load({
 
     function validSettings(config) {
       return config && typeof config === 'object' && !Array.isArray(config) &&
-        ['events', 'toast', 'system'].every((key) => config[key] && typeof config[key] === 'object' && !Array.isArray(config[key]));
+        ['events', 'toast', 'system', 'page', 'quiet'].every((key) => config[key] && typeof config[key] === 'object' && !Array.isArray(config[key]));
     }
 
     // One form model owns drafts and requests. Responses may normalize the
@@ -728,7 +835,21 @@ window.__ModuleLoader__.load({
             h(Row, { label: textKey(t, 'toast.iconPath'), tight: true },
               h(TextInput, { value: cfg.toast.iconPath, placeholder: 'C:\\path\\icon.png', onChange: (v) => set((n) => { n.toast.iconPath = v; }) }),
             ),
+            h(Row, { label: textKey(t, 'toast.duration'), hint: textKey(t, 'toast.durationHint'), tight: true },
+              h(NumInput, {
+                value: cfg.toast.durationMs === '' ? '' : Number(cfg.toast.durationMs) / 1000,
+                min: 3, max: 30, step: 1,
+                onChange: (v) => set((n) => { n.toast.durationMs = v === '' ? '' : Number(v) * 1000; }),
+              }),
+            ),
           ),
+          h(ChannelCard, {
+            name: textKey(t, 'page.name'),
+            desc: textKey(t, 'page.desc'),
+            enabled: cfg.page.enabled,
+            badge: cfg.page.enabled ? textKey(t, 'badge.on') : textKey(t, 'badge.off'),
+            onToggle: (v) => set((n) => { n.page.enabled = v; }),
+          }),
           h(ChannelCard, {
             name: textKey(t, 'sys.name'),
             desc: textKey(t, 'sys.desc'),
@@ -764,6 +885,18 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        h(Card, { title: textKey(t, 'quiet.title'), desc: textKey(t, 'quiet.hint') },
+          h(Row, { label: textKey(t, 'quiet.enabled'), first: true },
+            h(Toggle, { value: cfg.quiet.enabled, onChange: (v) => set((n) => { n.quiet.enabled = v; }) }),
+          ),
+          h(Row, { label: textKey(t, 'quiet.start'), tight: true },
+            h(TextInput, { value: cfg.quiet.start, placeholder: '22:00', onChange: (v) => set((n) => { n.quiet.start = v; }) }),
+          ),
+          h(Row, { label: textKey(t, 'quiet.end'), tight: true },
+            h(TextInput, { value: cfg.quiet.end, placeholder: '08:00', onChange: (v) => set((n) => { n.quiet.end = v; }) }),
+          ),
+        ),
+
         h('p', { style: { fontSize: '12px', color: C.faint } }, textKey(t, 'test.hint')),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginTop: '4px' } },
           h('button', { type: 'button', onClick: save, disabled: !!local.busy || !dirty, style: { ...buttonStyle(true), opacity: local.busy || !dirty ? 0.5 : 1 } }, textKey(t, 'btn.save')),
@@ -771,6 +904,50 @@ window.__ModuleLoader__.load({
           h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12.5px', color: dirty ? C.warn : C.muted } }, status || (dirty ? '*' : '')),
         ),
       );
+    }
+
+    function NoticeStack() {
+      const [items, setItems] = React.useState(() => notices.slice());
+      React.useEffect(() => {
+        const listener = (next) => setItems(next);
+        noticeListeners.add(listener);
+        return () => noticeListeners.delete(listener);
+      }, []);
+      if (items.length === 0) return null;
+      return h('div', {
+        style: {
+          position: 'fixed', right: '16px', bottom: '16px', zIndex: 30,
+          display: 'flex', flexDirection: 'column', gap: '8px',
+          width: 'min(360px, calc(100vw - 32px))',
+        },
+      }, items.map((item) => h('div', {
+        key: item.id,
+        style: {
+          background: C.card, color: C.text, border: '1px solid ' + C.cardBorder,
+          borderRadius: '12px', padding: '10px 12px',
+        },
+      },
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } },
+          h('strong', { style: { fontSize: '13px' } }, item.title),
+          h('button', {
+            type: 'button',
+            'aria-label': textKey(() => '', 'notice.dismiss'),
+            onClick: () => dismissNotice(item.id),
+            style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '16px' },
+          }, '\u00d7'),
+        ),
+        h('button', {
+          type: 'button',
+          onClick: () => activateNotice(item.id),
+          style: {
+            display: 'block', width: '100%', textAlign: 'left', border: 0, background: 'transparent',
+            color: C.text, cursor: 'pointer', padding: '4px 0 0', fontSize: '12.5px',
+          },
+        },
+          item.body,
+          item.location ? h('div', { style: { color: C.faint, marginTop: '4px' } }, item.location) : null,
+        ),
+      )));
     }
 
     /* -------------------------------------------------------------- wiring */
@@ -799,6 +976,11 @@ window.__ModuleLoader__.load({
             try { return locale.bind(NS)('nav.title'); } catch { return zh['nav.title']; }
           },
         }, SettingsPage));
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay',
+          id: 'task-radar-notices',
+          order: 40,
+        }, NoticeStack));
       }
 
       startWatcher();
@@ -828,6 +1010,8 @@ window.__ModuleLoader__.load({
         if (watcher.request) watcher.request.cancel();
         watcher.request = null;
         watcher.inFlight = false;
+        clearNotices();
+        restoreTitle();
         appCtx = null;
         disarmWatcher();
         if (watcher.onVisible !== null) {
@@ -841,7 +1025,7 @@ window.__ModuleLoader__.load({
       name: 'task-radar',
       inject: ['slots', 'locale', 'uiWorkspace'],
       apply,
-      __internals: { NS, API, zh, en, textKey, tick, watcher, SettingsPage, createSettingsModel, requestSystemPermission, showSystemNotification, openSessionById },
+      __internals: { NS, API, zh, en, textKey, tick, watcher, SettingsPage, NoticeStack, createSettingsModel, requestSystemPermission, showSystemNotification, openSessionById, pushNotice, dismissNotice, activateNotice, notices },
     };
     return moduleExports;
   },

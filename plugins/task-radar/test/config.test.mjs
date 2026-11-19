@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_CONFIG, normalizeConfig } from '../lib/config.js';
+import { DEFAULT_CONFIG, inQuietHours, normalizeConfig } from '../lib/config.js';
 
 test('normalizeConfig fills defaults on empty input', () => {
   const cfg = normalizeConfig(undefined);
@@ -13,7 +13,12 @@ test('normalizeConfig fills defaults on empty input', () => {
   assert.equal(cfg.events.finished, true);
   assert.equal(cfg.events.turnStart, false);
   assert.equal(cfg.toast.enabled, true);
-  assert.equal(cfg.system.enabled, true);
+  assert.equal(cfg.toast.persistent, false);
+  assert.equal(cfg.toast.durationMs, 8000);
+  assert.equal(cfg.system.enabled, false);
+  assert.equal(cfg.page.enabled, true);
+  assert.equal(cfg.quiet.enabled, false);
+  assert.equal(cfg.schema, 2);
 });
 
 test('normalizeConfig clamps cooldownMs and summaryMaxChars', () => {
@@ -115,6 +120,20 @@ test('normalizeConfig round-trips toast options and trims prefix', () => {
   assert.equal(cfg.toast.persistent, false);
   assert.equal(cfg.toast.iconPath, 'C:/x.png');
   assert.equal(cfg.titlePrefix, DEFAULT_CONFIG.titlePrefix);
+});
+
+test('duration and quiet hours are clamped and round-trip', () => {
+  const cfg = normalizeConfig({ toast: { durationMs: 1000 }, quiet: { enabled: true, start: '9:00', end: '25:00' } });
+  assert.equal(cfg.toast.durationMs, 3000);
+  assert.equal(cfg.quiet.start, '22:00');
+  assert.equal(cfg.quiet.end, '08:00');
+  const kept = normalizeConfig({ toast: { durationMs: 12000 }, quiet: { enabled: true, start: '22:00', end: '08:00' } });
+  assert.equal(kept.toast.durationMs, 12000);
+  assert.equal(inQuietHours(kept.quiet, new Date(2026, 0, 1, 23, 0)), true);
+  assert.equal(inQuietHours(kept.quiet, new Date(2026, 0, 1, 7, 59)), true);
+  assert.equal(inQuietHours(kept.quiet, new Date(2026, 0, 1, 8, 0)), false);
+  assert.equal(inQuietHours(kept.quiet, new Date(2026, 0, 1, 12, 0)), false);
+  assert.equal(inQuietHours({ enabled: false, start: '00:00', end: '23:59' }, new Date()), false);
 });
 
 test('normalizeConfig keeps event booleans, ignores junk', () => {

@@ -38,6 +38,8 @@ test('toast sender uses UTF-16LE EncodedCommand and passes only data through env
   assert.equal(options.env.TR_BODY, payload.body);
   assert.equal(options.env.TR_LOCATION, payload.location);
   assert.equal(options.env.TR_PERSIST, '1');
+  assert.equal(options.env.TR_DURATION, '8');
+  assert.match(script, /ExpirationTime/);
   assert.equal(options.env.PATH, 'fixture-path');
   for (const key of ['EXAMPLE_API_KEY', 'example_secret', 'EXAMPLE_TOKEN', 'PASSWORD']) {
     assert.equal(Object.hasOwn(options.env, key), false, key);
@@ -65,6 +67,16 @@ test('custom icon overrides default; a missing icon is omitted without losing th
   assert.equal(h.sender(h.ctx, { toast: { persistent: false, iconPath: ' /fixture/custom.png ' } }, payload), true);
   assert.equal(h.launches[0][2].env.TR_ICON, '');
   assert.equal(h.launches[0][2].env.TR_PERSIST, '');
+  assert.equal(h.launches[0][2].env.TR_DURATION, '8');
+});
+
+test('toast duration is clamped to 3-30 seconds before it reaches the script', () => {
+  const h = harness();
+  h.sender(h.ctx, { toast: { persistent: false, durationMs: 1000 } }, payload);
+  assert.equal(h.launches[0][2].env.TR_DURATION, '3');
+  const long = harness();
+  long.sender(long.ctx, { toast: { persistent: false, durationMs: 60000 } }, payload);
+  assert.equal(long.launches[0][2].env.TR_DURATION, '30');
 });
 
 test('non-Windows sender does not inspect files, spawn or claim submission', () => {

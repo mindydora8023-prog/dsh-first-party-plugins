@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 import { statePath } from './state-dir.js';
-import { DEFAULT_CONFIG, KIND_LABELS, normalizeConfig } from './config.js';
+import { DEFAULT_CONFIG, KIND_LABELS, inQuietHours, normalizeConfig } from './config.js';
 import { readConfigFile, CONFIG_FILE_MAX_BYTES } from './config-file.js';
 import { adaptHandler } from './fetch-handler.js';
 
@@ -109,7 +109,18 @@ $body = [string]$env:TR_BODY
 $location = [string]$env:TR_LOCATION
 $icon = [string]$env:TR_ICON
 $persist = [string]$env:TR_PERSIST
+$duration = [string]$env:TR_DURATION
 $aumid = [string]$env:TR_AUMID
+$seconds = 8
+if ($duration -match '^\d+$') { $seconds = [int]$duration }
+if ($seconds -lt 3) { $seconds = 3 }
+if ($seconds -gt 30) { $seconds = 30 }
+$durationAttr = ''
+if ($persist -ne '1') {
+  $banner = 'short'
+  if ($seconds -gt 10) { $banner = 'long' }
+  $durationAttr = ' duration="' + $banner + '"'
+}
 $iconPart = ''
 if ($icon -and (Test-Path -LiteralPath $icon)) {
   $u = [System.Uri]::new($icon).AbsoluteUri
@@ -119,14 +130,21 @@ $locPart = ''
 if ($location) { $locPart = '<text>' + (XmlEscape $location) + '</text>' }
 $scenario = ''
 if ($persist -eq '1') { $scenario = ' scenario="reminder"' }
-$xmlText = '<toast' + $scenario + ' activationType="background"><visual><binding template="ToastGeneric">' + $iconPart + '<text>' + (XmlEscape $title) + '</text><text>' + (XmlEscape $body) + '</text>' + $locPart + '</binding></visual></toast>'
+$xmlText = '<toast' + $scenario + $durationAttr + ' activationType="background"><visual><binding template="ToastGeneric">' + $iconPart + '<text>' + (XmlEscape $title) + '</text><text>' + (XmlEscape $body) + '</text>' + $locPart + '</binding></visual></toast>'
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+if ($persist -ne '1') { $toast.ExpirationTime = [DateTimeOffset]::Now.AddSeconds($seconds) }
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)
 `.trim();
 
 const DEFAULT_AUMID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';
+
+function toastSeconds(toast) {
+  const n = toast && Number(toast.durationMs);
+  if (!Number.isFinite(n) || n <= 0) return 8;
+  return Math.max(3, Math.min(30, Math.round(n / 1000)));
+}
 
 export const TOAST_PROCESS_TIMEOUT_MS = 10000;
 
@@ -156,6 +174,7 @@ export function createToastSender({
           TR_LOCATION: payload.location || '',
           TR_ICON: icon,
           TR_PERSIST: cfg.toast && cfg.toast.persistent ? '1' : '',
+          TR_DURATION: String(toastSeconds(cfg.toast)),
           TR_AUMID: DEFAULT_AUMID,
         }, parentEnv),
         windowsHide: true,
@@ -293,6 +312,16 @@ export function apply(ctx, options = {}) {
   const file = configFilePath();
   const stored = readConfigFile(file);
   let cfg = normalizeConfig(stored);
+  // schema 1 snapshots stored the old defaults: sticky toasts plus a second browser
+  // notification. Move those installs to the usable defaults once; later saves keep schema 2.
+  // A missing or unreadable file comes back as {}. Do not create one just to
+  // record the new defaults; only an existing snapshot is migrated once.
+  if (stored && typeof stored === 'object' && !Array.isArray(stored) && Object.keys(stored).length > 0 && stored.schema !== 2) {
+    cfg.toast.persistent = false;
+    cfg.system.enabled = false;
+    cfg.page.enabled = true;
+    try { writeConfigFile(file, cfg); } catch { /* keep the migrated config in memory */ }
+  }
 
   function persist(next) {
     const candidate = normalizeConfig(next);
@@ -346,6 +375,7 @@ export function apply(ctx, options = {}) {
     if (cfg.events[kind] === false) return;
     const id = session && session.id != null ? String(session.id) : (state && state.id) || '';
     const now = nowOf();
+    if (inQuietHours(cfg.quiet, new Date(now))) return;
     if (state) {
       const last = state.lastAt && state.lastAt[kind];
       if (typeof last === 'number' && now >= last && now - last < cfg.cooldownMs) return;

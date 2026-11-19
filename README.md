@@ -4,21 +4,21 @@
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
-| [archived-sessions](plugins/archived-sessions/README.md) | 0.5.2 | 归档恢复、删除预检、孤儿子代理与超期清理 | 工作区实现 |
-| [session-meter](plugins/session-meter/README.md) | 0.3.51 | 会话费用、峰谷时段、分模型用量 | 工作区实现；运行时外部价格数据 |
+| [archived-sessions](plugins/archived-sessions/README.md) | 0.6.0 | 归档恢复、排序分组、删除预检与超期清理预览 | 工作区实现 |
+| [session-meter](plugins/session-meter/README.md) | 0.3.52 | 会话费用、峰谷时段、缓存节省、上下文占用 | 工作区实现；运行时外部价格数据 |
 | [filekit](plugins/filekit/README.md) | 0.1.1 | CSV/TSV、DOCX、XLSX、PDF 有界读取 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
-| [github](plugins/github/README.md) | 0.1.1 | GitHub 查询与 Issue/评论写入工具 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
+| [github](plugins/github/README.md) | 0.2.0 | GitHub 分页读取、提交 diff、PR 行评论、CI 失败日志，以及 Issue/评论写入 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
 | [gmail](plugins/gmail/README.md) | 0.1.1 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
 | [ops-lite](plugins/ops-lite/README.md) | 0.1.1 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.2 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
-| [task-radar](plugins/task-radar/README.md) | 0.2.3 | Windows Toast 与浏览器任务通知 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [task-radar](plugins/task-radar/README.md) | 0.3.0 | 页内可点卡片、到点消失的 Windows Toast、静音时段 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
 | [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.2.1 | 按需挂载 MCP：设置页列出服务器，模型也可启用后释放 | 工作区实现 |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 
 ## 安装
 
-需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 0.2.1 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本；其他插件的原始发布环境为 DSH 0.2.2-rc.1。各包的宿主版本要求以其清单与说明为准。升级或重载前先检查正在运行的会话，安排好操作时机。
+需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 0.3.0 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本；其他插件的原始发布环境为 DSH 0.2.2-rc.1。各包的宿主版本要求以其清单与说明为准。升级或重载前先检查正在运行的会话，安排好操作时机。
 
 下载或克隆本仓库，选取需要的插件。在 DSH 插件管理中使用本地包安装入口；或者关闭宿主后，合并目标 profile 的配置。以下仅以两个插件示例，请替换绝对路径并保留原配置：
 

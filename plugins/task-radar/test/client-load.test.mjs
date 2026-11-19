@@ -304,3 +304,15 @@ test('disposal aborts in-flight polls and old responses cannot affect a reapplie
   await h.mod.__internals.tick();
   assert.equal(h.notes.length, 1);
 });
+
+test('an in-page card opens its session and then disappears', async (t) => {
+  const h = harness(t, { payload: payload([]) });
+  h.apply();
+  await h.mod.__internals.tick();
+  h.mod.__internals.watcher.cfg = { toast: { durationMs: 8000 }, page: { enabled: true } };
+  h.mod.__internals.pushNotice({ kind: 'finished', title: 'Done', body: 'Body', location: 'Here', session: 'session-9' });
+  assert.equal(h.mod.__internals.notices.length, 1);
+  h.mod.__internals.activateNotice(h.mod.__internals.notices[0].id);
+  assert.deepEqual(h.opened, ['session-9']);
+  assert.equal(h.mod.__internals.notices.length, 0);
+});

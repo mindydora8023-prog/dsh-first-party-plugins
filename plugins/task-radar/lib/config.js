@@ -8,6 +8,8 @@
  * every read and write:
  *   toast   native Windows toast (host side)
  *   system  browser OS notification (client side; rides the journal)
+ *   page    in-window card that can open the session (client side)
+ *   quiet   local-time window that suppresses every channel
  *
  * Events: turnStart / finished / aborted / error / waiting.
  *
@@ -29,6 +31,9 @@ const STR_LIMIT = 4096;
 // Keep notification summaries compact and cooldowns within one day.
 const SUMMARY_MAX_CHARS = 4096;
 const COOLDOWN_MAX_MS = 24 * 60 * 60 * 1000;
+const DURATION_MIN_MS = 3000;
+const DURATION_MAX_MS = 30000;
+const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 export const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
@@ -52,10 +57,20 @@ export const DEFAULT_CONFIG = Object.freeze({
     /** Absolute path to a custom PNG; empty string falls back to the bundled icon. */
     iconPath: '',
     /** Keep toasts on screen until dismissed (scenario=reminder). */
-    persistent: true,
+    persistent: false,
+    /** Used when persistent is false. Windows toast duration, milliseconds. */
+    durationMs: 8000,
   }),
   /** Browser OS-level system notification (Action Center / Notification Center). */
-  system: Object.freeze({ enabled: true }),
+  system: Object.freeze({ enabled: false }),
+  /** In-window card. Clicking it opens the session; it does not need OS permission. */
+  page: Object.freeze({ enabled: true }),
+  /** Local-time quiet window. End may be earlier than start (crosses midnight). */
+  quiet: Object.freeze({
+    enabled: false,
+    start: '22:00',
+    end: '08:00',
+  }),
 });
 
 function bool(value, fallback) {
@@ -92,18 +107,47 @@ function summaryLimit(value) {
   return Math.max(1, Math.min(SUMMARY_MAX_CHARS, Math.floor(n)));
 }
 
+function durationMs(value) {
+  const n = finiteNumber(value);
+  if (n === undefined || n <= 0) return DEFAULT_CONFIG.toast.durationMs;
+  return Math.max(DURATION_MIN_MS, Math.min(DURATION_MAX_MS, Math.floor(n)));
+}
+
+function clock(value, fallback) {
+  return typeof value === 'string' && CLOCK_RE.test(value.trim()) ? value.trim() : fallback;
+}
+
+/** True when local minutes-of-day fall inside [start, end), including a window that crosses midnight. */
+export function inQuietHours(quiet, date) {
+  const window = objectAt(quiet);
+  if (window.enabled !== true) return false;
+  const start = clock(window.start, DEFAULT_CONFIG.quiet.start);
+  const end = clock(window.end, DEFAULT_CONFIG.quiet.end);
+  if (start === end) return false;
+  const when = date instanceof Date ? date : new Date();
+  const minutes = when.getHours() * 60 + when.getMinutes();
+  const startMin = Number(start.slice(0, 2)) * 60 + Number(start.slice(3));
+  const endMin = Number(end.slice(0, 2)) * 60 + Number(end.slice(3));
+  return startMin < endMin
+    ? minutes >= startMin && minutes < endMin
+    : minutes >= startMin || minutes < endMin;
+}
+
 /** Merge an arbitrary stored/input value over the defaults and sanitize it. */
 export function normalizeConfig(value) {
   const source = objectAt(value);
   const events = objectAt(source.events);
   const toast = objectAt(source.toast);
   const system = objectAt(source.system);
+  const page = objectAt(source.page);
+  const quiet = objectAt(source.quiet);
   return {
     enabled: bool(source.enabled, DEFAULT_CONFIG.enabled),
     rootsOnly: bool(source.rootsOnly, DEFAULT_CONFIG.rootsOnly),
     cooldownMs: cooldown(source.cooldownMs),
     summaryMaxChars: summaryLimit(source.summaryMaxChars),
     titlePrefix: str(source.titlePrefix).trim().slice(0, 32) || DEFAULT_CONFIG.titlePrefix,
+    schema: 2,
     events: {
       turnStart: bool(events.turnStart, DEFAULT_CONFIG.events.turnStart),
       finished: bool(events.finished, DEFAULT_CONFIG.events.finished),
@@ -115,9 +159,18 @@ export function normalizeConfig(value) {
       enabled: bool(toast.enabled, DEFAULT_CONFIG.toast.enabled),
       iconPath: str(toast.iconPath),
       persistent: bool(toast.persistent, DEFAULT_CONFIG.toast.persistent),
+      durationMs: durationMs(toast.durationMs),
     },
     system: {
       enabled: bool(system.enabled, DEFAULT_CONFIG.system.enabled),
+    },
+    page: {
+      enabled: bool(page.enabled, DEFAULT_CONFIG.page.enabled),
+    },
+    quiet: {
+      enabled: bool(quiet.enabled, DEFAULT_CONFIG.quiet.enabled),
+      start: clock(quiet.start, DEFAULT_CONFIG.quiet.start),
+      end: clock(quiet.end, DEFAULT_CONFIG.quiet.end),
     },
   };
 }

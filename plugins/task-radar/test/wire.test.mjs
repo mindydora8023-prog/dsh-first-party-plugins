@@ -8,7 +8,10 @@ import { apply } from '../lib/index.js';
 function harness(t, config = {}, carrier = true) {
   const directory = mkdtempSync(join(tmpdir(), 'task-radar-wire-'));
   const file = join(directory, 'config.json');
-  writeFileSync(file, JSON.stringify(config));
+  const raw = config && config.raw === true;
+  const body = { ...config };
+  delete body.raw;
+  writeFileSync(file, JSON.stringify(raw ? body : { schema: 2, ...body }));
   const previous = process.env.TASK_RADAR_CONFIG_FILE;
   process.env.TASK_RADAR_CONFIG_FILE = file;
   const handlers = new Map();
@@ -249,6 +252,27 @@ test('an unrelated tool result keeps the question pending until its matching res
   h.event('tool/result', { message: { toolCallId: 'other', source: { kind: 'tool', callId: 'other' }, content: [] } });
   h.handlers.get('agent/disposed')({ agent: { id: 's1', session: h.session } });
   assert.match(h.sends.at(-1).payload.body, /Still pending/);
+});
+
+test('quiet hours suppress every channel, including a window that crosses midnight', async (t) => {
+  const h = harness(t, { quiet: { enabled: true, start: '22:00', end: '08:00' }, cooldownMs: 0 });
+  h.advance(Date.parse('2026-01-01T23:00:00') - 100000);
+  h.finish();
+  assert.equal(h.sends.length, 0);
+  assert.deepEqual(await h.journal(), []);
+  h.advance(Date.parse('2026-01-02T12:00:00') - Date.parse('2026-01-01T23:00:00'));
+  h.finish();
+  assert.equal(h.sends.length, 1);
+});
+
+test('a stored schema-1 config migrates off sticky toast and the second browser channel once', async (t) => {
+  const h = harness(t, { raw: true, toast: { persistent: true }, system: { enabled: true } });
+  const route = h.routes.find((item) => item.path === '/api/task-radar/radar');
+  const payload = await (await route.fetch(new Request('http://fixture' + route.path))).json();
+  assert.equal(payload.config.schema, 2);
+  assert.equal(payload.config.toast.persistent, false);
+  assert.equal(payload.config.system.enabled, false);
+  assert.equal(payload.config.page.enabled, true);
 });
 
 test('clock rollback does not suppress the next finished notification for the whole rollback duration', (t) => {
