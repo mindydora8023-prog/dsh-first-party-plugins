@@ -148,6 +148,11 @@ async function register(ctx, config, dirs) {  const { defineTool, source } = awa
       return (
         `GitHub is connected through ${visible.join(', ')} (real REST calls). ` +
         'Pass repo as owner/name, or omit it for the configured default. ' +
+        'Lists include has_more and next_page: pass page to continue. ' +
+        'github_read_file takes offset and limit (lines); a truncated file returns next_offset. ' +
+        'github_commits with sha returns that commit and its patches. ' +
+        'github_pulls with number returns one pull request and its line comments. ' +
+        'github_actions with run_id returns failed jobs, annotations, and a log tail. ' +
         'github_create_issue and github_comment write as the signed-in account: confirm the exact title or text first, and never post on your own initiative. ' +
         'Never print the access token.'
       )

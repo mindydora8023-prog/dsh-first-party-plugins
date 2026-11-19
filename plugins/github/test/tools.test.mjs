@@ -157,6 +157,8 @@ test('github_read_file decodes text, reports truncation, and explains a director
     const result = await tool.execute({ path: 'README.md', ref: 'main' })
     assert.equal(result.content, 'hello world')
     assert.equal(result.truncated, false)
+    assert.equal(result.line_count, 1)
+    assert.equal(result.next_offset, null)
     assert.equal(result.bytes, 11)
     assert.match(stub.calls[0].url, /\/repos\/octo\/hello\/contents\/README\.md\?ref=main$/)
     assert.equal(stub.calls[0].init.headers.Accept, 'application/vnd.github.raw')
@@ -165,12 +167,35 @@ test('github_read_file decodes text, reports truncation, and explains a director
     const truncated = await tool.execute({ path: 'big.txt' })
     assert.equal(truncated.truncated, true)
     assert.match(truncated.content, /truncated 500 characters/)
+    // A single line was cut in the middle, so there is no next line to resume at.
+    assert.equal(truncated.next_offset, null)
 
     // A directory answers 404 on the raw media type; the message must say so
     // instead of leaking a bare "not found".
     status = 404
     payload = JSON.stringify({ message: 'Not Found' })
     await assert.rejects(tool.execute({ path: 'src' }), /cannot be read as a file|github_list_files/)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_read_file pages by line and continues from next_offset', async () => {
+  const payload = ['alpha', 'bravo', 'charlie', 'delta'].join('\r\n') + '\r\n'
+  const stub = stubFetch(() => ({ body: payload, headers: { 'content-type': 'text/plain' } }))
+  try {
+    const tool = toolsOf(makeConfig({ maxChars: 1000 })).get('github_read_file')
+    const first = await tool.execute({ path: 'notes.txt', offset: 2, limit: 2 })
+    assert.equal(first.line_start, 2)
+    assert.equal(first.line_count, 2)
+    assert.equal(first.total_lines, 4)
+    assert.equal(first.content, 'bravo\ncharlie')
+    assert.equal(first.next_offset, 4)
+    const rest = await tool.execute({ path: 'notes.txt', offset: first.next_offset, limit: 2 })
+    assert.equal(rest.content, 'delta')
+    assert.equal(rest.truncated, false)
+    assert.equal(rest.next_offset, null)
+    await assert.rejects(tool.execute({ path: 'notes.txt', offset: 0 }), /offset must be a positive whole number/)
   } finally {
     stub.restore()
   }
@@ -402,12 +427,148 @@ test('github_commits maps commits to sha/author/message', async () => {
     body: [
       { sha: 'abcdef1234567890', author: { login: 'monalisa' }, commit: { author: { name: 'Mona', date: '2026-01-01T00:00:00Z' }, message: 'fix: something\n\nlong body' } },
     ],
+    headers: { link: '<https://api.github.com/repos/octo/hello/commits?page=2>; rel="next"' },
   }))
   try {
     const result = await toolsOf(makeConfig()).get('github_commits').execute({ path: 'src' })
     assert.equal(result.commits[0].sha, 'abcdef123456')
     assert.equal(result.commits[0].message, 'fix: something')
     assert.equal(result.commits[0].author, 'monalisa')
+    assert.equal(result.has_more, true)
+    assert.equal(result.next_page, 2)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_commits with sha returns the commit diff and rejects a bad sha', async () => {
+  const stub = stubFetch((url) => {
+    assert.match(url.pathname, /\/commits\/abcdef1$/)
+    return {
+      body: {
+        sha: 'abcdef1234567890',
+        author: { login: 'monalisa' },
+        commit: { author: { name: 'Mona', date: '2026-01-01T00:00:00Z' }, message: 'fix: something' },
+        stats: { additions: 2, deletions: 1, total: 3 },
+        files: [{ filename: 'a.ts', status: 'modified', additions: 2, deletions: 1, patch: '+x\n-y\n' }],
+      },
+    }
+  })
+  try {
+    const tool = toolsOf(makeConfig()).get('github_commits')
+    await assert.rejects(tool.execute({ sha: 'not-a-sha' }), /sha must be 7 to 64 hex/)
+    const result = await tool.execute({ sha: 'abcdef1', include_patch: true })
+    assert.equal(result.commit.sha, 'abcdef123456')
+    assert.equal(result.commit.stats.additions, 2)
+    assert.equal(result.files[0].filename, 'a.ts')
+    assert.equal(result.files[0].patch, '+x\n-y\n')
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_search_code asks for text-match fragments', async () => {
+  const stub = stubFetch(() => ({
+    body: {
+      total_count: 1,
+      items: [{
+        path: 'src/a.ts',
+        score: 1,
+        repository: { full_name: 'octo/hello' },
+        html_url: 'https://github.com/octo/hello/blob/main/src/a.ts',
+        text_matches: [{ fragment: 'function answer() { return 42 }' }],
+      }],
+    },
+  }))
+  try {
+    const result = await toolsOf(makeConfig()).get('github_search_code').execute({ query: 'answer repo:octo/hello' })
+    assert.equal(result.items[0].fragments[0], 'function answer() { return 42 }')
+    assert.match(stub.calls[0].init.headers.Accept, /text-match/)
+    assert.equal(result.has_more, false)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_pulls with number returns the pull request and its line comments', async () => {
+  const stub = stubFetch((url) => {
+    if (url.pathname.endsWith('/comments')) {
+      return {
+        body: [{ user: { login: 'reviewer' }, path: 'src/a.ts', line: 12, side: 'RIGHT', body: 'rename this', created_at: '2026-01-01T00:00:00Z' }],
+      }
+    }
+    return {
+      body: {
+        number: 9,
+        title: 'Add answer',
+        state: 'open',
+        user: { login: 'monalisa' },
+        head: { label: 'octo:feature' },
+        base: { label: 'octo:main' },
+        mergeable: true,
+        mergeable_state: 'clean',
+        changed_files: 1,
+        additions: 4,
+        deletions: 0,
+        body: 'please review',
+      },
+    }
+  })
+  try {
+    const result = await toolsOf(makeConfig()).get('github_pulls').execute({ number: 9 })
+    assert.equal(result.title, 'Add answer')
+    assert.equal(result.head, 'octo:feature')
+    assert.equal(result.review_comments[0].path, 'src/a.ts')
+    assert.equal(result.review_comments[0].line, 12)
+    assert.match(stub.calls[1].url, /\/pulls\/9\/comments/)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_actions with run_id returns the failed job, its annotation, and the log tail', async () => {
+  const stub = stubFetch((url) => {
+    if (/\/runs\/77$/.test(url.pathname)) {
+      return { body: { id: 77, name: 'CI', status: 'completed', conclusion: 'failure', head_branch: 'main', head_sha: 'abcdef1234567' } }
+    }
+    if (url.pathname.endsWith('/jobs')) {
+      assert.equal(url.searchParams.get('filter'), 'latest')
+      return {
+        body: {
+          jobs: [
+            {
+              id: 501,
+              name: 'test',
+              status: 'completed',
+              conclusion: 'failure',
+              steps: [
+                { name: 'Run tests', conclusion: 'failure' },
+                { name: 'Checkout', conclusion: 'success' },
+              ],
+            },
+            { id: 502, name: 'lint', status: 'completed', conclusion: 'success', steps: [] },
+          ],
+        },
+      }
+    }
+    if (url.pathname.endsWith('/annotations')) {
+      return { body: [{ path: 'src/a.ts', start_line: 10, end_line: 10, annotation_level: 'failure', message: 'expected 42' }] }
+    }
+    if (url.pathname.endsWith('/logs')) {
+      return { body: ['line one', 'line two', 'assertion failed'].join('\n'), headers: { 'content-type': 'text/plain' } }
+    }
+    return { body: {} }
+  })
+  try {
+    const result = await toolsOf(makeConfig()).get('github_actions').execute({ run_id: 77, log_lines: 2 })
+    assert.equal(result.run.conclusion, 'failure')
+    assert.equal(result.jobs.length, 1)
+    assert.deepEqual(result.jobs[0].failed_steps, ['Run tests'])
+    assert.equal(result.jobs[0].annotations[0].path, 'src/a.ts')
+    assert.equal(result.jobs[0].annotations[0].message, 'expected 42')
+    assert.equal(result.log.job_id, 501)
+    assert.equal(result.log.tail, 'line two\nassertion failed')
+    assert.equal(result.log.truncated, true)
   } finally {
     stub.restore()
   }

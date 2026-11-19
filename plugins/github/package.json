@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-github",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "GitHub 原生工具：仓库/代码/Issue/PR 搜索与读取、提交与分支、CI 运行状态，复用浏览器登录（Git Credential Manager）",
+  "description": "GitHub 原生工具：仓库/代码/Issue/PR 搜索与分页读取、单次提交 diff、PR 行评论、CI 失败日志，复用浏览器登录",
   "main": "lib/index.js",
   "exports": {
     ".": {

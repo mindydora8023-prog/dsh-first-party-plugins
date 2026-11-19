@@ -12,7 +12,7 @@
 
 import { existsSync } from 'node:fs'
 
-import { clearProxyCache, get, post } from './api.js'
+import { clearProxyCache, get, parseNextPage, post } from './api.js'
 import { resolveToken } from './auth.js'
 import { encodeRef, parseRepo } from './config.js'
 
@@ -58,6 +58,102 @@ function positiveIntArg(value, label) {
 function trimTo(value, max) {
   if (typeof value !== 'string') return ''
   return value.length <= max ? value : `${value.slice(0, max)}\n... [truncated ${value.length - max} characters]`
+}
+
+/**
+ * Page hint from the GitHub `Link` header.
+ *
+ * Listing tools used to return one page and look complete. `parseNextPage`
+ * already existed for this; callers now surface it so the model can ask for
+ * `page: next_page` instead of assuming the list ended.
+ */
+function pageInfo(result, page) {
+  const header = result?.headers
+  const link = header && typeof header.get === 'function' ? header.get('link') : ''
+  const next = parseNextPage(link)
+  return {
+    page,
+    has_more: next !== null,
+    next_page: next === null ? null : next,
+  }
+}
+
+/**
+ * Positive whole number, or null when the argument was omitted.
+ * A present but unusable value throws: clamping 0 up to 1 would hide the mistake.
+ */
+function optionalPositive(value, label, max) {
+  if (value === undefined || value === null || value === '') return null
+  const number = Number(value)
+  if (!Number.isFinite(number) || Math.trunc(number) !== number || number <= 0 || number > max) {
+    throw new Error(`${label} must be a positive whole number up to ${max}`)
+  }
+  return number
+}
+
+/** Physical lines: CRLF is one break, a trailing newline does not add an empty line. */
+function splitLines(text) {
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  if (normalized === '') return []
+  const parts = normalized.split('\n')
+  if (parts[parts.length - 1] === '') parts.pop()
+  return parts
+}
+
+/**
+ * Take a line window out of a file, then stop on the character budget between
+ * lines. Cutting a single over-long line does not advertise the next line as
+ * `next_offset`: that would skip the rest of the line that was just truncated.
+ */
+function sliceLines(text, offset, lineLimit, maxChars) {
+  const lines = splitLines(text)
+  const start = offset
+  if (lines.length > 0 && start > lines.length) {
+    return {
+      content: '',
+      line_start: start,
+      line_count: 0,
+      total_lines: lines.length,
+      truncated: false,
+      next_offset: null,
+      past_end: true,
+    }
+  }
+  const rest = lines.slice(start - 1)
+  const cap = lineLimit === null ? rest.length : lineLimit
+  const chosen = []
+  let used = 0
+  let stoppedByChars = false
+  for (const line of rest) {
+    if (chosen.length >= cap) break
+    const extra = chosen.length === 0 ? line.length : line.length + 1
+    if (chosen.length > 0 && used + extra > maxChars) {
+      stoppedByChars = true
+      break
+    }
+    chosen.push(line)
+    used += extra
+    if (chosen.length === 1 && line.length > maxChars) {
+      stoppedByChars = true
+      break
+    }
+  }
+  let content = chosen.join('\n')
+  const midLine = chosen.length === 1 && chosen[0].length > maxChars
+  if (content.length > maxChars) content = trimTo(content, maxChars)
+  const consumed = chosen.length
+  const moreLines = start - 1 + consumed < lines.length
+  const truncated = moreLines || stoppedByChars || (chosen.length === 1 && chosen[0].length > maxChars)
+  const nextOffset = !midLine && (moreLines || stoppedByChars) ? start + consumed : null
+  return {
+    content,
+    line_start: lines.length === 0 ? 1 : start,
+    line_count: consumed,
+    total_lines: lines.length,
+    truncated,
+    next_offset: nextOffset,
+    past_end: false,
+  }
 }
 
 function assertAlive(config) {
@@ -331,6 +427,7 @@ export function buildTools(config, logger) {
         total: result.data?.total_count ?? 0,
         count: Array.isArray(result.data?.items) ? result.data.items.length : 0,
         incomplete: result.data?.incomplete_results === true,
+        ...pageInfo(result, page),
         rate: result.rate,
         items: (result.data?.items ?? []).map(summarizeRepo),
       }
@@ -339,7 +436,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_search_code',
-    description: 'Search indexed file contents on the default branch. Needs a token. Returns the path and a text fragment.',
+    description: 'Search indexed file contents on the default branch. Needs a token. Returns the path and the matching text fragment when GitHub sends one.',
     parameters: {
       query: { type: 'string', required: true, description: 'Code search query, e.g. "repo:owner/name filename:package.json workspaces".' },
       limit: { type: 'number', description: 'Maximum results (default 20, max 100).' },
@@ -362,11 +459,14 @@ export function buildTools(config, logger) {
             'instead, or write {"token": "ghp_..."} to ' + config.credentialsFile + '.',
         )
       }
+      const page = integerArg(args.page, 1, 1, 100)
+      // text-match is opt-in. Without it the payload is path-only and a hit is
+      // not usable until a second read, which is how official code search works.
       const result = await get(config, authInfo, '/search/code', {
         q: query,
         per_page: integerArg(args.limit, 20, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
-      })
+        page,
+      }, { headers: { Accept: 'application/vnd.github+json, application/vnd.github.text-match+json' } })
       const items = (result.data?.items ?? []).map((item) => {
         const fragments = Array.isArray(item.text_matches) ? item.text_matches : []
         return {
@@ -377,7 +477,14 @@ export function buildTools(config, logger) {
           html_url: item.html_url ?? '',
         }
       })
-      return { total: result.data?.total_count ?? 0, count: items.length, incomplete: result.data?.incomplete_results === true, rate: result.rate, items }
+      return {
+        total: result.data?.total_count ?? 0,
+        count: items.length,
+        incomplete: result.data?.incomplete_results === true,
+        ...pageInfo(result, page),
+        rate: result.rate,
+        items,
+      }
     },
   })
 
@@ -403,17 +510,19 @@ export function buildTools(config, logger) {
         query = `repo:${repoOf(args, config).full} ${query}`
       }
       const sort = args.sort === 'best-match' || args.sort === undefined ? undefined : args.sort
+      const page = integerArg(args.page, 1, 1, 100)
       const authInfo = authForRead(config)
       const result = await get(config, authInfo, '/search/issues', {
         q: query,
         sort,
         order: sort === undefined ? undefined : 'desc',
         per_page: integerArg(args.limit, config.perPage, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
+        page,
       })
       return {
         total: result.data?.total_count ?? 0,
         count: Array.isArray(result.data?.items) ? result.data.items.length : 0,
+        ...pageInfo(result, page),
         rate: result.rate,
         items: (result.data?.items ?? []).map(summarizeIssue),
       }
@@ -506,12 +615,14 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_read_file',
-    description: 'Read one text file at a ref. Binary files are reported, not decoded, and truncation is explicit.',
+    description: 'Read one text file at a ref, optionally a line window. Binary files are reported, not decoded. A truncated window returns next_offset for the next call.',
     parameters: {
       repo: REPO_PARAM,
       path: { type: 'string', required: true, description: 'File path inside the repository, e.g. "src/index.ts".' },
       ref: { type: 'string', description: 'Branch, tag or commit sha (default: the default branch).' },
-      max_chars: { type: 'number', description: `Truncate the file at this many characters (default ${config.maxChars}).` },
+      offset: { type: 'number', description: '1-based first line to return. Omit to start at line 1. Use next_offset from a previous call to continue.' },
+      limit: { type: 'number', description: 'Maximum lines to return (default: the whole remainder, capped by max_chars).' },
+      max_chars: { type: 'number', description: `Stop the window at this many characters (default ${config.maxChars}).` },
     },
     output: jsonOutput(),
     timeoutMs: 60000,
@@ -524,6 +635,8 @@ export function buildTools(config, logger) {
       if (path === '') throw new Error('path must not be empty')
       const ref = typeof args.ref === 'string' && args.ref.trim() !== '' ? args.ref.trim() : ''
       const maxChars = integerArg(args.max_chars, config.maxChars, 200, 2000000)
+      const offset = optionalPositive(args.offset, 'offset', 10000000) ?? 1
+      const lineLimit = optionalPositive(args.limit, 'limit', 20000)
       const urlPath = `/repos/${target.owner}/${target.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`
 
       // Raw media type: the response body is the file itself, so a JSON file is
@@ -552,6 +665,7 @@ export function buildTools(config, logger) {
         `content-type: ${contentType}`,
       )
       const text = raw.replace(/^\uFEFF/, '')
+      const windowed = binary ? null : sliceLines(text, offset, lineLimit, maxChars)
       return {
         repo: target.full,
         path,
@@ -559,8 +673,13 @@ export function buildTools(config, logger) {
         bytes: Buffer.byteLength(raw, 'utf8'),
         content_type: contentType,
         binary,
-        truncated: text.length > maxChars,
-        content: binary ? '' : trimTo(text, maxChars),
+        line_start: windowed?.line_start ?? 1,
+        line_count: windowed?.line_count ?? 0,
+        total_lines: windowed?.total_lines ?? 0,
+        truncated: windowed?.truncated === true,
+        next_offset: windowed?.next_offset ?? null,
+        content: windowed?.content ?? '',
+        ...(windowed?.past_end === true ? { note: `offset ${offset} is past the end (${windowed.total_lines} lines)` } : {}),
         rate: result.rate,
       }
     },
@@ -568,13 +687,16 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_commits',
-    description: 'List recent commits with sha, author, date, and the first message line. Filter by ref, path, or author.',
+    description: 'List recent commits, or one commit with its changed files and patches when sha is set. Filter the list by ref, path, or author.',
     parameters: {
       repo: REPO_PARAM,
-      ref: { type: 'string', description: 'Branch, tag or sha to list from (default: the default branch).' },
-      path: { type: 'string', description: 'Only commits that touch this path.' },
-      author: { type: 'string', description: 'GitHub login or email to filter by.' },
-      limit: { type: 'number', description: `Maximum commits (default ${config.perPage}, max 100).` },
+      ref: { type: 'string', description: 'Branch, tag or sha to list from (default: the default branch). Ignored when sha is set.' },
+      sha: { type: 'string', description: 'Return this one commit, including changed files and truncated patches, instead of a list.' },
+      path: { type: 'string', description: 'Only commits that touch this path (list mode).' },
+      author: { type: 'string', description: 'GitHub login or email to filter by (list mode).' },
+      include_patch: { type: 'boolean', description: 'Include each file patch when sha is set (default true).' },
+      max_patch_chars: { type: 'number', description: 'Truncate each patch at this many characters (default 4000).' },
+      limit: { type: 'number', description: `Maximum commits, or files when sha is set (default ${config.perPage}, max 100).` },
       page: { type: 'number', description: 'Page number (default 1).' },
     },
     output: jsonOutput(),
@@ -584,15 +706,49 @@ export function buildTools(config, logger) {
       assertAlive(config)
       const target = repoOf(args, config)
       const authInfo = authForRead(config)
+      const sha = typeof args.sha === 'string' ? args.sha.trim() : ''
+      if (sha !== '') {
+        if (!/^[0-9a-fA-F]{7,64}$/.test(sha)) throw new Error('sha must be 7 to 64 hex characters')
+        const maxPatch = integerArg(args.max_patch_chars, 4000, 200, 100000)
+        const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/commits/${encodeRef(sha)}`)
+        const data = result.data ?? {}
+        const files = (Array.isArray(data.files) ? data.files : []).slice(0, integerArg(args.limit, config.perPage, 1, 100))
+        return {
+          repo: target.full,
+          commit: {
+            ...summarizeCommit(data),
+            message: trimTo(String(data.commit?.message ?? ''), 4000),
+            stats: {
+              additions: data.stats?.additions ?? 0,
+              deletions: data.stats?.deletions ?? 0,
+              total: data.stats?.total ?? 0,
+            },
+          },
+          file_count: Array.isArray(data.files) ? data.files.length : 0,
+          count: files.length,
+          files: files.map((file) => {
+            const entry = {
+              filename: file.filename ?? '',
+              status: file.status ?? '',
+              additions: file.additions ?? 0,
+              deletions: file.deletions ?? 0,
+            }
+            if (args.include_patch !== false) entry.patch = trimTo(String(file.patch ?? ''), maxPatch)
+            return entry
+          }),
+          rate: result.rate,
+        }
+      }
+      const page = integerArg(args.page, 1, 1, 100)
       const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/commits`, {
         sha: args.ref,
         path: args.path,
         author: args.author,
         per_page: integerArg(args.limit, config.perPage, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
+        page,
       })
       const items = (Array.isArray(result.data) ? result.data : []).map(summarizeCommit)
-      return { repo: target.full, count: items.length, rate: result.rate, commits: items }
+      return { repo: target.full, count: items.length, ...pageInfo(result, page), rate: result.rate, commits: items }
     },
   })
 
@@ -612,9 +768,10 @@ export function buildTools(config, logger) {
       assertAlive(config)
       const target = repoOf(args, config)
       const authInfo = authForRead(config)
+      const page = integerArg(args.page, 1, 1, 100)
       const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/branches`, {
         per_page: integerArg(args.limit, config.perPage, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
+        page,
         protected: args.protected_only === true ? 'true' : undefined,
       })
       const items = (Array.isArray(result.data) ? result.data : []).map((item) => ({
@@ -622,7 +779,7 @@ export function buildTools(config, logger) {
         sha: (item.commit?.sha ?? '').slice(0, 12),
         protected: item.protected === true,
       }))
-      return { repo: target.full, count: items.length, rate: result.rate, branches: items }
+      return { repo: target.full, count: items.length, ...pageInfo(result, page), rate: result.rate, branches: items }
     },
   })
 
@@ -685,7 +842,14 @@ export function buildTools(config, logger) {
         if (collected.length >= perPage) break
       }
 
-      const output = { repo: target.full, count: collected.length, rate, issues: collected.slice(0, perPage) }
+      const output = {
+        repo: target.full,
+        count: collected.length,
+        page: integerArg(args.page, 1, 1, 100),
+        has_more: collected.length >= perPage,
+        rate,
+        issues: collected.slice(0, perPage),
+      }
       if (collected.length === 0 && !includePrs && scanned > 0) {
         output.scanned = scanned
         output.note =
@@ -741,10 +905,13 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_pulls',
-    description: 'List pull requests with author, branches, draft flag, and merge state.',
+    description: 'List pull requests with author, branches, draft flag, and merge state. Pass number to read one pull request, including review comments on changed lines.',
     parameters: {
       repo: REPO_PARAM,
-      state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Pull request state (default open).' },
+      state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Pull request state (default open). Ignored when number is set.' },
+      number: { type: 'number', description: 'Read this one pull request, including line comments, instead of listing.' },
+      include_review_comments: { type: 'boolean', description: 'Include review comments on changed lines when number is set (default true).' },
+      comment_limit: { type: 'number', description: 'Maximum review comments when number is set (default 30, max 100).' },
       sort: { type: 'string', enum: ['created', 'updated', 'popularity', 'long-running'], description: 'Sort order (default created).' },
       direction: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default desc).' },
       limit: { type: 'number', description: `Maximum pull requests (default ${config.perPage}, max 100).` },
@@ -757,12 +924,54 @@ export function buildTools(config, logger) {
       assertAlive(config)
       const target = repoOf(args, config)
       const authInfo = authForRead(config)
+      if (args.number !== undefined) {
+        const number = positiveIntArg(args.number, 'number')
+        const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/pulls/${number}`)
+        const item = result.data ?? {}
+        const output = {
+          repo: target.full,
+          number,
+          title: item.title ?? '',
+          state: item.state ?? '',
+          draft: item.draft === true,
+          user: item.user?.login ?? '',
+          head: item.head?.label ?? '',
+          base: item.base?.label ?? '',
+          mergeable: item.mergeable === true,
+          mergeable_state: item.mergeable_state ?? '',
+          commits: item.commits ?? 0,
+          changed_files: item.changed_files ?? 0,
+          additions: item.additions ?? 0,
+          deletions: item.deletions ?? 0,
+          body: trimTo(String(item.body ?? ''), config.maxChars),
+          html_url: item.html_url ?? '',
+          rate: result.rate,
+        }
+        if (args.include_review_comments !== false) {
+          const comments = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/pulls/${number}/comments`, {
+            per_page: integerArg(args.comment_limit, 30, 1, 100),
+          })
+          const rows = Array.isArray(comments.data) ? comments.data : []
+          output.review_comments = rows.map((comment) => ({
+            user: comment.user?.login ?? '',
+            path: comment.path ?? '',
+            line: comment.line ?? comment.original_line ?? null,
+            side: comment.side ?? '',
+            created_at: comment.created_at ?? '',
+            body: trimTo(String(comment.body ?? ''), 2000),
+          }))
+          output.review_comment_count = rows.length
+          output.review_comments_has_more = parseNextPage(comments.headers.get('link')) !== null
+        }
+        return output
+      }
+      const page = integerArg(args.page, 1, 1, 100)
       const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/pulls`, {
         state: typeof args.state === 'string' ? args.state : 'open',
         sort: typeof args.sort === 'string' ? args.sort : 'created',
         direction: typeof args.direction === 'string' ? args.direction : 'desc',
         per_page: integerArg(args.limit, config.perPage, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
+        page,
       })
       const items = (Array.isArray(result.data) ? result.data : []).map((item) => ({
         number: item.number,
@@ -777,7 +986,7 @@ export function buildTools(config, logger) {
         updated_at: item.updated_at ?? '',
         html_url: item.html_url ?? '',
       }))
-      return { repo: target.full, count: items.length, rate: result.rate, pulls: items }
+      return { repo: target.full, count: items.length, ...pageInfo(result, page), rate: result.rate, pulls: items }
     },
   })
 
@@ -824,7 +1033,7 @@ export function buildTools(config, logger) {
 
   tools.push({
     name: 'github_actions',
-    description: 'List recent Actions runs, or one run when run_id is set, including status and conclusion.',
+    description: 'List recent Actions runs. When run_id is set, return that run plus failed (or all) jobs, their annotations, and the tail of a failed job log.',
     parameters: {
       repo: REPO_PARAM,
       branch: { type: 'string', description: 'Only runs for this branch.' },
@@ -833,7 +1042,10 @@ export function buildTools(config, logger) {
         enum: ['queued', 'in_progress', 'completed', 'success', 'failure', 'cancelled', 'skipped'],
         description: 'Only runs in this status.',
       },
-      run_id: { type: 'number', description: 'Return this single run in full instead of a list.' },
+      run_id: { type: 'number', description: 'Return this single run, with jobs and the failure detail, instead of a list.' },
+      failed_only: { type: 'boolean', description: 'When run_id is set, only include jobs that did not succeed (default true).' },
+      include_log: { type: 'boolean', description: 'Include the tail of one failed job log when run_id is set (default true).' },
+      log_lines: { type: 'number', description: 'How many log lines to keep from the end (default 80, max 400).' },
       limit: { type: 'number', description: `Maximum runs (default ${config.perPage}, max 100).` },
       page: { type: 'number', description: 'Page number (default 1).' },
     },
@@ -846,17 +1058,99 @@ export function buildTools(config, logger) {
       const authInfo = authForRead(config)
       if (args.run_id !== undefined) {
         const id = positiveIntArg(args.run_id, 'run_id')
+        const failedOnly = args.failed_only !== false
         const run = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/actions/runs/${id}`)
-        return { repo: target.full, run: summarizeWorkflowRun(run.data ?? {}), rate: run.rate }
+        const jobsResult = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/actions/runs/${id}/jobs`, {
+          filter: failedOnly ? 'latest' : 'all',
+          per_page: 100,
+        })
+        const allJobs = Array.isArray(jobsResult.data?.jobs) ? jobsResult.data.jobs : []
+        const jobs = failedOnly
+          ? allJobs.filter((job) => job.conclusion !== 'success' && job.conclusion !== 'skipped' && job.conclusion !== 'neutral')
+          : allJobs
+        const summarized = []
+        for (const job of jobs.slice(0, 20)) {
+          const steps = Array.isArray(job.steps) ? job.steps : []
+          const entry = {
+            id: job.id,
+            name: job.name ?? '',
+            status: job.status ?? '',
+            conclusion: job.conclusion ?? '',
+            failed_steps: steps
+              .filter((step) => step.conclusion === 'failure' || step.conclusion === 'cancelled' || step.conclusion === 'timed_out')
+              .map((step) => step.name ?? '')
+              .filter((name) => name !== ''),
+            annotations: [],
+          }
+          if (job.conclusion === 'failure' || job.conclusion === 'cancelled' || job.conclusion === 'timed_out') {
+            try {
+              const notes = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/check-runs/${job.id}/annotations`, {
+                per_page: 20,
+              })
+              entry.annotations = (Array.isArray(notes.data) ? notes.data : []).slice(0, 10).map((note) => ({
+                path: note.path ?? '',
+                start_line: note.start_line ?? null,
+                end_line: note.end_line ?? null,
+                level: note.annotation_level ?? '',
+                message: trimTo(String(note.message ?? ''), 500),
+              }))
+            } catch {
+              entry.annotations_error = 'annotations unavailable'
+            }
+          }
+          summarized.push(entry)
+        }
+        const output = {
+          repo: target.full,
+          run: summarizeWorkflowRun(run.data ?? {}),
+          job_count: allJobs.length,
+          jobs: summarized,
+          rate: run.rate,
+        }
+        if (args.include_log !== false) {
+          const failed = summarized.find((job) => job.conclusion === 'failure' || job.conclusion === 'timed_out' || job.conclusion === 'cancelled')
+          if (failed !== undefined) {
+            const lines = integerArg(args.log_lines, 80, 1, 400)
+            try {
+              const log = await get(
+                config,
+                authInfo,
+                `/repos/${target.owner}/${target.repo}/actions/jobs/${failed.id}/logs`,
+                {},
+                { accept: 'application/vnd.github+json', raw: true },
+              )
+              const text = typeof log.data === 'string' ? log.data : ''
+              const tail = splitLines(text).slice(-lines)
+              output.log = {
+                job_id: failed.id,
+                job_name: failed.name,
+                line_count: splitLines(text).length,
+                tail: tail.join('\n'),
+                truncated: splitLines(text).length > lines,
+              }
+            } catch (error) {
+              output.log = { job_id: failed.id, job_name: failed.name, error: error instanceof Error ? error.message : String(error) }
+            }
+          }
+        }
+        return output
       }
+      const page = integerArg(args.page, 1, 1, 100)
       const result = await get(config, authInfo, `/repos/${target.owner}/${target.repo}/actions/runs`, {
         branch: args.branch,
         status: args.status,
         per_page: integerArg(args.limit, config.perPage, 1, 100),
-        page: integerArg(args.page, 1, 1, 100),
+        page,
       })
       const runs = Array.isArray(result.data?.workflow_runs) ? result.data.workflow_runs.map(summarizeWorkflowRun) : []
-      return { repo: target.full, total: result.data?.total_count ?? runs.length, count: runs.length, rate: result.rate, runs }
+      return {
+        repo: target.full,
+        total: result.data?.total_count ?? runs.length,
+        count: runs.length,
+        ...pageInfo(result, page),
+        rate: result.rate,
+        runs,
+      }
     },
   })
 
