@@ -2,7 +2,7 @@
  * End-to-end test through the real tool bodies, using a `ctx.fs` shim backed by
  * node:fs. This exercises the whole pipeline (resolve -> stat -> readBytes ->
  * decode -> window/render) against REAL files, including a real Word document
- * built by our standard-library OOXML generator and a CSV with quoted fields and embedded newlines.
+ * written by python-docx and a CSV with quoted fields and embedded newlines.
  *
  * The shim mirrors the host contract surface filekit depends on:
  *   resolve(path,{cwd}) -> {targetKey, displayPath}
@@ -73,8 +73,7 @@ test('filekit_read_docx reads the real Word document body and tables', async () 
   assert.match(result.text, /FileKit Report/)
   assert.match(result.text, /First paragraph with an & ampersand and <angle> brackets\./)
   assert.match(result.text, /Second paragraph\s+after a tab/)
-  assert.match(result.text, /\[table 2x3\]/)
-  assert.match(result.text, /R1C1 \| R1C2 \| R1C3/)
+  assert.match(result.text, /\| R1C1 \| R1C2 \| R1C3 \|/)
   assert.match(result.text, /Paragraph after the table\./)
 })
 
@@ -94,9 +93,11 @@ test('filekit_read_xlsx reads a real workbook sheet and selects another', async 
   const def = tool(ctx, baseConfig, 'filekit_read_xlsx')
   const first = await def.execute({ path: 'sample.xlsx', limit: 10 }, { signal: new AbortController().signal })
   assert.match(first.text, /<type>xlsx<\/type>/)
-  assert.match(first.text, /# Region \| Units \| Revenue \| Note/)
-  assert.match(first.text, /North \| 120 \| 4800\.5 \| ok/)
-  assert.match(first.text, /\(sheets: Sales, Meta\)/)
+  assert.match(first.text, /\| Region \| Units \| Revenue \| Note \|/)
+  assert.match(first.text, /\| North \| 120 \| 4800\.5 \| ok \|/)
+  assert.match(first.text, /## Sales/)
+  assert.match(first.text, /## Meta/)
+  assert.match(first.text, /header only/)
   const meta = await def.execute({ path: 'sample.xlsx', sheet: 'Meta' }, { signal: new AbortController().signal })
   assert.equal(meta.sheet, 'Meta')
   assert.match(meta.text, /generated \| 2026-10-23/)

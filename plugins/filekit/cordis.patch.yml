@@ -1,6 +1,6 @@
 # Bundle patch for dsh-plugin-filekit.
 #
-# Adds four bounded, read-only document tools. It never replaces an official
+# Adds five bounded, read-only document tools. It never replaces an official
 # tool, never enables a discovery/PTC layer, and never registers a shell.
 - insert:
     - id: filekit

@@ -2,9 +2,9 @@
 
 最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
-## 0.3.11：session-meter 0.3.52
+## filekit 0.2.0
 
-胶囊增加缓存节省，并在上下文超过一半时显示占用百分比。点击后的分模型清单按模型分块。价格来源、峰谷规则和按需下载目录没有改。session-meter 发布副本的客户端测试 83 条通过。
+Office 文档改为 Markdown，并增加 PPTX。DOCX 保留标题级别和超链接，表格用 Markdown 表格。不指定工作表时读第一张，其余表只给表头。PPTX 按幻灯片输出正文、表格和有文字的演讲者备注。样例仍由 `make-office-fixtures.mjs` 生成，不含第三方模板。
 
 ## next-say 0.2.3
 

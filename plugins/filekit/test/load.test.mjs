@@ -86,7 +86,7 @@ test('plugin declares the services it needs', () => {
   assert.ok(inject.includes('fs'))
 })
 
-test('apply() registers all four tools, one prompt section, and disposes cleanly', async (t) => {
+test('apply() registers all five tools, one prompt section, and disposes cleanly', async (t) => {
   const host = fakeHost()
   // NEVER write the plugin's real status file: the running host owns it as its
   // load receipt, and a test that deletes it makes a healthy boot look failed.
@@ -98,10 +98,10 @@ test('apply() registers all four tools, one prompt section, and disposes cleanly
   await new Promise((r) => setTimeout(r, 200))
 
   assert.deepEqual(host.logs.warn, [], `unexpected warnings: ${host.logs.warn.join(' | ')}`)
-  assert.equal(host.registered.length, 4)
+  assert.equal(host.registered.length, 5)
   assert.deepEqual(
     host.registered.map((r) => r.name).sort(),
-    ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_table', 'filekit_read_xlsx'],
+    ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_pptx', 'filekit_read_table', 'filekit_read_xlsx'],
   )
   assert.equal(host.sections.length, 1)
   assert.equal(host.sections[0].name, 'filekit')
@@ -114,7 +114,7 @@ test('apply() registers all four tools, one prompt section, and disposes cleanly
   // Status file was written and names the tools.
   assert.equal(existsSync(statusFile), true)
   const status = JSON.parse(readFileSync(statusFile, 'utf8'))
-  assert.deepEqual(status.tools.sort(), ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_table', 'filekit_read_xlsx'])
+  assert.deepEqual(status.tools.sort(), ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_pptx', 'filekit_read_table', 'filekit_read_xlsx'])
   assert.equal(status.has_fs_service, true)
 
   // Disposal removes every tool and the section.

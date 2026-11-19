@@ -29,7 +29,7 @@ test('definitions compile with the real host defineTool', async (t) => {
 
   const config = readConfig({}, { pluginDir: PLUGIN_DIR, profileDir: '', home: '' })
   const definitions = buildTools(config)
-  assert.equal(definitions.length, 4)
+  assert.equal(definitions.length, 5)
   for (const definition of definitions) {
     const tool = defineTool(definition)
     assert.equal(tool.name, definition.name)

@@ -7,8 +7,9 @@
  * buildTools at the bottom of this file).
  *
  *   filekit_read_table  bounded CSV/TSV rows (delimiter + BOM aware)
- *   filekit_read_docx   bounded DOCX main-body paragraphs and tables
- *   filekit_read_xlsx   bounded XLSX worksheet rows (dates as ISO)
+ *   filekit_read_docx   bounded DOCX body as Markdown (headings, links, tables)
+ *   filekit_read_xlsx   bounded XLSX sheets as Markdown tables (dates as ISO)
+ *   filekit_read_pptx   bounded PPTX slides as Markdown (text, tables, notes)
  *   filekit_read_pdf    bounded PDF page text
  *
  * Every tool returns a single rendered text body under a bare object envelope so
@@ -113,7 +114,7 @@ function buildTableTool(config, ctx) {
 function buildDocxTool(config, ctx) {
   return {
     name: 'filekit_read_docx',
-    description: 'Read a page of a .docx body as paragraphs and tables. Not headers, notes, or legacy .doc.',
+    description: 'Read a page of a .docx body as Markdown: headings, links and tables. Not headers, notes, or legacy .doc.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the .docx file.' },
       offset: { type: 'integer', description: '1-based first block to return. Default 1.' },
@@ -142,12 +143,12 @@ function buildDocxTool(config, ctx) {
 function buildXlsxTool(config, ctx) {
   return {
     name: 'filekit_read_xlsx',
-    description: 'Read a page of one .xlsx sheet. Formulas stay cached values; legacy .xls is rejected.',
+    description: 'Read a .xlsx workbook as Markdown tables. Omit sheet to read the first sheet and preview the others; formulas stay cached values. Legacy .xls is rejected.',
     parameters: {
       path: { type: 'string', required: true, description: 'Path to the .xlsx file.' },
       sheet: {
         type: 'string',
-        description: 'Worksheet name or 1-based index. Defaults to the first worksheet. The footer lists all sheet names.',
+        description: 'Worksheet name or 1-based index. Omit it to read the first sheet in full and list the other sheets by their header row.',
       },
       offset: { type: 'integer', description: '1-based first DATA row to return. Default 1.' },
       limit: { type: 'integer', description: `Maximum data rows. Default ${config.docDefaultLimit}.` },
@@ -174,13 +175,42 @@ function buildXlsxTool(config, ctx) {
         maxBytes: config.maxOutputBytes,
       })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
-      const sheetList = doc.sheets.length > 1 ? `\n(sheets: ${doc.sheets.join(', ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>xlsx</type>\n<content>\n${doc.text}${sheetList}${warn}\n</content>`,
+        text: `<path>${resolved.displayPath}</path>\n<type>xlsx</type>\n<content>\n${doc.text}${warn}\n</content>`,
         sheet: doc.sheetName,
         sheets: doc.sheets,
         returned: doc.returned,
         totalRows: doc.totalRows,
+      }
+    },
+  }
+}
+
+/** filekit_read_pptx: bounded slide window. */
+function buildPptxTool(config, ctx) {
+  return {
+    name: 'filekit_read_pptx',
+    description: 'Read a page of a .pptx as Markdown slides, including tables and speaker notes. Not pictures or legacy .ppt.',
+    parameters: {
+      path: { type: 'string', required: true, description: 'Path to the .pptx file.' },
+      offset: { type: 'integer', description: '1-based first slide to return. Default 1.' },
+      limit: { type: 'integer', description: `Maximum slides. Default ${config.pdfDefaultPages}, max ${config.pdfMaxPages}.` },
+    },
+    output: textOutput(),
+    isConcurrencySafe: () => true,
+    timeoutMs: 120000,
+    async execute(args, exec) {
+      const { readPptx } = await import('./pptx.js')
+      const { resolved, info } = await prepare(ctx, exec, config, args?.path)
+      const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
+      const offset = positiveInt(args?.offset, 1, 1, Number.MAX_SAFE_INTEGER)
+      const limit = positiveInt(args?.limit, config.pdfDefaultPages, 1, config.pdfMaxPages)
+      const doc = readPptx(buffer, { offset, limit, maxCellLength: config.maxCellLength, maxBytes: config.maxOutputBytes })
+      const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
+      return {
+        text: `<path>${resolved.displayPath}</path>\n<type>pptx</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        returned: doc.returned,
+        slideCount: doc.slideCount,
       }
     },
   }
@@ -251,6 +281,7 @@ export function buildTools(config, ctx) {
     buildTableTool(config, ctx),
     buildDocxTool(config, ctx),
     buildXlsxTool(config, ctx),
+    buildPptxTool(config, ctx),
     buildPdfTool(config, ctx),
   ]
 }

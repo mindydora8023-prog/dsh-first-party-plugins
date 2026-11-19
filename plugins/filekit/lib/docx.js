@@ -12,6 +12,7 @@
  */
 
 import { readZipEntry, looksLikeZip } from './zip.js'
+import { headingPrefix, markdownTable } from './md.js'
 
 const XML_ENTITIES = {
   '&amp;': '&',
@@ -36,22 +37,71 @@ export function unescapeXml(text) {
     .replace(/&#(\d+);/g, (_, dec) => codePointChar(parseInt(dec, 10)))
 }
 
-/** Extract the visible text of one `w:p` fragment (runs, tabs, breaks). */
-function paragraphText(fragment) {
+/**
+ * Extract the visible text of one `w:p` fragment.
+ *
+ * Tabs and breaks keep their position. A hyperlink is written as Markdown
+ * `[text](url)` when the relationship target is known, which is the form a
+ * model can follow without a second pass over document.xml.rels.
+ */
+function paragraphText(fragment, links) {
   let out = ''
-  // Walk runs so tabs/breaks keep their position relative to text.
-  const runRe = /<(w:t)\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>/g
+  const runRe = /<(w:t)\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>|<w:hyperlink\b([^>]*)>([\s\S]*?)<\/w:hyperlink>/g
   let m
   while ((m = runRe.exec(fragment)) !== null) {
     if (m[1] === 'w:t') out += unescapeXml(m[2])
     else if (m[0].startsWith('<w:tab')) out += '\t'
-    else out += '\n'
+    else if (m[0].startsWith('<w:br')) out += '\n'
+    else {
+      const rid = /r:id="([^"]*)"/.exec(m[3])
+      const label = paragraphText(m[4], links).replace(/\s+/g, ' ').trim()
+      const href = rid === null ? '' : links.get(rid[1]) ?? ''
+      if (label === '') continue
+      out += href === '' ? label : `[${label}](${href})`
+    }
   }
   return out
 }
 
+/** Map `rId` to a hyperlink target from word/_rels/document.xml.rels. */
+export function parseHyperlinkRels(xml) {
+  const links = new Map()
+  if (typeof xml !== 'string' || xml.length === 0) return links
+  const relRe = /<Relationship\b([^>]*?)\/?>/g
+  let m
+  while ((m = relRe.exec(xml)) !== null) {
+    const tag = m[1]
+    if (!/Type="[^"]*\/hyperlink"/.test(tag)) continue
+    const id = /Id="([^"]*)"/.exec(tag)
+    const target = /Target="([^"]*)"/.exec(tag)
+    if (id !== null && target !== null) links.set(id[1], unescapeXml(target[1]))
+  }
+  return links
+}
+
+/**
+ * Heading level of one paragraph, or 0 when it is body text.
+ *
+ * Word stores this two ways: an outline level on the paragraph, or a style
+ * whose name is `HeadingN` / `heading N`. Both are read; neither invents a
+ * level the document did not declare.
+ */
+function headingLevel(fragment) {
+  const outline = /<w:outlineLvl\b[^>]*w:val="(\d+)"/.exec(fragment)
+  if (outline !== null) {
+    const level = Number(outline[1]) + 1
+    if (level >= 1 && level <= 9) return level
+  }
+  const style = /<w:pStyle\b[^>]*w:val="([^"]*)"/.exec(fragment)
+  if (style === null) return 0
+  const named = /^heading\s*(\d)$/i.exec(style[1].replace(/([a-z])(\d)/i, '$1 $2'))
+  if (named === null) return 0
+  const level = Number(named[1])
+  return level >= 1 && level <= 9 ? level : 0
+}
+
 /** Turn one `w:tbl` fragment into rows of cell strings. */
-function tableRows(fragment) {
+function tableRows(fragment, links) {
   const rows = []
   const trRe = /<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g
   let tr
@@ -64,7 +114,7 @@ function tableRows(fragment) {
       const pRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g
       let p
       while ((p = pRe.exec(tc[1])) !== null) {
-        const text = paragraphText(p[1])
+        const text = paragraphText(p[1], links)
         if (text.trim() !== '') paras.push(text)
       }
       cells.push(paras.join('\n'))
@@ -77,9 +127,10 @@ function tableRows(fragment) {
 /**
  * Parse `word/document.xml` into ordered blocks.
  * @param {string} xml
- * @returns {Array<{kind:'para', text:string} | {kind:'table', rows:string[][]}>}
+ * @param {Map<string,string>} [links] hyperlink rId -> target
+ * @returns {Array<{kind:'para', text:string, level:number} | {kind:'table', rows:string[][]}>}
  */
-export function parseDocumentXml(xml) {
+export function parseDocumentXml(xml, links = new Map()) {
   // Isolate the body so headers/footers or settings that share tags do not leak in.
   const bodyStart = xml.indexOf('<w:body')
   const body = bodyStart >= 0 ? xml.slice(bodyStart) : xml
@@ -92,13 +143,14 @@ export function parseDocumentXml(xml) {
     const pRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g
     let p
     while ((p = pRe.exec(segment)) !== null) {
-      const text = paragraphText(p[1])
-      if (text.trim() !== '') blocks.push({ kind: 'para', text })
+      const text = paragraphText(p[1], links)
+      if (text.trim() === '') continue
+      blocks.push({ kind: 'para', text, level: headingLevel(p[1]) })
     }
   }
   while ((t = tblRe.exec(body)) !== null) {
     flushParagraphs(body.slice(last, t.index))
-    blocks.push({ kind: 'table', rows: tableRows(t[0]) })
+    blocks.push({ kind: 'table', rows: tableRows(t[0], links) })
     last = t.index + t[0].length
   }
   flushParagraphs(body.slice(last))
@@ -128,7 +180,13 @@ export function readDocx(buffer, req) {
   }
   let blocks
   try {
-    blocks = parseDocumentXml(xmlBuf.toString('utf8'))
+    let links = new Map()
+    try {
+      links = parseHyperlinkRels(readZipEntry(buffer, 'word/_rels/document.xml.rels').toString('utf8'))
+    } catch {
+      links = new Map()
+    }
+    blocks = parseDocumentXml(xmlBuf.toString('utf8'), links)
   } catch (error) {
     throw new Error(`not a readable DOCX: ${error?.message ?? String(error)}`)
   }
@@ -145,13 +203,10 @@ export function readDocx(buffer, req) {
     const block = blocks[i]
     let rendered
     if (block.kind === 'para') {
-      rendered = block.text
+      const text = block.text.replace(/[ \t]+\n/g, '\n').trim()
+      rendered = `${headingPrefix(block.level)}${text}`
     } else {
-      const rows = block.rows.map((cells) => cells.map((c) => {
-        const oneLine = c.replace(/\s*\n\s*/g, ' ')
-        return oneLine.length > maxCellLength ? `${oneLine.slice(0, maxCellLength)}...` : oneLine
-      }).join(' | '))
-      rendered = `[table ${rows.length}x${block.rows[0]?.length ?? 0}]\n${rows.join('\n')}`
+      rendered = markdownTable(block.rows, maxCellLength)
     }
     const size = Buffer.byteLength(rendered, 'utf8') + 1
     if (bytes + size > maxBytes) { truncatedByBytes = true; break }

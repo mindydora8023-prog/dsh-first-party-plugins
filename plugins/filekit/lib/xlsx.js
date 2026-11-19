@@ -20,6 +20,7 @@
 
 import { readZipEntry, looksLikeZip } from './zip.js'
 import { unescapeXml } from './docx.js'
+import { markdownTable } from './md.js'
 
 /**
  * Hard cap on columns per row. A single malformed/far reference (e.g. r="XFD1"
@@ -218,6 +219,8 @@ function sheetPart(target) {
   return clean.startsWith('xl/') ? clean : `xl/${clean}`
 }
 
+
+
 /**
  * Read an XLSX buffer into a bounded, model-facing text window of one sheet.
  * @param {Buffer} buffer
@@ -276,39 +279,43 @@ export function readXlsx(buffer, req) {
   const totalRows = hasHeader ? Math.max(0, rows.length - 1) : rows.length
   const dataStart = hasHeader ? 1 : 0
   const start = Math.max(0, req.offset - 1)
-  const selected = rows.slice(dataStart + start, dataStart + start + req.limit)
-  const width = rows.reduce((w, r) => Math.max(w, r.length), 0)
 
-  const truncate = (v) => {
-    const s = v === undefined ? '' : String(v)
-    return s.length > maxCellLength ? `${s.slice(0, maxCellLength)}...(cell truncated, ${s.length} chars)` : s
+  const focused = req.sheet !== undefined
+  const page = rows.slice(dataStart + start, dataStart + start + req.limit)
+  const shownRows = hasHeader ? [rows[0] ?? [], ...page] : page
+  let table = markdownTable(shownRows.length > 0 ? shownRows : [[]], maxCellLength)
+  if (!hasHeader && table !== '') {
+    const lines = table.split('\n')
+    table = lines.slice(2).join('\n')
   }
-
-  const lines = []
-  let bytes = 0
+  const parts = [`## ${chosen.name}\n${table}`]
+  let bytes = Buffer.byteLength(parts[0], 'utf8')
   let truncatedByBytes = false
-  if (hasHeader && rows[0] !== undefined) {
-    const headerLine = Array.from({ length: width }, (_, i) => truncate(rows[0][i])).join(' | ')
-    lines.push(`# ${headerLine}`)
-    bytes += Buffer.byteLength(headerLine, 'utf8') + 1
+  if (!focused) {
+    for (const section of sheets) {
+      if (section === chosen || section.target === '') continue
+      let header = []
+      try {
+        const xml = readText(sheetPart(section.target), false)
+        header = parseSheet(xml, sharedStrings, dateStyles, { maxRows: 1 }).rows[0] ?? []
+      } catch (error) {
+        warnings.push(`sheet "${section.name}" was not previewed (${error?.message ?? String(error)})`)
+      }
+      const preview = `## ${section.name}\n${markdownTable([header], maxCellLength)}\n\n(header only; pass sheet=${JSON.stringify(section.name)} to read it)`
+      const size = Buffer.byteLength(preview, 'utf8') + 2
+      if (bytes + size > maxBytes) { truncatedByBytes = true; break }
+      bytes += size
+      parts.push(preview)
+    }
   }
-  let shown = 0
-  for (let r = 0; r < selected.length; r += 1) {
-    const row = selected[r]
-    const line = Array.from({ length: width }, (_, i) => truncate(row[i])).join(' | ')
-    const size = Buffer.byteLength(line, 'utf8') + 1
-    if (bytes + size > maxBytes) { truncatedByBytes = true; break }
-    bytes += size
-    lines.push(`${start + r + 1}: ${line}`)
-    shown += 1
-  }
+  const shown = page.length
   const end = start + shown
   let footer
-  if (truncatedByBytes) footer = `(Output capped at ${maxBytes} bytes. Showing rows ${req.offset}-${end} of ${totalRows}. Use offset=${end + 1} to continue.)`
-  else if (end < totalRows) footer = `(Showing rows ${req.offset}-${end} of ${totalRows}. Use offset=${end + 1} to continue.)`
+  if (truncatedByBytes) footer = `(Output capped at ${maxBytes} bytes. Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
+  else if (end < totalRows) footer = `(Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
   else footer = `(End of sheet "${chosen.name}" - ${totalRows} data rows${hasHeader ? ', 1 header row' : ''})`
 
-  const body = lines.length > 0 ? `${lines.join('\n')}\n\n${footer}` : footer
+  const body = `${parts.join('\n\n')}\n\n${footer}`
   return {
     text: body,
     sheetName: chosen.name,

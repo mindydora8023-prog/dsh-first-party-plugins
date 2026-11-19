@@ -1,10 +1,11 @@
 /**
  * dsh-plugin-filekit host side.
  *
- * Adds four bounded, read-only DOCUMENT tools to DSH:
+ * Adds five bounded, read-only DOCUMENT tools to DSH:
  *   filekit_read_table  CSV/TSV rows
- *   filekit_read_docx   DOCX main body
- *   filekit_read_xlsx   XLSX worksheet rows
+ *   filekit_read_docx   DOCX body as Markdown
+ *   filekit_read_xlsx   XLSX sheets as Markdown tables
+ *   filekit_read_pptx   PPTX slides as Markdown
  *   filekit_read_pdf    PDF page text
  *
  * Plain-text multi-file reading is deliberately NOT here: that is ops-lite's
@@ -13,7 +14,7 @@
  * format parsers, which ops-lite explicitly does not implement.
  *
  * Design notes (deliberate, learned from the dsh-ops review):
- *   - No progressive disclosure / discovery layer. Registering four tools once is
+ *   - No progressive disclosure / discovery layer. Registering the tools once is
  *     cheap and constant; a per-agent reconcile that reassembles the system prompt
  *     is the O(N) regression that made dsh-ops 0.4.x stall new sessions, so it is
  *     avoided entirely.
@@ -136,7 +137,7 @@ async function register(ctx, config, dirs) {
       if (visible.length === 0) return ''
       return [
         `Available: ${visible.join(', ')}.`,
-        'filekit reads CSV/TSV, DOCX, XLSX, and PDF text only. It is not OCR, does not recalculate formulas, and rejects legacy .doc/.xls.',
+        'filekit reads CSV/TSV, DOCX, XLSX, PPTX, and PDF text only. Office files come back as Markdown. It is not OCR, does not recalculate formulas, and rejects legacy .doc/.xls/.ppt.',
         'When a result says "Use offset=N to continue", call again with that offset.',
         'Plain text files go to ops_read_files, not these tools.',
       ].join('\n')

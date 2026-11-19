@@ -1,12 +1,13 @@
 # filekit
 
-DSH 宿主插件，提供四个有界、只读的文档读取工具。版本 0.1.1，工具说明和系统提示都收成行为本身，分页约定不变：
+DSH 宿主插件，提供五个有界、只读的文档读取工具。版本 0.2.0。Office 文档按 Markdown 返回，分页约定不变：
 
 | 工具 | 内容与边界 |
 | --- | --- |
 | `filekit_read_table` | CSV/TSV 分页；分隔符和 BOM 检测，支持显式 UTF-16LE/BE |
-| `filekit_read_docx` | DOCX 正文段落与表格；不解析页眉页脚、批注、图像或旧版 DOC |
-| `filekit_read_xlsx` | 单工作表分页、日期与布尔值；公式显示缓存值，不计算公式 |
+| `filekit_read_docx` | DOCX 正文转 Markdown：标题、链接和表格；不解析页眉页脚、批注、图像或旧版 DOC |
+| `filekit_read_xlsx` | 工作簿转 Markdown 表格。省略 `sheet` 时读第一张并给出其余表头；公式显示缓存值 |
+| `filekit_read_pptx` | 幻灯片转 Markdown，含表格和有文字的演讲者备注；不描述图片，不读旧版 PPT |
 | `filekit_read_pdf` | 经典 PDF 的文本页；不进行 OCR，对部分字体和对象流存在限制 |
 
 读取通过宿主 `ctx.fs`，受宿主文件访问规则约束；工具有输出预算、分页提示和取消信号。纯文本多文件读取由独立的 ops-lite 插件提供。
@@ -29,14 +30,14 @@ node test/make-office-fixtures.mjs --check
 
 默认离线测试使用自带实现与合成数据，不访问网络、不读取真实账户。真实宿主比较测试在没有明确配置时显示跳过。若有一个兼容的宿主检出目录，可设置 `DSH_HOST_CHECKOUT` 为其中包含 `node_modules/@deepseek-ai` 的根目录，再运行测试；仓库不随附宿主代码或其依赖。
 
-DOCX/XLSX fixtures 由本项目编写的最简 OOXML 与 ZIP 生成器产生，可重复生成：
+DOCX/XLSX/PPTX fixtures 由本项目编写的最简 OOXML 与 ZIP 生成器产生，可重复生成：
 
 ```sh
 node test/make-office-fixtures.mjs
 node test/make-pdf-fixture.mjs test/fixtures/sample.pdf
 ```
 
-这些生成器只使用 Node.js 内置模块。三个 OOXML fixture 不携带第三方默认模板、主题、缩略图或个人文档属性；日期测试保留自定义格式与未计算公式。PDF 不嵌入字体程序。
+这些生成器只使用 Node.js 内置模块。四个 OOXML fixture 不携带第三方默认模板、主题、缩略图或个人文档属性；日期测试保留自定义格式与未计算公式。PDF 不嵌入字体程序。
 
 ## 许可与来源
 

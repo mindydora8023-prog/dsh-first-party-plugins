@@ -131,14 +131,15 @@ export function formatTable(rows, req) {
   const lines = []
   let bytes = 0
   let truncatedByBytes = false
+  const cell = (value) => oneLineCell(value, maxCellLength).replace(/\|/g, '\\|')
   if (header !== undefined) {
-    const line = header.map((c) => oneLineCell(c, maxCellLength)).join(' | ')
+    const line = header.map((c) => cell(c)).join(' | ')
     lines.push(`# ${line}`)
     bytes += Buffer.byteLength(line, 'utf8') + 1
   }
   let shown = 0
   for (let r = 0; r < selected.length; r += 1) {
-    const line = selected[r].map((c) => oneLineCell(c, maxCellLength)).join(' | ')
+    const line = selected[r].map((c) => cell(c)).join(' | ')
     const size = Buffer.byteLength(line, 'utf8') + 1
     if (bytes + size > maxBytes) { truncatedByBytes = true; break }
     bytes += size

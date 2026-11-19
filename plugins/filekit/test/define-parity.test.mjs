@@ -92,6 +92,7 @@ const PLUGIN = {
   expectTools: [
     'filekit_read_docx',
     'filekit_read_pdf',
+    'filekit_read_pptx',
     'filekit_read_table',
     'filekit_read_xlsx',
   ],

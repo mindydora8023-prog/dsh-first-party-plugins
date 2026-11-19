@@ -5,7 +5,7 @@ import { deflateRawSync } from 'node:zlib'
 import { buildWindow, formatWindow, decodeUtf8 } from '../lib/text.js'
 import { detectDelimiter, parseDelimited, formatTable, decodeTable } from '../lib/csv.js'
 import { listZipEntries, readZipEntry, looksLikeZip } from '../lib/zip.js'
-import { parseDocumentXml, readDocx, unescapeXml } from '../lib/docx.js'
+import { parseDocumentXml, parseHyperlinkRels, readDocx, unescapeXml } from '../lib/docx.js'
 import { isCredentialPath, credentialDenied } from '../lib/guard.js'
 
 // ---------------------------------------------------------------- text window
@@ -195,11 +195,11 @@ test('docx: unescapeXml replaces an out-of-range numeric reference instead of th
 test('docx: parseDocumentXml orders paragraphs and tables in the body', () => {
   const blocks = parseDocumentXml(DOC_XML)
   assert.equal(blocks.length, 4)
-  assert.deepEqual(blocks[0], { kind: 'para', text: 'Title & intro' })
-  assert.deepEqual(blocks[1], { kind: 'para', text: 'Second\tparagraph' })
+  assert.deepEqual(blocks[0], { kind: 'para', text: 'Title & intro', level: 0 })
+  assert.deepEqual(blocks[1], { kind: 'para', text: 'Second\tparagraph', level: 0 })
   assert.equal(blocks[2].kind, 'table')
   assert.deepEqual(blocks[2].rows, [['A1', 'B1'], ['A2', 'B2']])
-  assert.deepEqual(blocks[3], { kind: 'para', text: 'After table' })
+  assert.deepEqual(blocks[3], { kind: 'para', text: 'After table', level: 0 })
 })
 
 test('docx: readDocx pages blocks and reports totals', () => {
@@ -210,8 +210,26 @@ test('docx: readDocx pages blocks and reports totals', () => {
   assert.match(one.text, /Title & intro/)
   assert.match(one.text, /Use offset=3 to continue/)
   const two = readDocx(zip, { offset: 3, limit: 5, maxCellLength: 50, maxBytes: 100000 })
-  assert.match(two.text, /\[table 2x2\]/)
-  assert.match(two.text, /A1 \| B1/)
+  assert.match(two.text, /\| A1 \| B1 \|/)
+  assert.match(two.text, /\| --- \| --- \|/)
+  assert.match(two.text, /\| A2 \| B2 \|/)
+})
+
+test('docx: headings and hyperlinks render as Markdown', () => {
+  const xml = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Report</w:t></w:r></w:p>
+<w:p><w:r><w:t>See </w:t></w:r><w:hyperlink r:id="rId4"><w:r><w:t>the source</w:t></w:r></w:hyperlink></w:p>
+</w:body></w:document>`
+  const rels = '<Relationships><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.test/a"/></Relationships>'
+  const blocks = parseDocumentXml(xml, parseHyperlinkRels(rels))
+  assert.equal(blocks[0].level, 1)
+  assert.equal(blocks[1].text, 'See [the source](https://example.test/a)')
+  const zip = makeZip([['word/document.xml', xml], ['word/_rels/document.xml.rels', rels]])
+  const out = readDocx(zip, { offset: 1, limit: 10, maxCellLength: 50, maxBytes: 100000 })
+  assert.match(out.text, /^# Report/)
+  assert.match(out.text, /\[the source\]\(https:\/\/example\.test\/a\)/)
 })
 
 test('docx: a non-ZIP buffer is a readable rejection', () => {

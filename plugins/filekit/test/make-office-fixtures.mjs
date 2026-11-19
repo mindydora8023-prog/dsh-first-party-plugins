@@ -72,8 +72,27 @@ function workbook(sheets, styles) {
   if (styles) parts['xl/styles.xml'] = xml(`<styleSheet xmlns="${sheetNS}"><numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts><fonts count="1"><font/></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`)
   return parts
 }
+const draw = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+const pres = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+const run = (text) => `<a:p><a:r><a:t>${esc(text)}</a:t></a:r></a:p>`
+function slide(paragraphs, rows) {
+  const table = rows === undefined ? '' : '<p:graphicFrame><a:tbl>' + rows.map((row) => '<a:tr>' + row.map((value) => `<a:tc><a:txBody>${run(value)}</a:txBody></a:tc>`).join('') + '</a:tr>').join('') + '</a:tbl></p:graphicFrame>'
+  return xml(`<p:sld xmlns:a="${draw}" xmlns:p="${pres}"><p:cSld><p:spTree><p:sp><p:txBody>${paragraphs.map(run).join('')}</p:txBody></p:sp>${table}</p:spTree></p:cSld></p:sld>`)
+}
+const notes = xml(`<p:notes xmlns:a="${draw}" xmlns:p="${pres}"><p:cSld><p:spTree><p:sp><p:txBody>${run('Remember the bolt count')}</p:txBody></p:sp></p:spTree></p:cSld></p:notes>`)
+const pptx = {
+  '[Content_Types].xml': contentTypes([['ppt/presentation.xml', 'presentationml.presentation.main'], ['ppt/slides/slide1.xml', 'presentationml.slide'], ['ppt/slides/slide2.xml', 'presentationml.slide'], ['ppt/notesSlides/notesSlide1.xml', 'presentationml.notesSlide']]),
+  '_rels/.rels': relationships([['rId1', 'officeDocument', 'ppt/presentation.xml']]),
+  'ppt/presentation.xml': xml(`<p:presentation xmlns:p="${pres}" xmlns:r="${officeRel.slice(0, -1)}"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>`),
+  'ppt/_rels/presentation.xml.rels': relationships([['rId1', 'slide', 'slides/slide1.xml'], ['rId2', 'slide', 'slides/slide2.xml']]),
+  'ppt/slides/slide1.xml': slide(['Quarterly review'], [['Item', 'Qty'], ['Bolt', '4']]),
+  'ppt/slides/_rels/slide1.xml.rels': relationships([['rId1', 'notesSlide', '../notesSlides/notesSlide1.xml']]),
+  'ppt/slides/slide2.xml': slide(['Second slide']),
+  'ppt/notesSlides/notesSlide1.xml': notes,
+}
 const fixtures = {
   'sample.docx': docx,
+  'sample.pptx': pptx,
   'sample.xlsx': workbook([['Sales', [['Region', 'Units', 'Revenue', 'Note'], ['North', 120, 4800.5, 'ok'], ['South', 90, 3600, null], ['East', 150, 6000.25, 'surge']]], ['Meta', [['key', 'value'], ['generated', '2026-10-23']]]]),
   'dates.xlsx': workbook([['Sheet', [['name', 'when', 'flag', 'formula'], ['a', { serial: 46318, style: 1 }, true, null], ['b', { serial: 46024.12783564815, style: 2 }, false, { formula: '1+2' }]]]], true),
 }

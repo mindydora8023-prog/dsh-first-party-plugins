@@ -8,7 +8,7 @@
  *   1. Declaring 'fs' in `inject` makes cordis WAIT for the fs service: while
  *      it is unmounted, `apply()` never runs and no tool is registered. That is
  *      the correct load-order guarantee for a filesystem-backed plugin.
- *   2. With all three services mounted, `apply()` registers all four tools and
+ *   2. With all three services mounted, `apply()` registers all five tools and
  *      one prompt section, and unloading removes them.
  *
  * Skips when the extracted cordis checkout is absent.
@@ -83,7 +83,7 @@ test('inject declares fs so cordis gates apply() on the fs service', async (t) =
   assert.equal(services.tools.registered.size, 0, 'no tools before fs is mounted')
 })
 
-test('apply() registers all four tools on a real cordis Context, and unload removes them', async (t) => {
+test('apply() registers all five tools on a real cordis Context, and unload removes them', async (t) => {
   if (!available) { t.skip('no extracted cordis checkout'); return }
   const previousHome = process.env.DSH_HOME
   const home = makeTempHome()
@@ -111,10 +111,10 @@ test('apply() registers all four tools on a real cordis Context, and unload remo
   await mountService(ctx, cordis, 'fs', services.fs)
   await new Promise((r) => setTimeout(r, 300))
 
-  assert.equal(services.tools.registered.size, 4)
+  assert.equal(services.tools.registered.size, 5)
   assert.deepEqual(
     [...services.tools.registered.keys()].sort(),
-    ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_table', 'filekit_read_xlsx'],
+    ['filekit_read_docx', 'filekit_read_pdf', 'filekit_read_pptx', 'filekit_read_table', 'filekit_read_xlsx'],
   )
   assert.equal(services.systemPrompt.sections.size, 1)
 

@@ -1,6 +1,6 @@
 /**
- * XLSX reader tests: pure-function units plus locally authored minimal OOXML
- * workbooks. Fixtures are committed under test/fixtures so the suite is
+ * XLSX reader tests: pure-function units plus a real workbook written by
+ * openpyxl. Fixtures are committed under test/fixtures so the suite is
  * self-contained.
  */
 
@@ -89,8 +89,10 @@ test('readXlsx reads the real workbook, pages rows, and lists sheets', () => {
   assert.equal(r.sheetName, 'Sales')
   assert.deepEqual(r.sheets, ['Sales', 'Meta'])
   assert.equal(r.totalRows, 3)
-  assert.match(r.text, /# Region \| Units \| Revenue \| Note/)
-  assert.match(r.text, /1: North \| 120 \| 4800\.5 \| ok/)
+  assert.match(r.text, /## Sales/)
+  assert.match(r.text, /\| Region \| Units \| Revenue \| Note \|/)
+  assert.match(r.text, /\| North \| 120 \| 4800\.5 \| ok \|/)
+  assert.match(r.text, /## Meta/)
   assert.match(r.text, /End of sheet "Sales" - 3 data rows/)
 })
 
@@ -106,7 +108,7 @@ test('readXlsx selects an alternate sheet by name and by index', () => {
 test('readXlsx pages with offset and reports continuation', () => {
   const buf = fixture('sample.xlsx')
   const page = readXlsx(buf, { offset: 2, limit: 1, maxCellLength: 100, maxBytes: 50000 })
-  assert.match(page.text, /2: South/)
+  assert.match(page.text, /\| South \|/)
   assert.equal(page.returned, 1)
   assert.match(page.text, /Use offset=3 to continue/)
 })
@@ -114,8 +116,8 @@ test('readXlsx pages with offset and reports continuation', () => {
 test('readXlsx renders a real date cell and a boolean cell', () => {
   const buf = fixture('dates.xlsx')
   const r = readXlsx(buf, { offset: 1, limit: 10, maxCellLength: 100, maxBytes: 50000 })
-  assert.match(r.text, /a \| 2026-10-23 \| TRUE/)
-  assert.match(r.text, /b \| 2026-01-02 03:04:05 \| FALSE/)
+  assert.match(r.text, /\| a \| 2026-10-23 \| TRUE \|/)
+  assert.match(r.text, /\| b \| 2026-01-02 03:04:05 \| FALSE \|/)
 })
 
 test('readXlsx rejects a non-ZIP buffer and an unknown sheet', () => {
