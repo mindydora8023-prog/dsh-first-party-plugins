@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-next-say",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "输入框内的下一句建议：回合结束后预测你要说的话，草稿非空时用本地历史做前缀补全，Tab 只填入草稿、不发送",

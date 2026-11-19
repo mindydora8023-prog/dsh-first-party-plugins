@@ -39,6 +39,8 @@ ops-lite 的 compact.js 注明改编 ranges.ts/file-batching.md；outcome.js 注
 
 2026-11-17 将工作区 next-say 0.2.0 同步到发布副本：补上预测生命周期、设置保存顺序、有界请求体、历史缓存、按会话持有的 ghost，以及 composer dock 上的手动入口。predict.js 仍按上述 ferrisching 基准保留改编声明，没有替换上游许可。
 
+2026-11-19 的 0.2.3 只改交互：预测跟着已输入的前缀走，`Ctrl/Cmd+右方向键` 一次采纳一个词。对照过 dsh-ghost-prompt 与 Copilot / Continue 的公开行为说明，没有搬它们的代码。predict.js 只加了一条提示词规则，上游改编声明不变。
+
 ## 配色、图标与字体
 
 OpenCode 的风格描述本身不证明复制其代码，未发现其代码或 logo 被直接带入。

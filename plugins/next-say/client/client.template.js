@@ -5,7 +5,8 @@
  * renders INSIDE the composer card -- plus a page in Settings. The entry draws no
  * element of its own: it paints ghost text over the editor (lib/ghost.js) and
  * keeps the Tab/Escape handling, which goes through the composer's own
- * `insertText` so a concurrent edit can never be overwritten.
+ * `insertText` so a concurrent edit can never be overwritten. Tab accepts the
+ * whole remainder; Ctrl/Cmd+Right accepts only the next word (Copilot / Continue).
  *
  * Built file. Edit `client/client.template.js` and run tools/build-client.py;
  * `lib/locales.js`, `lib/match.js` and `lib/ghost.js` are inlined there so there
@@ -778,11 +779,15 @@ window.__ModuleLoader__.load({
        * was measured at; `insertText` refuses the write when the revision moved,
        * so text typed between reading and writing is never overwritten.
        */
-      const accept = React.useCallback((text) => {
+      const accept = React.useCallback((text, partial) => {
         if (text === '' || !inputActions || !live.current.enabled || live.current.paused || !live.current.inputReady) return false;
         try {
           const span = inputActions.captureInsertion();
           if (!inputActions.insertText(text, span)) return false;
+          // One word must leave the prediction in place. Clearing it here made
+          // the rest of the ghost disappear, which is the opposite of
+          // acceptNextWord. Only a full accept consumes the suggestion.
+          if (partial === true) return true;
           accepted.current = draftRef.current + text;
           dismissed.current = '';
           setSuppressionEpoch((value) => value + 1);
@@ -794,20 +799,6 @@ window.__ModuleLoader__.load({
         }
       }, [inputActions]);
 
-      /**
-       * Insert exactly what the row is describing.
-       *
-       * Both call sites (the Tab handler and the Accept button) go through this
-       * one function so they cannot drift: a model prediction replaces nothing
-       * (it is the whole message) while a completion adds only its remainder ON
-       * TOP of the draft the user already typed.
-       */
-      const acceptSuggested = React.useCallback(() => {
-        if (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
-        if (local !== null) return accept(local.suffix);
-        return false;
-      }, [accept, suggestion, local, sessionId, blankDraft, running]);
-
       const dismiss = React.useCallback(() => {
         // Remember WHAT was refused, not just "the draft": a dismissed model
         // suggestion must not come back, but a dismissed completion only covers
@@ -815,23 +806,88 @@ window.__ModuleLoader__.load({
         // again. Recording the raw draft here suppressed every later completion
         // for the whole session.
         setSuppressionEpoch((value) => value + 1);
-        dismissed.current = suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' ? suggestion : `${draft}\u0000local`;
+        dismissed.current = suggestionSession.current === sessionId && !running && suggestion !== '' && (blankDraft || suggestionRemainder(suggestion, draft) !== null)
+          ? suggestion
+          : `${draft}\u0000local`;
         setSuggestion('');
         setSource('');
       }, [suggestion, draft, sessionId, blankDraft, running]);
 
-      // Keyboard: Tab accepts, Escape dismisses -- but only from the composer,
-      // and only while a suggestion is actually on screen.
+      /* ------------------------------------------------------------ render */
+
+      // NOTE: no early `return` may appear above this point, and none may appear
+      // between two hook calls. `enabled` flips from false to true when the
+      // settings arrive; returning early on the false pass would make this
+      // component render FEWER hooks than the next pass, and React throws
+      // "Rendered more hooks than during the previous render". That crash is
+      // swallowed by the slot renderer -- the composer simply stayed empty with
+      // no visible error. The disabled case is handled inside the paint effect.
+
+      // Two sources, one paint rule (dsh-ghost-prompt / Copilot ghost text):
+      //   - a model prediction is the WHOLE next message. While the draft is
+      //     still a prefix of it, only the remainder stays visible; a divergent
+      //     draft hides it, and clearing the box brings the whole message back.
+      //     Hiding on the first keystroke made a usable prediction vanish the
+      //     moment the user started agreeing with it.
+      //   - a history completion supplies only the remainder of an earlier
+      //     message. It yields to a still-matching prediction so the two ghosts
+      //     never stack.
+      // Showing a completion's full text next to a draft it starts with looks
+      // like the draft being repeated, and accepting it would insert the
+      // sentence twice.
+      const modelLive = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && !running;
+      const modelFollows = !modelLive || blankDraft ? null : suggestionRemainder(suggestion, draft);
+      const modelText = !modelLive
+        ? ''
+        : (blankDraft ? suggestion : (modelFollows === null ? '' : modelFollows));
+      const localSuffix = modelText !== '' || local === null ? '' : local.suffix;
+
+      // What one paint should show.
+      //
+      // An empty composer paints the whole prediction at the origin. Any other
+      // suggestion is ONLY the remainder, preceded by the typed draft as
+      // invisible text so it starts exactly after it. Painting `draft +
+      // remainder` as visible text double-drew the user's own characters.
+      const ghostText = modelText !== '' ? modelText : localSuffix;
+      const ghostPrefix = ghostText !== '' && !blankDraft ? draft : '';
+
+      /**
+       * Insert exactly the remainder that is on screen.
+       *
+       * Tab takes all of it. A partial accept (Ctrl/Cmd+Right, same idea as
+       * Copilot acceptNextWord and Continue) takes one word and leaves the
+       * ghost continuing after the caret. A model remainder and a history
+       * suffix both go through this, so the two cannot drift.
+       */
+      const acceptSuggested = React.useCallback((wordOnly) => {
+        const offered = modelText !== '' ? modelText : localSuffix;
+        if (offered === '') return false;
+        const count = wordOnly === true ? nextWordLength(offered) : offered.length;
+        const piece = count >= offered.length ? offered : offered.slice(0, count);
+        return accept(piece, piece.length < offered.length);
+      }, [accept, modelText, localSuffix]);
+
+      // Keyboard: Tab accepts the whole remainder, Ctrl/Cmd+Right accepts the
+      // next word, Escape dismisses. Only from the composer, and only while a
+      // suggestion is actually on screen -- anywhere else Tab keeps its meaning.
       React.useEffect(() => {
         if (typeof document === 'undefined') return undefined;
         const onKeyDown = (event) => {
           if (event.defaultPrevented || event.isComposing) return;
           if (!enabled || paused || !inputReady || !live.current.inputReady || scope.current !== currentScope) return;
-          const hasSuggestion = (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) || local !== null;
-          if (!hasSuggestion) return;
+          if (modelText === '' && local === null) return;
           if (!inComposer(sessionId)) return;
           if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
-            if (acceptSuggested()) {
+            if (acceptSuggested(false)) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            return;
+          }
+          // Copilot / Continue: accept only the next word, leaving the caret
+          // where the rest of the ghost continues. Ctrl on Windows, Cmd on macOS.
+          if (event.key === 'ArrowRight' && event.altKey !== true && event.shiftKey !== true && (event.ctrlKey === true || event.metaKey === true)) {
+            if (acceptSuggested(true)) {
               event.preventDefault();
               event.stopPropagation();
             }
@@ -845,44 +901,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [acceptSuggested, dismiss, suggestion, local, enabled, paused, inputReady, sessionId, blankDraft, running]);
-
-      /* ------------------------------------------------------------ render */
-
-      // NOTE: no early `return` may appear above this point, and none may appear
-      // between two hook calls. `enabled` flips from false to true when the
-      // settings arrive; returning early on the false pass would make this
-      // component render FEWER hooks than the next pass, and React throws
-      // "Rendered more hooks than during the previous render". That crash is
-      // swallowed by the slot renderer -- the composer simply stayed empty with
-      // no visible error. The disabled case is handled inside the paint effect.
-
-      // Two independent sources of text:
-      //   - a model prediction replaces the whole message;
-      //   - a history completion only supplies the REMAINDER of a message whose
-      //     prefix the user already typed.
-      // They must be painted differently. Showing a completion's full text next
-      // to a draft it starts with looks like the draft being repeated, and
-      // accepting it would insert the sentence twice.
-      //
-      // A MODEL prediction describes a message for an EMPTY composer, so it is
-      // only valid while the composer is empty and the agent is idle. Without
-      // these two conditions the stale suggestion stayed painted after sending
-      // (the draft went empty again) and then overlapped whatever the user typed
-      // next, because it is anchored at the editor origin.
-      const modelText = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && blankDraft && !running
-        ? suggestion
-        : '';
-      const localSuffix = local !== null ? local.suffix : '';
-
-      // What one paint should show.
-      //
-      // A prediction for an EMPTY composer is the whole message. A completion is
-      // ONLY the remainder, preceded by the typed draft as invisible text so it
-      // starts exactly after it. Painting `draft + remainder` as visible text
-      // double-drew the user's own characters.
-      const ghostText = modelText !== '' ? modelText : localSuffix;
-      const ghostPrefix = modelText !== '' ? '' : draft;
+      }, [acceptSuggested, dismiss, local, modelText, enabled, paused, inputReady, sessionId]);
 
       // A prediction belongs to ONE finished turn, so there are two different
       // ways for it to stop applying:

@@ -300,7 +300,10 @@ test('the stylesheet is injected once, not per paint', () => {
 test('a completion passes the draft as an invisible prefix, not as visible text', () => {
   const source = readFileSync(TEMPLATE, 'utf8');
   assert.match(source, /const ghostText = modelText !== '' \? modelText : localSuffix;/);
-  assert.match(source, /const ghostPrefix = modelText !== '' \? '' : draft;/);
+  // A matching draft (prediction prefix OR history completion) reserves itself
+  // invisibly. An empty composer has nothing to reserve, so its prediction
+  // paints at the origin.
+  assert.match(source, /const ghostPrefix = ghostText !== '' && !blankDraft \? draft : '';/);
   assert.match(source, /paintGhost\(document, sessionId, ghostText, \{ prefix: ghostPrefix \}\)/);
   // Re-drawing the draft as visible text is what made it look doubled.
   assert.ok(!/draft \+ localSuffix/.test(source), 'the draft must not be re-drawn');
@@ -377,12 +380,16 @@ test('typing hides a prediction; only a running turn discards it', () => {
   //                                empty composer while the agent worked.
   const source = readFileSync(TEMPLATE, 'utf8');
 
-  // Rendering it is gated on an empty, idle composer.
+  // The prediction stays live on an idle composer. Typing hides it only when
+  // the draft stops being a prefix (suggestionRemainder returns null); an empty
+  // composer still paints the whole message.
   assert.match(
     source,
-    /const modelText = suggestion !== ''[^;]*&& blankDraft && !running/,
-    'the prediction is only valid for an empty, idle composer',
+    /const modelLive = suggestion !== ''[^;]*&& !running/,
+    'the prediction stays available while the turn is idle',
   );
+  assert.match(source, /suggestionRemainder\(suggestion, draft\)/);
+  assert.match(source, /blankDraft \? suggestion/);
 
   // Discarding it is gated on the turn starting, NOT on the draft.
   const discard = source.slice(

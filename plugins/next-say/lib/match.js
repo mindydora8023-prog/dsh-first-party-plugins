@@ -91,6 +91,87 @@ function scoreCandidate(candidate, query, rank) {
   };
 }
 
+/** One ideograph is one accept step; everything else breaks on whitespace. */
+const CJK_CHAR = /^(?:[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/u;
+
+function codeUnit(text, index) {
+  return text.codePointAt(index) > 0xffff ? 2 : 1;
+}
+
+/**
+ * How many characters of `suffix` one partial accept should take.
+ *
+ * Copilot / Continue accept the next word, not the whole ghost. Leading spaces
+ * belong to that step (they only separate the caret from the word), then one
+ * whitespace-delimited token, then its trailing space so the caret lands where
+ * the next word starts. CJK has no spaces, so one ideograph is one step.
+ *
+ * @param {string} suffix Remainder still ghosted.
+ * @returns {number} Character count, 0 when there is nothing to take.
+ */
+export function nextWordLength(suffix) {
+  const text = String(suffix ?? '');
+  if (text === '') return 0;
+  let cursor = 0;
+  while (cursor < text.length && /\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+    cursor += codeUnit(text, cursor);
+  }
+  if (cursor >= text.length) return cursor;
+  const head = String.fromCodePoint(text.codePointAt(cursor));
+  if (CJK_CHAR.test(head)) return cursor + head.length;
+  while (cursor < text.length && !/\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+    cursor += codeUnit(text, cursor);
+  }
+  if (cursor < text.length && /\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+    cursor += codeUnit(text, cursor);
+  }
+  return cursor;
+}
+
+/**
+ * The typed draft already ends with the gap, so the ghost must not draw it again.
+ *
+ * @param {string} draft
+ * @param {string} suffix
+ * @returns {string}
+ */
+function dropRepeatedGap(draft, suffix) {
+  if (suffix === '' || !/\s$/u.test(draft) || !/^\s/u.test(suffix)) return suffix;
+  return suffix.replace(/^\s+/u, '');
+}
+
+/**
+ * Remainder of `suggestion` after the user has already typed its opening.
+ *
+ * Mature composer plugins (dsh-ghost-prompt, Copilot ghost text) keep the
+ * suggestion visible while the draft is still a prefix of it, and only hide it
+ * when the typed text diverges. Width and case are typing accidents, so they
+ * use the same comparison key as history completion; the returned slice is
+ * always the suggestion's original characters.
+ *
+ * @param {string} suggestion Full predicted message.
+ * @param {string} draft What is currently in the composer.
+ * @returns {string | null} Remainder, or null when the draft is not a prefix.
+ */
+export function suggestionRemainder(suggestion, draft) {
+  const full = String(suggestion ?? '');
+  const typed = String(draft ?? '');
+  if (full === '' || typed.trim() === '') return null;
+  const query = normalizeForMatch(typed);
+  const normalized = normalizeForMatch(full);
+  if (query === '' || !normalized.startsWith(query)) return null;
+  let consumed = 0;
+  let position = 0;
+  for (const char of full) {
+    if (consumed >= query.length) break;
+    consumed += normalizeForMatch(char).length;
+    position += char.length;
+  }
+  if (consumed !== query.length) return null;
+  const suffix = dropRepeatedGap(typed, full.slice(position));
+  return suffix === '' ? null : suffix;
+}
+
 /**
  * Pick the completion to ghost.
  *
@@ -142,7 +223,7 @@ export function historyCompletion(history, draft, options = {}) {
     // Case folding can expand one character (for example U+0130). Matching only
     // half its normalized form cannot yield an append-only completion.
     if (consumed !== query.length) continue;
-    const suffix = item.text.slice(position);
+    const suffix = dropRepeatedGap(text, item.text.slice(position));
     if (suffix === '' || suffix.length > maxExtraChars) continue;
     best = { scored, suffix, full: item.text };
   }

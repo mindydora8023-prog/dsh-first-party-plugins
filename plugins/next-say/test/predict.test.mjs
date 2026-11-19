@@ -164,6 +164,8 @@ test('the system prompt names the language and the character budget', () => {
   assert.match(prompt, /120 characters/);
   // The script instruction is what stops a mixed-glyph Chinese reply.
   assert.match(prompt, /Traditional characters/);
+  // A concrete next action beats an agreeable one-word reply.
+  assert.match(prompt, /concrete next action/);
 });
 
 /* ---------------------------------------------------------- transcript */

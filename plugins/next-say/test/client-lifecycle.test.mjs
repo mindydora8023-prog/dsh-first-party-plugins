@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { historyCompletion, normalizeForMatch } from '../lib/match.js';
+import { historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder } from '../lib/match.js';
 
 // The parent owns a hard deadline, including synchronous VM or fake-hook bugs.
 if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
@@ -76,7 +76,7 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     };
     const context = vm.createContext({
       window: { __ModuleLoader__: { load(module) { api = module.factory(() => React).__internals; } } },
-      document: doc, AbortController, historyCompletion, normalizeForMatch,
+      document: doc, AbortController, historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder,
       paintGhost: (...args) => paints.push(args.slice(1)), clearGhost: () => paints.push(['clear']),
       setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
       clearTimeout(id) { timers.delete(id); }, Date: { now: () => clock.now },
@@ -112,10 +112,11 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
       assert.ok(callback, 'prediction callback exists');
       return callback.value({ manual: true });
     }
-    function key(session = props.sessionId, external = false, name = 'Tab') {
+    function key(session = props.sessionId, external = false, name = 'Tab', modifiers = {}) {
       const editor = { closest: () => ({ getAttribute: () => session }) };
       doc.activeElement = { isContentEditable: true, closest: () => external ? null : editor };
-      const event = { key: name, preventDefault() { this.prevented = true; }, stopPropagation() {} };
+      const event = { key: name, ctrlKey: modifiers.ctrl === true, metaKey: modifiers.meta === true,
+        preventDefault() { this.prevented = true; }, stopPropagation() {} };
       for (const fn of listeners.get('keydown') || []) fn(event);
       return event;
     }
@@ -225,6 +226,37 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     h.state.draft = ''; h.render();
     h.fire(1200);
     assert.equal(h.requests.filter((r) => r.url.endsWith('/predict')).length, 1);
+    h.unmount();
+  });
+
+  test('a prediction follows a matching prefix and yields once the draft diverges', async () => {
+    const h = harness();
+    const work = h.predict(); h.requests.at(-1).resolve({ ok: true, suggestion: 'fix the failing test' });
+    await work; await h.settle();
+    const painted = () => h.paints.at(-1);
+    assert.equal(painted()[1], 'fix the failing test');
+    assert.equal(painted()[2].prefix, '');
+    h.state.draft = 'fix the'; h.render();
+    assert.equal(painted()[1], ' failing test', 'the remainder stays after the typed prefix');
+    assert.equal(painted()[2].prefix, 'fix the');
+    h.state.draft = 'ship'; h.render();
+    assert.equal(painted()[1], '', 'a divergent draft hides the prediction');
+    h.state.draft = ''; h.render();
+    assert.equal(painted()[1], 'fix the failing test', 'clearing the draft restores the whole prediction');
+    h.unmount();
+  });
+
+  test('Ctrl+Right accepts one word and Tab accepts whatever remains', async () => {
+    const h = harness();
+    const work = h.predict(); h.requests.at(-1).resolve({ ok: true, suggestion: 'fix the failing test' });
+    await work; await h.settle();
+    assert.equal(h.key('a', false, 'ArrowRight', { ctrl: true }).prevented, true);
+    assert.deepEqual(h.inserted, ['fix ']);
+    // The host echoes the insert into the draft; the rest of the prediction stays.
+    h.state.draft = 'fix '; h.render();
+    assert.equal(h.paints.at(-1)[1], 'the failing test');
+    assert.equal(h.key().prevented, true);
+    assert.deepEqual(h.inserted, ['fix ', 'the failing test']);
     h.unmount();
   });
 

@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { historyCompletion, normalizeForMatch } from '../lib/match.js';
+import { historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder } from '../lib/match.js';
 
 /** Message helper: keeps the test cases about content, not shape. */
 const user = (text) => ({ role: 'user', text });
@@ -166,4 +166,36 @@ test('a candidate equal to the draft after normalization is not offered', () => 
   const history = [user('run the tests')];
   // Same text with different spacing: nothing new to insert.
   assert.equal(historyCompletion(history, 'run  the   tests', { minChars: 2 }), null);
+});
+
+/* --------------------------------------- inline-accept helpers (0.2.3) */
+
+test('suggestionRemainder keeps the untyped tail and rejects a divergent draft', () => {
+  assert.equal(suggestionRemainder('fix the failing test', 'fix the'), ' failing test');
+  // Width and case are typing accidents, same key as history completion.
+  assert.equal(suggestionRemainder('Fix The Failing Test', 'fix the'), ' Failing Test');
+  assert.equal(suggestionRemainder('\u597d\u7684\uff0c\u7ee7\u7eed', '\u597d\u7684,'), '\u7ee7\u7eed');
+  assert.equal(suggestionRemainder('fix the failing test', 'ship it'), null);
+  // Nothing left to ghost, and an empty composer is the caller's case, not ours.
+  assert.equal(suggestionRemainder('fix the failing test', 'fix the failing test'), null);
+  assert.equal(suggestionRemainder('fix the failing test', ''), null);
+  assert.equal(suggestionRemainder('fix the failing test', '   '), null);
+});
+
+test('nextWordLength takes one word plus its trailing space, or one CJK character', () => {
+  // Leading gap + word + the space that follows it.
+  assert.equal(nextWordLength(' failing test'), 9);
+  assert.equal(' failing test'.slice(0, 9), ' failing ');
+  assert.equal(nextWordLength('failing test'), 8);
+  assert.equal(nextWordLength('\u7ee7\u7eed\u4fee'), 1);
+  assert.equal(nextWordLength(''), 0);
+  assert.equal(nextWordLength('  two'), 5);
+  assert.equal(nextWordLength('only'), 4);
+});
+
+test('a draft that already ends with a space does not ghost that space again', () => {
+  assert.equal(suggestionRemainder('fix the failing test', 'fix '), 'the failing test');
+  assert.equal(suggestionRemainder('fix the failing test', 'fix'), ' the failing test');
+  const history = historyCompletion([user('fix the failing test')], 'fix ', { minChars: 2 });
+  assert.equal(history.suffix, 'the failing test');
 });

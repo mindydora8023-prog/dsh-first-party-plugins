@@ -221,7 +221,8 @@ export function buildSystemPrompt(language, budgetChars) {
     '3. Move the work forward: prefer the next step the assistant just finished or proposed.',
     '4. Do not repeat the assistant\'s last sentence and do not invent goals the user never expressed.',
     `5. Keep it to one short sentence, at most about ${budget} characters. A complete short sentence beats a truncated longer one.`,
-    '6. If nothing sensible should follow, output nothing at all.',
+    '6. Prefer a concrete next action (continue, fix the failing test, show the diff) over agreement or thanks.',
+    '7. If nothing sensible should follow, output nothing at all.',
   ].join('\n');
 }
 

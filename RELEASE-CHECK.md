@@ -2,6 +2,15 @@
 
 最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
+## next-say 0.2.3
+
+对照 dsh-ghost-prompt 的前缀跟随，以及 Copilot / Continue 的 accept next word。
+
+- 草稿仍是预测开头时只画剩余部分；对不上才隐藏，清空后整句回来。
+- `Ctrl+右方向键`（macOS 为 `Cmd+右方向键`）只填下一个词，中文一次一个字，剩余灰字留下。`Tab` 仍填整句，都不发送。
+- 草稿已经以空格结尾时，不再把同一个空格画进灰字。
+- 预测提示词要求具体的下一步，而不是附和。
+
 ## archived-sessions 0.6.0
 
 设置页先出会话列表，清理设置默认收起。可按最新、最早或标题排序，也可按工作目录末级分组。每行显示相对时间，并可复制会话 ID。

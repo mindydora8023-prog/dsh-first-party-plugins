@@ -5,7 +5,8 @@
  * renders INSIDE the composer card -- plus a page in Settings. The entry draws no
  * element of its own: it paints ghost text over the editor (lib/ghost.js) and
  * keeps the Tab/Escape handling, which goes through the composer's own
- * `insertText` so a concurrent edit can never be overwritten.
+ * `insertText` so a concurrent edit can never be overwritten. Tab accepts the
+ * whole remainder; Ctrl/Cmd+Right accepts only the next word (Copilot / Continue).
  *
  * Built file. Edit `client/client.template.js` and run tools/build-client.py;
  * `lib/locales.js`, `lib/match.js` and `lib/ghost.js` are inlined there so there
@@ -34,7 +35,7 @@ window.__ModuleLoader__.load({
       "manual": "\u9884\u6d4b",
       "manualPredict": "\u9884\u6d4b\u4e0b\u4e00\u53e5",
       "manualHint": "\u70b9\u51fb\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u5efa\u8bae\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
-      "manualReady": "\u5efa\u8bae\u5df2\u663e\u793a\u5728\u8f93\u5165\u6846\uff1bTab \u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
+      "manualReady": "\u5efa\u8bae\u5df2\u663e\u793a\u5728\u8f93\u5165\u6846\uff1bTab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u53d1\u9001\u3002",
       "manualPaused": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u6682\u505c\u7ed3\u675f\u540e\u53ef\u7ee7\u7eed\u3002",
       "manualInputBusy": "\u8f93\u5165\u6846\u6b63\u5728\u5904\u7406\u6d88\u606f\u6216\u547d\u4ee4\uff0c\u8bf7\u7a0d\u5019\u3002",
       "manualRunning": "\u7b49\u5f85\u5f53\u524d\u56de\u5408\u7ed3\u675f\u540e\u518d\u9884\u6d4b\u3002",
@@ -49,11 +50,11 @@ window.__ModuleLoader__.load({
       "pausedHint": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
       "empty": "\u6682\u65e0\u5efa\u8bae",
       "failed": "\u6ca1\u9884\u6d4b\u51fa\u6765",
-      "hintTab": "Tab \u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001",
+      "hintTab": "Tab \u586b\u5165\u6574\u53e5\uff1bCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff1b\u90fd\u4e0d\u4f1a\u53d1\u9001",
       "tabAccept": "Tab \u91c7\u7eb3",
       "settingsNav": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
       "settingsTitle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      "settingsIntro": "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u4e24\u79cd\u5efa\u8bae\u90fd\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
+      "settingsIntro": "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u6253\u5b57\u4ecd\u662f\u9884\u6d4b\u5f00\u5934\u65f6\u7070\u5b57\u4f1a\u8ddf\u7740\u8d70\u3002Tab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
       "settingsEnabled": "\u542f\u7528\u5efa\u8bae",
       "settingsEnabledHint": "\u5173\u95ed\u540e\u65e2\u4e0d\u518d\u9884\u6d4b\uff0c\u4e5f\u4e0d\u518d\u663e\u793a\u5386\u53f2\u8865\u5168\u3002",
       "settingsMode": "\u9884\u6d4b\u65f6\u673a",
@@ -111,7 +112,7 @@ window.__ModuleLoader__.load({
       "manual": "Predict",
       "manualPredict": "Predict next message",
       "manualHint": "Predict your next message. Suggestions only fill the draft; they never send.",
-      "manualReady": "Suggestion shown in the editor. Tab fills the draft without sending.",
+      "manualReady": "Suggestion shown in the editor. Tab fills all of it; Ctrl/Cmd+Right fills the next word. Neither sends.",
       "manualPaused": "Predictions are paused until the pause expires.",
       "manualInputBusy": "The editor is processing a message or command. Please wait.",
       "manualRunning": "Wait for the current turn to finish before predicting.",
@@ -126,11 +127,11 @@ window.__ModuleLoader__.load({
       "pausedHint": "Predictions are paused and resume automatically.",
       "empty": "No suggestion yet",
       "failed": "Could not predict",
-      "hintTab": "Tab fills the draft; it never sends",
+      "hintTab": "Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word; neither sends",
       "tabAccept": "Tab accept",
       "settingsNav": "Next-say",
       "settingsTitle": "Next-say suggestions",
-      "settingsIntro": "Predicts your next message after each finished turn, and completes a draft from local history. Neither is sent for you: Tab only fills the draft.",
+      "settingsIntro": "Predicts your next message after each finished turn, and completes a draft from local history. Typing a matching prefix keeps the rest visible. Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word. Neither sends.",
       "settingsEnabled": "Enable suggestions",
       "settingsEnabledHint": "Turning this off stops both model predictions and history completion.",
       "settingsMode": "When to predict",
@@ -261,6 +262,87 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** One ideograph is one accept step; everything else breaks on whitespace. */
+    const CJK_CHAR = /^(?:[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/u;
+
+    function codeUnit(text, index) {
+      return text.codePointAt(index) > 0xffff ? 2 : 1;
+    }
+
+    /**
+     * How many characters of `suffix` one partial accept should take.
+     *
+     * Copilot / Continue accept the next word, not the whole ghost. Leading spaces
+     * belong to that step (they only separate the caret from the word), then one
+     * whitespace-delimited token, then its trailing space so the caret lands where
+     * the next word starts. CJK has no spaces, so one ideograph is one step.
+     *
+     * @param {string} suffix Remainder still ghosted.
+     * @returns {number} Character count, 0 when there is nothing to take.
+     */
+    function nextWordLength(suffix) {
+      const text = String(suffix ?? '');
+      if (text === '') return 0;
+      let cursor = 0;
+      while (cursor < text.length && /\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+        cursor += codeUnit(text, cursor);
+      }
+      if (cursor >= text.length) return cursor;
+      const head = String.fromCodePoint(text.codePointAt(cursor));
+      if (CJK_CHAR.test(head)) return cursor + head.length;
+      while (cursor < text.length && !/\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+        cursor += codeUnit(text, cursor);
+      }
+      if (cursor < text.length && /\s/u.test(String.fromCodePoint(text.codePointAt(cursor)))) {
+        cursor += codeUnit(text, cursor);
+      }
+      return cursor;
+    }
+
+    /**
+     * The typed draft already ends with the gap, so the ghost must not draw it again.
+     *
+     * @param {string} draft
+     * @param {string} suffix
+     * @returns {string}
+     */
+    function dropRepeatedGap(draft, suffix) {
+      if (suffix === '' || !/\s$/u.test(draft) || !/^\s/u.test(suffix)) return suffix;
+      return suffix.replace(/^\s+/u, '');
+    }
+
+    /**
+     * Remainder of `suggestion` after the user has already typed its opening.
+     *
+     * Mature composer plugins (dsh-ghost-prompt, Copilot ghost text) keep the
+     * suggestion visible while the draft is still a prefix of it, and only hide it
+     * when the typed text diverges. Width and case are typing accidents, so they
+     * use the same comparison key as history completion; the returned slice is
+     * always the suggestion's original characters.
+     *
+     * @param {string} suggestion Full predicted message.
+     * @param {string} draft What is currently in the composer.
+     * @returns {string | null} Remainder, or null when the draft is not a prefix.
+     */
+    function suggestionRemainder(suggestion, draft) {
+      const full = String(suggestion ?? '');
+      const typed = String(draft ?? '');
+      if (full === '' || typed.trim() === '') return null;
+      const query = normalizeForMatch(typed);
+      const normalized = normalizeForMatch(full);
+      if (query === '' || !normalized.startsWith(query)) return null;
+      let consumed = 0;
+      let position = 0;
+      for (const char of full) {
+        if (consumed >= query.length) break;
+        consumed += normalizeForMatch(char).length;
+        position += char.length;
+      }
+      if (consumed !== query.length) return null;
+      const suffix = dropRepeatedGap(typed, full.slice(position));
+      return suffix === '' ? null : suffix;
+    }
+
     /**
      * Pick the completion to ghost.
      *
@@ -312,7 +394,7 @@ window.__ModuleLoader__.load({
         // Case folding can expand one character (for example U+0130). Matching only
         // half its normalized form cannot yield an append-only completion.
         if (consumed !== query.length) continue;
-        const suffix = item.text.slice(position);
+        const suffix = dropRepeatedGap(text, item.text.slice(position));
         if (suffix === '' || suffix.length > maxExtraChars) continue;
         best = { scored, suffix, full: item.text };
       }
@@ -1296,11 +1378,15 @@ window.__ModuleLoader__.load({
        * was measured at; `insertText` refuses the write when the revision moved,
        * so text typed between reading and writing is never overwritten.
        */
-      const accept = React.useCallback((text) => {
+      const accept = React.useCallback((text, partial) => {
         if (text === '' || !inputActions || !live.current.enabled || live.current.paused || !live.current.inputReady) return false;
         try {
           const span = inputActions.captureInsertion();
           if (!inputActions.insertText(text, span)) return false;
+          // One word must leave the prediction in place. Clearing it here made
+          // the rest of the ghost disappear, which is the opposite of
+          // acceptNextWord. Only a full accept consumes the suggestion.
+          if (partial === true) return true;
           accepted.current = draftRef.current + text;
           dismissed.current = '';
           setSuppressionEpoch((value) => value + 1);
@@ -1312,20 +1398,6 @@ window.__ModuleLoader__.load({
         }
       }, [inputActions]);
 
-      /**
-       * Insert exactly what the row is describing.
-       *
-       * Both call sites (the Tab handler and the Accept button) go through this
-       * one function so they cannot drift: a model prediction replaces nothing
-       * (it is the whole message) while a completion adds only its remainder ON
-       * TOP of the draft the user already typed.
-       */
-      const acceptSuggested = React.useCallback(() => {
-        if (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) return accept(suggestion);
-        if (local !== null) return accept(local.suffix);
-        return false;
-      }, [accept, suggestion, local, sessionId, blankDraft, running]);
-
       const dismiss = React.useCallback(() => {
         // Remember WHAT was refused, not just "the draft": a dismissed model
         // suggestion must not come back, but a dismissed completion only covers
@@ -1333,23 +1405,88 @@ window.__ModuleLoader__.load({
         // again. Recording the raw draft here suppressed every later completion
         // for the whole session.
         setSuppressionEpoch((value) => value + 1);
-        dismissed.current = suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' ? suggestion : `${draft}\u0000local`;
+        dismissed.current = suggestionSession.current === sessionId && !running && suggestion !== '' && (blankDraft || suggestionRemainder(suggestion, draft) !== null)
+          ? suggestion
+          : `${draft}\u0000local`;
         setSuggestion('');
         setSource('');
       }, [suggestion, draft, sessionId, blankDraft, running]);
 
-      // Keyboard: Tab accepts, Escape dismisses -- but only from the composer,
-      // and only while a suggestion is actually on screen.
+      /* ------------------------------------------------------------ render */
+
+      // NOTE: no early `return` may appear above this point, and none may appear
+      // between two hook calls. `enabled` flips from false to true when the
+      // settings arrive; returning early on the false pass would make this
+      // component render FEWER hooks than the next pass, and React throws
+      // "Rendered more hooks than during the previous render". That crash is
+      // swallowed by the slot renderer -- the composer simply stayed empty with
+      // no visible error. The disabled case is handled inside the paint effect.
+
+      // Two sources, one paint rule (dsh-ghost-prompt / Copilot ghost text):
+      //   - a model prediction is the WHOLE next message. While the draft is
+      //     still a prefix of it, only the remainder stays visible; a divergent
+      //     draft hides it, and clearing the box brings the whole message back.
+      //     Hiding on the first keystroke made a usable prediction vanish the
+      //     moment the user started agreeing with it.
+      //   - a history completion supplies only the remainder of an earlier
+      //     message. It yields to a still-matching prediction so the two ghosts
+      //     never stack.
+      // Showing a completion's full text next to a draft it starts with looks
+      // like the draft being repeated, and accepting it would insert the
+      // sentence twice.
+      const modelLive = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && !running;
+      const modelFollows = !modelLive || blankDraft ? null : suggestionRemainder(suggestion, draft);
+      const modelText = !modelLive
+        ? ''
+        : (blankDraft ? suggestion : (modelFollows === null ? '' : modelFollows));
+      const localSuffix = modelText !== '' || local === null ? '' : local.suffix;
+
+      // What one paint should show.
+      //
+      // An empty composer paints the whole prediction at the origin. Any other
+      // suggestion is ONLY the remainder, preceded by the typed draft as
+      // invisible text so it starts exactly after it. Painting `draft +
+      // remainder` as visible text double-drew the user's own characters.
+      const ghostText = modelText !== '' ? modelText : localSuffix;
+      const ghostPrefix = ghostText !== '' && !blankDraft ? draft : '';
+
+      /**
+       * Insert exactly the remainder that is on screen.
+       *
+       * Tab takes all of it. A partial accept (Ctrl/Cmd+Right, same idea as
+       * Copilot acceptNextWord and Continue) takes one word and leaves the
+       * ghost continuing after the caret. A model remainder and a history
+       * suffix both go through this, so the two cannot drift.
+       */
+      const acceptSuggested = React.useCallback((wordOnly) => {
+        const offered = modelText !== '' ? modelText : localSuffix;
+        if (offered === '') return false;
+        const count = wordOnly === true ? nextWordLength(offered) : offered.length;
+        const piece = count >= offered.length ? offered : offered.slice(0, count);
+        return accept(piece, piece.length < offered.length);
+      }, [accept, modelText, localSuffix]);
+
+      // Keyboard: Tab accepts the whole remainder, Ctrl/Cmd+Right accepts the
+      // next word, Escape dismisses. Only from the composer, and only while a
+      // suggestion is actually on screen -- anywhere else Tab keeps its meaning.
       React.useEffect(() => {
         if (typeof document === 'undefined') return undefined;
         const onKeyDown = (event) => {
           if (event.defaultPrevented || event.isComposing) return;
           if (!enabled || paused || !inputReady || !live.current.inputReady || scope.current !== currentScope) return;
-          const hasSuggestion = (suggestionSession.current === sessionId && blankDraft && !running && suggestion !== '' && suggestion !== dismissed.current) || local !== null;
-          if (!hasSuggestion) return;
+          if (modelText === '' && local === null) return;
           if (!inComposer(sessionId)) return;
           if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
-            if (acceptSuggested()) {
+            if (acceptSuggested(false)) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            return;
+          }
+          // Copilot / Continue: accept only the next word, leaving the caret
+          // where the rest of the ghost continues. Ctrl on Windows, Cmd on macOS.
+          if (event.key === 'ArrowRight' && event.altKey !== true && event.shiftKey !== true && (event.ctrlKey === true || event.metaKey === true)) {
+            if (acceptSuggested(true)) {
               event.preventDefault();
               event.stopPropagation();
             }
@@ -1363,44 +1500,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [acceptSuggested, dismiss, suggestion, local, enabled, paused, inputReady, sessionId, blankDraft, running]);
-
-      /* ------------------------------------------------------------ render */
-
-      // NOTE: no early `return` may appear above this point, and none may appear
-      // between two hook calls. `enabled` flips from false to true when the
-      // settings arrive; returning early on the false pass would make this
-      // component render FEWER hooks than the next pass, and React throws
-      // "Rendered more hooks than during the previous render". That crash is
-      // swallowed by the slot renderer -- the composer simply stayed empty with
-      // no visible error. The disabled case is handled inside the paint effect.
-
-      // Two independent sources of text:
-      //   - a model prediction replaces the whole message;
-      //   - a history completion only supplies the REMAINDER of a message whose
-      //     prefix the user already typed.
-      // They must be painted differently. Showing a completion's full text next
-      // to a draft it starts with looks like the draft being repeated, and
-      // accepting it would insert the sentence twice.
-      //
-      // A MODEL prediction describes a message for an EMPTY composer, so it is
-      // only valid while the composer is empty and the agent is idle. Without
-      // these two conditions the stale suggestion stayed painted after sending
-      // (the draft went empty again) and then overlapped whatever the user typed
-      // next, because it is anchored at the editor origin.
-      const modelText = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && blankDraft && !running
-        ? suggestion
-        : '';
-      const localSuffix = local !== null ? local.suffix : '';
-
-      // What one paint should show.
-      //
-      // A prediction for an EMPTY composer is the whole message. A completion is
-      // ONLY the remainder, preceded by the typed draft as invisible text so it
-      // starts exactly after it. Painting `draft + remainder` as visible text
-      // double-drew the user's own characters.
-      const ghostText = modelText !== '' ? modelText : localSuffix;
-      const ghostPrefix = modelText !== '' ? '' : draft;
+      }, [acceptSuggested, dismiss, local, modelText, enabled, paused, inputReady, sessionId]);
 
       // A prediction belongs to ONE finished turn, so there are two different
       // ways for it to stop applying:
