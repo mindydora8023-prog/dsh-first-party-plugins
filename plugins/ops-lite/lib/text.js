@@ -20,6 +20,28 @@
  */
 
 /**
+ * 1-based physical line that first contains `literal`, or undefined.
+ *
+ * Only a LF starts a new line, matching `buildWindow`, so the offset handed to
+ * that window is the line the model asked to see.
+ *
+ * @param {string} body - full decoded file text.
+ * @param {string} literal - exact source text to find; empty never matches.
+ * @returns {number|undefined} the line number, counting from 1.
+ */
+export function lineOfLiteral(body, literal) {
+  const needle = String(literal)
+  if (needle === '') return undefined
+  const at = String(body).indexOf(needle)
+  if (at < 0) return undefined
+  let line = 1
+  for (let index = 0; index < at; index += 1) {
+    if (body.charCodeAt(index) === 10) line += 1
+  }
+  return line
+}
+
+/**
  * Build a numbered window over `body`.
  *
  * @param {string} body - full decoded file text.

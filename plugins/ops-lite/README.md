@@ -1,7 +1,10 @@
 # 有界多文件读取
 
-为 DeepSeek Harness 增加 `ops_read_files`：一次读取多个 UTF-8 文本文件，每个文件有独立的行号窗口、返回预算与续读位置。版本 0.1.1。工具说明和系统提示都收短了，分页与 `retry: never` 的约定不变。
+为 DeepSeek Harness 增加 `ops_read_files`：一次读取多个 UTF-8 文本文件。`path` 可以是文件、目录，或 `*` / `?` / `**` 通配。版本 0.2.0。分页与 `retry: never` 的约定不变。
 
+- 目录只取直接子文件里的文本；通配跳过 `node_modules`、`.git`、`dist`，并丢掉凭据路径。
+- `literal` 从第一次精确命中打开窗口，`around` 是命中行之前的上下文，默认 20 行。
+- 同一路径一次调用只读一次；最多两路同时读，超出字节预算的文件不会打开。
 - 文件层返回 complete/nextOffset，批量层返回 pending/nextIndex。
 - 输出预算按转义后字节计算，截断给出恢复位置。
 - 失败记录说明 effectState、retry 与下一步动作。
@@ -16,7 +19,7 @@
 示例工具参数：
 
 ```json
-{"files":[{"path":"src/a.js","offset":1,"limit":100},{"path":"src/b.js","offset":20,"limit":50}]}
+{"files":[{"path":"src/**/*.js","limit":40},{"path":"lib/tools.js","literal":"function readOne","around":20}]}
 ```
 
 文档格式由另一个 filekit 插件处理。该插件使用宿主文件服务，读取权限随宿主设置生效；不自带 shell。

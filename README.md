@@ -9,7 +9,7 @@
 | [filekit](plugins/filekit/README.md) | 0.1.1 | CSV/TSV、DOCX、XLSX、PDF 有界读取 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
 | [github](plugins/github/README.md) | 0.2.0 | GitHub 分页读取、提交 diff、PR 行评论、CI 失败日志，以及 Issue/评论写入 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
 | [gmail](plugins/gmail/README.md) | 0.1.1 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
-| [ops-lite](plugins/ops-lite/README.md) | 0.1.1 | 有界多文件文本读取 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
+| [ops-lite](plugins/ops-lite/README.md) | 0.2.0 | 一次读取文件、目录或 glob，并可按字面量定位 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.2 | 下一句预测、历史补全、手动入口、Tab 填草稿 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [task-radar](plugins/task-radar/README.md) | 0.3.0 | 页内可点卡片、到点消失的 Windows Toast、静音时段 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
 | [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.2.1 | 按需挂载 MCP：设置页列出服务器，模型也可启用后释放 | 工作区实现 |

@@ -125,6 +125,11 @@ export function renderReadFiles(args, value, options = {}) {
     }
     lines.push(record(value) ? completenessNotice(value) : '[Notice: No structured result was returned.]')
   }
+  if (record(value) && Array.isArray(value.notes)) {
+    for (const note of value.notes) {
+      if (typeof note === 'string' && note !== '') lines.push(`[Notice: ${label(note)}]`)
+    }
+  }
   return capText(lines.join('\n'), { ...options, reason: 'output-budget', recovery: READ_RECOVERY })
 }
 

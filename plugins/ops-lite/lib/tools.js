@@ -18,10 +18,15 @@
  */
 
 import { createHash } from 'node:crypto'
+import path from 'node:path'
 import { decodeUtf8, isCredentialPath, readBytes, resolvePath, statTarget } from './access.js'
-import { buildWindow } from './text.js'
+import { buildWindow, lineOfLiteral } from './text.js'
 import { failure, fromThrown } from './outcome.js'
 import { renderReadFiles } from './render.js'
+import { expandEntry } from './select.js'
+
+/** How many file bodies may be in flight at once. dsh-ops uses the same bound. */
+const READ_CONCURRENCY = 2
 
 /**
  * A stable content revision for the read-before-write guard.
@@ -129,8 +134,9 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
     const info = await statTarget(ctx, exec, resolved)
     // Resolve the window BEFORE the budget check so a windowed read of a large
     // file is charged for the window, not for the whole file.
-    const offset = boundedInt(entry.offset, 1, 1, Number.MAX_SAFE_INTEGER)
+    let offset = boundedInt(entry.offset, 1, 1, Number.MAX_SAFE_INTEGER)
     const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
+    const literal = typeof entry.literal === 'string' ? entry.literal : ''
     // Budget check happens here, before the bytes are read: an entry that does
     // not fit stays pending and must not appear in the observation table.
     if (overrides.remainingBytes !== undefined
@@ -139,6 +145,24 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
     }
     const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
     const body = decodeUtf8(buffer, resolved.displayPath)
+
+    // A literal is a location, not a filter: the window opens on the first hit
+    // so a caller does not have to know the line number. `around` is context
+    // counted in lines before that hit; the file limit still caps the window.
+    if (literal !== '') {
+      const hit = lineOfLiteral(body, literal)
+      if (hit === undefined) {
+        return {
+          path: resolved.displayPath,
+          ...failure('LITERAL_NOT_FOUND', {
+            message: 'the literal does not occur in this file',
+            nextAction: 'Check the exact text, or omit literal and page with offset.',
+          }),
+        }
+      }
+      const around = boundedInt(entry.around, 20, 0, limit)
+      offset = Math.max(1, hit - around)
+    }
 
     const window = buildWindow(body, {
       offset,
@@ -193,6 +217,85 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
   }
 }
 
+/** Stable identity so `src/a.js` and its absolute path count as one file. */
+function fileKey(filePath, cwd) {
+  const absolute = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(cwd || process.cwd(), filePath)
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
+}
+
+/**
+ * Expand globs and directories, then drop duplicate paths.
+ *
+ * @returns {Promise<{concrete: object[], notes: string[]}>}
+ */
+async function expandFiles(ctx, exec, config, list) {
+  const notes = []
+  const concrete = []
+  const seen = new Set()
+  const cwd = exec?.agent?.session?.header?.cwd
+  for (const entry of list) {
+    if (concrete.length >= config.maxFiles) {
+      notes.push(`stopped at ${config.maxFiles} files; resend what is missing`)
+      break
+    }
+    const expanded = await expandEntry(ctx, exec, entry, config.maxFiles - concrete.length)
+    for (const note of expanded.notes) notes.push(note)
+    for (const file of expanded.entries) {
+      if (concrete.length >= config.maxFiles) break
+      const key = fileKey(file.path, cwd)
+      if (seen.has(key)) {
+        notes.push(`duplicate skipped: ${path.basename(file.path)}`)
+        continue
+      }
+      seen.add(key)
+      concrete.push(file)
+    }
+  }
+  return { concrete, notes }
+}
+
+/**
+ * Upper bound on one file's rendered cost, from a stat only.
+ *
+ * This must not emit `fs/observed`: a file rejected by the budget has not been
+ * read, and the host table must not say otherwise.
+ */
+async function peekCost(ctx, exec, config, entry, overrides) {
+  try {
+    const resolved = await resolvePath(ctx, exec, entry.path)
+    const info = await ctx.fs.stat(resolved.target, exec?.signal)
+    if (info === undefined || info.type !== 'file') return 4096
+    const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
+    return estimatedReadCost(info.size, limit, overrides.maxLineLength ?? config.maxLineLength)
+  } catch {
+    return 4096
+  }
+}
+
+/**
+ * Run `fn` over `entries` with at most `limit` calls in flight, preserving order.
+ *
+ * @param {object[]} entries
+ * @param {number} limit
+ * @param {(entry: object) => Promise<object>} fn
+ * @returns {Promise<object[]>}
+ */
+async function mapPool(entries, limit, fn) {
+  const results = new Array(entries.length)
+  let cursor = 0
+  const workers = Math.max(1, Math.min(limit, entries.length))
+  async function worker() {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= entries.length) return
+      results[index] = await fn(entries[index])
+    }
+  }
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
+
 /**
  * Build the ops_read_files tool definition.
  *
@@ -204,23 +307,38 @@ export function buildReadFilesTool(ctx, config) {
   return {
     name: 'ops_read_files',
     description:
-      'Read several UTF-8 text files in one call, each with its own offset and limit. '
-      + 'A partial result names the offset to resume from. Not for CSV, DOCX, XLSX, or PDF.',
+      'Read UTF-8 text in one call. path may be a file, a directory, or a glob (* ? **). '
+      + 'literal opens the window on the first exact match; around is lines of context before it (default 20). '
+      + 'Each file keeps its own offset and limit. A partial result names the offset to resume from. '
+      + 'Not for CSV, DOCX, XLSX, or PDF.',
     parameters: {
       files: {
         type: 'array',
         required: true,
-        description: `Files to read: at most ${config.maxFiles} entries, each {path, offset?, limit?}. `
-          + 'offset is 1-based and defaults to 1.',
+        description: `At most ${config.maxFiles} entries, each {path, offset?, limit?, literal?, around?}. `
+          + 'path is a file, a directory of text files, or a glob. offset is 1-based and defaults to 1. '
+          + 'literal, when set, replaces offset with the first matching line.',
         items: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            path: { type: 'string', required: true, description: 'Path, resolved against the session workspace.' },
-            offset: { type: 'integer', description: '1-based first line to return. Default 1.' },
+            path: {
+              type: 'string',
+              required: true,
+              description: 'File, directory, or glob (* ? **), resolved against the session workspace.',
+            },
+            offset: { type: 'integer', description: '1-based first line to return. Default 1. Ignored when literal is set.' },
             limit: {
               type: 'integer',
               description: `Maximum lines for this file. Default ${config.defaultLimit}, maximum ${config.maxLimit}.`,
+            },
+            literal: {
+              type: 'string',
+              description: 'Exact source text. The window opens on its first hit instead of offset.',
+            },
+            around: {
+              type: 'integer',
+              description: 'Lines of context to keep before a literal hit. Default 20. Ignored without literal.',
             },
           },
         },
@@ -263,42 +381,50 @@ export function buildReadFilesTool(ctx, config) {
         }
       }
 
-      const items = []
-      let failed = 0
-      let spent = 0
-      let processed = 0
       const overrides = {
         maxLineLength: boundedInt(args?.max_line_length, config.maxLineLength, 80, config.maxLineLength),
       }
-      for (const entry of list) {
-        // The first entry is always attempted, so one oversized file cannot make
-        // the call return nothing and leave every entry pending forever.
-        const remaining = processed === 0 ? undefined : Math.max(0, config.callMaxBytes - spent)
-        const record = await readOne(ctx, exec, config, entry, { ...overrides, remainingBytes: remaining })
-        if (record.skipped === true) break
-        spent += renderedCost(record)
-        processed += 1
+      const { concrete, notes } = await expandFiles(ctx, exec, config, list)
+      // Admit a prefix whose estimated cost fits, then read that prefix two at a
+      // time. Anything past the prefix stays unread, so it cannot land in the
+      // host observation table. The first file is always admitted.
+      const admitted = []
+      let reserved = 0
+      for (const entry of concrete) {
+        const estimate = admitted.length === 0
+          ? 0
+          : await peekCost(ctx, exec, config, entry, overrides)
+        if (admitted.length > 0 && reserved + estimate > config.callMaxBytes) break
+        admitted.push(entry)
+        reserved += admitted.length === 1 ? await peekCost(ctx, exec, config, entry, overrides) : estimate
+      }
+      const records = await mapPool(admitted, READ_CONCURRENCY, (entry) => readOne(ctx, exec, config, entry, overrides))
+      const items = []
+      let failed = 0
+      for (const record of records) {
+        if (record === undefined || record.skipped === true) continue
         if (record.error !== undefined) failed += 1
         items.push(record)
       }
-
-      const pending = list.length - processed
+      const processed = admitted.length
+      const pending = concrete.length - processed
       const aggregate = {
         items,
-        total: list.length,
+        total: concrete.length,
         pending,
         nextIndex: processed,
         failed,
         truncated: false,
+        notes,
       }
-      const text = renderReadFiles(args, aggregate, { budget: config.textBudget })
+      const text = renderReadFiles({ ...args, files: admitted }, aggregate, { budget: config.textBudget })
       return {
         text,
-        total: list.length,
+        total: concrete.length,
         pending,
         nextIndex: processed,
         failed,
-        complete: pending === 0 && failed === 0 && items.every((item) => item.complete === true),
+        complete: concrete.length > 0 && pending === 0 && failed === 0 && items.every((item) => item.complete === true),
       }
     },
   }

@@ -66,6 +66,7 @@ export const ERROR_POLICIES = Object.freeze({
   BINARY_CONTENT: INVALID,
   ENCODING_ERROR: INVALID,
   OFFSET_OUT_OF_RANGE: INVALID,
+  LITERAL_NOT_FOUND: INVALID,
 
   // The target changed in a way the caller must observe before proceeding.
   FILE_CHANGED: CHANGED,

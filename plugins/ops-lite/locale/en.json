@@ -1,1 +1,1 @@
-{"meta": {"title": "Multi-file read", "description": "Bounded multi-file reads: structured failure contract, escaped-byte budgets, compact rendering, and two-level completeness (one read-only tool only; no discovery/PTC/shell)"}}
+{"meta": {"title": "Multi-file read", "description": "Read files, directories, or globs in one call, and jump to an exact literal. Structured failures, bounded budgets, compact output. No discovery, PTC, or shell."}}

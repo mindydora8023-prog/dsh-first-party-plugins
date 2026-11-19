@@ -9,7 +9,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -46,6 +46,14 @@ function fakeHost(root) {
       async readBytes(target, signal, maxBytes) {
         const buffer = (await import('node:fs')).readFileSync(target.targetKey)
         return buffer.subarray(0, maxBytes)
+      },
+      async listDir(target) {
+        const names = readdirSync(target.targetKey, { withFileTypes: true })
+        return names.map((entry) => ({
+          name: entry.name,
+          type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other',
+          target: { targetKey: join(target.targetKey, entry.name), displayPath: join(target.targetKey, entry.name) },
+        }))
       },
     },
     emit(name, target, observation) {
@@ -427,6 +435,128 @@ test('the byte cap stops the window and names the resume offset', () => {
   assert.equal(window.truncatedByBytes, true)
   assert.equal(window.complete, false)
   assert.ok(window.nextOffset > 1)
+})
+
+test('a directory path reads the text files inside it and skips binaries', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'b.js'), 'beta\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'pic.png'), Buffer.from([0x89, 0x50]))
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute({ files: [{ path: 'src' }] }, space.exec)
+    assert.equal(value.failed, 0)
+    assert.equal(value.total, 2)
+    assert.match(value.text, /alpha/)
+    assert.match(value.text, /beta/)
+    assert.equal(value.text.includes('pic.png'), false)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('a glob reads the matches and names the ones left out', async () => {
+  const space = workspace()
+  try {
+    mkdirSync(join(space.root, 'src', 'nested'), { recursive: true })
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'nested', 'c.js'), 'gamma\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'note.md'), 'docs\n', 'utf8')
+    const { definition } = tool(space.ctx, { maxFiles: 1 })
+    const value = await definition.execute({ files: [{ path: 'src/**/*.js' }] }, space.exec)
+    assert.equal(value.total, 1)
+    assert.match(value.text, /not returned/)
+    assert.equal(space.host.observed.filter((entry) => entry.observation.kind === 'present').length, 1)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('the same file requested twice is read once', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute(
+      { files: [{ path: 'src/a.js' }, { path: join(space.root, 'src', 'a.js') }] },
+      space.exec,
+    )
+    assert.equal(value.total, 1)
+    assert.equal(space.host.observed.filter((entry) => entry.observation.kind === 'present').length, 1)
+    assert.match(value.text, /duplicate skipped/)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('literal opens the window on the matching line with context before it', async () => {
+  const space = workspace()
+  try {
+    const body = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n') + '\n'
+    writeFileSync(join(space.root, 'src', 'long.js'), body, 'utf8')
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute(
+      { files: [{ path: 'src/long.js', literal: 'line 30', around: 2, limit: 5 }] },
+      space.exec,
+    )
+    assert.equal(value.failed, 0)
+    assert.match(value.text, /line 28/)
+    assert.match(value.text, /line 30/)
+    assert.equal(/line 1\|/.test(value.text) || value.text.includes('1|line 1'), false)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('a missing literal is a per-file failure and does not hide the neighbour', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'b.js'), 'beta\n', 'utf8')
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute(
+      { files: [{ path: 'src/a.js', literal: 'nope' }, { path: 'src/b.js' }] },
+      space.exec,
+    )
+    assert.equal(value.failed, 1)
+    assert.match(value.text, /LITERAL_NOT_FOUND/)
+    assert.match(value.text, /beta/)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('two files are read with at most two bodies in flight', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'b.js'), 'beta\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'c.js'), 'gamma\n', 'utf8')
+    let current = 0
+    let peak = 0
+    const original = space.ctx.fs.readBytes
+    space.ctx.fs.readBytes = async (...args) => {
+      current += 1
+      peak = Math.max(peak, current)
+      await new Promise((resolveWait) => setTimeout(resolveWait, 15))
+      try {
+        return await original(...args)
+      } finally {
+        current -= 1
+      }
+    }
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute(
+      { files: [{ path: 'src/a.js' }, { path: 'src/b.js' }, { path: 'src/c.js' }] },
+      space.exec,
+    )
+    assert.equal(value.failed, 0)
+    assert.equal(value.total, 3)
+    assert.ok(peak <= 2, `bodies in flight peaked at ${peak}`)
+    assert.ok(peak >= 2, 'independent files should overlap')
+  } finally {
+    space.cleanup()
+  }
 })
 
 test('revisionOf is stable and hex', () => {

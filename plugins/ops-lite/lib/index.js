@@ -125,9 +125,10 @@ async function register(ctx, config, dirs) {
       text: ({ scope }) => {
         if (ctx.tools.get('ops_read_files', scope) === undefined) return ''
         return [
-          'ops_read_files reads several plain-text files in one call, each with its own offset and limit.',
+          'ops_read_files reads several plain-text files in one call. A path may be a file, a directory, or a glob (* ? **).',
+          'literal opens that file on the first exact match; around is lines of context before the hit (default 20).',
           'CSV/TSV/DOCX/XLSX/PDF go to the filekit readers, not here.',
-          'pending > 0 means resend from nextIndex; a file with more lines continues at its nextOffset.',
+          'pending > 0 means resend the files not yet returned; a file with more lines continues at its nextOffset.',
           'A clipped line is incomplete, and retry: never means inspect the reported state before calling again.',
         ].join('\n')
       },

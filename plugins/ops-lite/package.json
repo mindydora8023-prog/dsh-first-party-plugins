@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-ops-lite",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "有界多文件读取：结构化失败契约 + 转义后字节预算 + 紧凑渲染 + 两级完整性（只加一个只读工具，不碰 discovery/PTC/shell）",
+  "description": "一次读多个文件、目录或 glob，并按字面量定位到行；结构化失败、有界预算、紧凑渲染（不碰 discovery/PTC/shell）",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -23,7 +23,7 @@
     "licenses"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/access.js && node --check lib/text.js && node --check lib/escape.js && node --check lib/compact.js && node --check lib/render.js && node --check lib/outcome.js && node --check lib/define.js",
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/access.js && node --check lib/text.js && node --check lib/escape.js && node --check lib/compact.js && node --check lib/render.js && node --check lib/outcome.js && node --check lib/select.js && node --check lib/define.js",
     "test": "node --test test/*.test.mjs"
   },
   "dsh": {
