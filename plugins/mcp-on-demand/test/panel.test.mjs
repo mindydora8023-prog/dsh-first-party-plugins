@@ -74,6 +74,19 @@ test('enable then disable through the route matches the tool result', async () =
   assert.deepEqual(disposed, ['REA'])
 })
 
+test('probe is a route action and does not count as mounted', async () => {
+  const { tools } = harness()
+  tools.mcpod_probe = {
+    async execute() {
+      return { name: 'REA', ok: true, toolCount: 2, tools: ['open_binary', 'decompile'], note: 'recorded' }
+    },
+  }
+  const probed = await call(tools, 'POST', { name: 'REA', action: 'probe' })
+  assert.equal(probed.status, 200)
+  assert.equal(probed.value.result.ok, true)
+  assert.equal(probed.value.servers.find((server) => server.name === 'REA').running, false)
+})
+
 test('a bad body is refused before any tool runs', async () => {
   const { tools } = harness()
   const missing = await handleServersRequest({ method: 'POST', path: SERVERS_PATH, bodyText: '{', tools })

@@ -12,7 +12,7 @@
 | [ops-lite](plugins/ops-lite/README.md) | 0.2.0 | 一次读取文件、目录或 glob，并可按字面量定位 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.3 | 下一句预测、前缀跟随、逐词采纳、历史补全 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [task-radar](plugins/task-radar/README.md) | 0.3.0 | 页内可点卡片、到点消失的 Windows Toast、静音时段 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
-| [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.2.1 | 按需挂载 MCP：设置页列出服务器，模型也可启用后释放 | 工作区实现 |
+| [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.3.0 | 按需挂载 MCP：目录搜索、探测后断开，用到才挂载 | 工作区实现 |
 
 逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
 

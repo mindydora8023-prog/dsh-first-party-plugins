@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-mcp-on-demand",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
-  "description": "MCP 按需装载：设置页列出可挂载的服务器，模型也可自行启用、用完即释放",
+  "description": "MCP 按需装载：设置页可搜索、探测工具名；模型用到才挂载，用完即释放",
   "main": "lib/index.js",
   "type": "module",
   "exports": {

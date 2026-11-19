@@ -2,9 +2,17 @@
 
 最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
 
+## mcp-on-demand 0.3.0
+
+对照 ToolHive 的按需发现、McpHub 的搜索后再调用，以及 MCP Nexus 的目录与直连分开。新增 `mcpod_find` 与 `mcpod_probe`：探测只记工具名，随即断开，不把 schema 留在提示词里。启用改为等到连上或失败，失败立刻释放；同一台不会被连两次，同时起步默认不超过 2 台。进行中的调用会挂起空闲倒计时。目录写在用户状态目录，7 天过期。公开补丁仍是 `example`，不含本机路径。
+
 ## filekit 0.2.0
 
 Office 文档改为 Markdown，并增加 PPTX。DOCX 保留标题级别和超链接，表格用 Markdown 表格。不指定工作表时读第一张，其余表只给表头。PPTX 按幻灯片输出正文、表格和有文字的演讲者备注。样例仍由 `make-office-fixtures.mjs` 生成，不含第三方模板。
+
+## 0.3.11：session-meter 0.3.52
+
+胶囊增加缓存节省，并在上下文超过一半时显示占用百分比。点击后的分模型清单按模型分块。价格来源、峰谷规则和按需下载目录没有改。session-meter 发布副本的客户端测试 83 条通过。
 
 ## next-say 0.2.3
 

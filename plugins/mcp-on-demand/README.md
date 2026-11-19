@@ -8,21 +8,25 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
 
 这个插件把开关交给模型：工具定义留在插件配置里，`mcpod_enable` 时才 `ctx.mcpManager.register()`，`mcpod_disable` 时调用返回的 disposer 卸载。工具随之中途出现、随之中途消失，不重启宿主。
 
-## 三个工具
+## 五个工具
 
 | 工具 | 作用 |
 |---|---|
-| `mcpod_list` | 列出可挂载的服务器、是否已挂载、TTL、宿主报告的状态 |
+| `mcpod_list` | 列出可挂载的服务器、用途、是否已挂载、TTL、目录是否过期 |
+| `mcpod_find` | 在记住的工具名目录里搜索，不启动进程，也不把 schema 放进提示词 |
+| `mcpod_probe` | 连上一台、记下工具名、再断开；不把服务器留在挂载状态 |
 | `mcpod_enable` | 挂载一台；`name` 必填，`ttl_seconds` 可覆盖 TTL（0 = 不自动释放） |
-| `mcpod_disable` | 卸载并关闭子进程；其工具从下一次请求起消失 |
+| `mcpod_disable` | 卸载并关闭子进程；其工具从下一次请求起消失，目录仍留着 |
 
 挂上之后工具名是 `mcp__<服务器名>__<工具>`，例如 `mcp__REA__binary_session`。
 
 ## 两道保险
 
 1. **TTL**：每台服务器有自己的时长（见下表）。模型忘了 `mcpod_disable` 时到点自动释放，Ghidra/Java 子进程不会在后台挂一整天。
-   已挂载时再调一次 `mcpod_enable`（可带新的 `ttl_seconds`）就是**续期**，不会重挂、不会重新付启动成本。版本 0.2.1 起，真正调用 `mcp__<服务器>__*` 也会把释放时间重新算满；停手之后才开始倒计时，分析过程中不会被中途卸掉。
+   已挂载时再调一次 `mcpod_enable`（可带新的 `ttl_seconds`）就是**续期**，不会重挂、不会重新付启动成本。
 2. **卸载即释放**：插件被停用或卸载时，所有活着的注册都会 dispose（`ctx.effect` 里登记）。
+3. **同时只连两台**：`maxConcurrent` 默认 2，范围 1 到 4。第三台的启用或探测会排队，不会并排再起一个 Ghidra。
+4. **进行中的调用不被 TTL 切断**：`mcp__<name>__*` 调用开始时暂停倒计时，结束后再按空闲时长重算。
 
 | 服务器 | TTL | 为什么是这个数 |
 |---|---|---|
@@ -31,6 +35,10 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
 | 其他（未单独配置） | 15 分钟 | `defaultTtlMs` 的兜底值。 |
 
 `mcpod_list` 对已挂载的服务器报的是**真实剩余时间**（续期后会变），对未挂载的报配置默认值。
+
+启用不再固定等 400ms。它最多等 8 秒（不超过该服务器的 `startupTimeoutMs`），看到 `connected` 就返回；报 `failed` 时立刻卸载，不把一个起不来的进程留在工具表里。仍在 `connecting` 时也会返回，状态写明还在连。
+
+目录写在 `%LOCALAPPDATA%\dsh-plugins\mcp-on-demand\catalog.json`，不进源码树。每台服务器最多记 80 个工具名和一行短说明，不记 schema。超过 7 天算过期，`mcpod_find` 不再用它。`catalogFile: false` 关闭落盘。
 
 ## 配置
 
@@ -46,6 +54,8 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
         args: ['./server.mjs']
         startupTimeoutMs: 30000
         ttlMs: 900000
+        description: One line saying when this server is useful.
+        keywords: [example]
 ```
 
 服务器名需匹配 `[A-Za-z0-9_-]{1,32}`；`transport` 为 `stdio`（需 `command`）或 `streamable-http`（需 `url`）。
@@ -71,9 +81,12 @@ mcp__REA__binary_session       -> Error: unknown tool "mcp__REA__binary_session"
 
 | 文件 | 内容 |
 |---|---|
-| `lib/index.js` | 插件入口：注册三个工具、惰性取管理器、卸载时释放、设置页路由 |
-| `lib/tools.js` | 三个工具的定义与渲染 |
-| `lib/routes.js` | 设置页读取与启停的 HTTP 处理 |
+| `lib/index.js` | 插件入口：注册五个工具、目录提示段、卸载时释放 |
+| `lib/tools.js` | 五个工具的定义与渲染 |
+| `lib/catalog.js` | 工具名目录的读写、过期与搜索 |
+| `lib/limit.js` | 同时连接上限，以及同一台服务器的启用/探测互斥 |
+| `lib/routes.js` | 设置页读取、启停与探测的 HTTP 处理 |
 | `lib/client.js` | 设置页面板 |
 | `lib/config.js` | 服务器定义校验 |
+| `lib/state-dir.js` | 与 `shared/state-dir.js` 逐字节一致的副本 |
 | `lib/define.js` | 与 `shared/define.js` 逐字节一致的副本（宿主那份在 app.asar 里 import 不到） |

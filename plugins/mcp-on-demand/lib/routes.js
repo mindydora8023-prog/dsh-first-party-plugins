@@ -2,8 +2,8 @@
  * Settings-panel route for mcp-on-demand.
  *
  * GET lists the configured servers (nothing is mounted by reading).
- * POST { name, action: "enable" | "disable" } calls the same tool bodies the
- * model uses, then returns a fresh list so the panel does not guess.
+ * POST { name, action: "enable" | "disable" | "probe" } calls the same tool
+ * bodies the model uses, then returns a fresh list so the panel does not guess.
  *
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
@@ -39,7 +39,9 @@ export async function handleServersRequest(request) {
     ? request.tools.mcpod_enable
     : body.action === 'disable'
       ? request.tools.mcpod_disable
-      : undefined
+      : body.action === 'probe'
+        ? request.tools.mcpod_probe
+        : undefined
   if (tool === undefined) return { status: 400, value: { error: 'unknown-action' } }
 
   /** @type {{ name: string, ttl_seconds?: number }} */

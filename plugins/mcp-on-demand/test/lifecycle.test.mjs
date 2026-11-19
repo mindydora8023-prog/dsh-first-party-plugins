@@ -9,34 +9,45 @@ import test from 'node:test'
 
 import { buildTools } from '../lib/tools.js'
 
-function harness(ttlMs = 60000) {
+function harness(ttlMs = 60000, options = {}) {
   const disposed = []
   const live = new Map()
   let mounts = 0
+  let clock = options.clock === 'real' ? Date.now() : 10_000
+  const statuses = options.statuses || []
   const ctx = {
     logger: { info() {}, warn() {} },
-    tools: { list: () => [] },
+    tools: { definitions: () => options.tools || [] },
   }
   const config = {
     servers: {
-      REA: { entry: { transport: 'stdio' }, ttlMs },
+      REA: { entry: { transport: 'stdio', startupTimeoutMs: options.startupTimeoutMs }, ttlMs, description: 'Ghidra' },
+      desk: { entry: { transport: 'stdio' }, ttlMs, description: 'desktop clicks' },
     },
     defaultTtlMs: ttlMs,
+    maxConcurrent: options.maxConcurrent,
   }
   const state = {
     live,
+    now: () => (options.clock === 'real' ? Date.now() : clock),
+    sleep: async () => { clock += 200 },
+    catalog: options.catalog || { servers: {} },
+    limit: options.limit,
     manager: () => ({
       register(name) {
         mounts += 1
         return () => { disposed.push(name) }
       },
-      list: () => [],
+      list: () => (mounts > 0 ? [{ name: 'REA', status: statuses.shift() || { state: 'connected', toolCount: 1 } }] : []),
+      probe: options.probe,
     }),
   }
   const built = buildTools(ctx, config, state)
   const tools = Object.fromEntries(built.map((tool) => [tool.name, tool]))
   tools.noteActivity = built.noteActivity
-  return { tools, live, disposed, mounts: () => mounts }
+  tools.hold = built.hold
+  tools.prompt = built.prompt
+  return { tools, live, disposed, mounts: () => mounts, clock: () => clock }
 }
 
 function textOf(parts) {
@@ -90,9 +101,8 @@ test('an unknown server is refused without touching the manager', async () => {
 })
 
 test('a real mcp tool call restarts the release clock', async () => {
-  const { tools, live, disposed } = harness()
-  // enable() itself waits 400ms, so the TTL has to outlive that wait.
-  await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 1 })
+  const { tools, live, disposed } = harness(60000, { clock: 'real' })
+  await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 30 })
   const before = live.get('REA').expiresAt
   await new Promise((resolve) => setTimeout(resolve, 30))
   assert.equal(tools.noteActivity('mcp__REA__open_binary'), true)
@@ -112,13 +122,60 @@ test('a server mounted without a time-to-live is not released by later calls', a
 })
 
 test('a time-to-live disposes the server without another call', async () => {
-  // enable() waits 400ms so the client can connect. A shorter TTL fires during
-  // that wait, which is a different case from "it was running, then it expired".
   const { tools, live, disposed } = harness()
   const enabled = await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 1 })
   assert.equal(enabled.running, true)
   assert.equal(typeof live.get('REA').timer, 'object')
-  await new Promise((resolve) => setTimeout(resolve, 900))
+  await new Promise((resolve) => setTimeout(resolve, 1200))
   assert.deepEqual(disposed, ['REA'])
   assert.equal(live.has('REA'), false)
+})
+
+test('enable returns once the host says connected and records the tool names', async () => {
+  const { tools, clock } = harness(60000, {
+    tools: [{ name: 'mcp__REA__open_binary', description: 'load a program' }],
+  })
+  const started = clock()
+  const enabled = await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 0 })
+  assert.equal(enabled.status, 'connected')
+  assert.deepEqual(enabled.tools, ['mcp__REA__open_binary'])
+  assert.ok(clock() - started < 8000)
+  const found = await tools.mcpod_find.execute({ query: 'program' })
+  assert.equal(found.hits[0].call, 'mcp__REA__open_binary')
+  await tools.mcpod_disable.execute({ name: 'REA' })
+})
+
+test('a failed connection is released instead of left mounted', async () => {
+  const { tools, live, disposed } = harness(60000, { statuses: [{ state: 'failed', lastError: 'exit 1' }] })
+  const enabled = await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 30 })
+  assert.equal(enabled.running, false)
+  assert.match(enabled.status, /failed/)
+  assert.equal(live.has('REA'), false)
+  assert.deepEqual(disposed, ['REA'])
+})
+
+test('a call in flight is not released when its idle timer expires', async () => {
+  const { tools, live, disposed } = harness()
+  await tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 1 })
+  const release = tools.hold('mcp__REA__open_binary')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  assert.equal(live.has('REA'), true)
+  assert.deepEqual(disposed, [])
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  assert.deepEqual(disposed, ['REA'])
+})
+
+test('two enables of one server share a single registration', async () => {
+  const { tools, mounts } = harness(60000, {
+    statuses: [{ state: 'connecting' }, { state: 'connecting' }, { state: 'connected' }],
+  })
+  const [first, second] = await Promise.all([
+    tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 0 }),
+    tools.mcpod_enable.execute({ name: 'REA', ttl_seconds: 0 }),
+  ])
+  assert.equal(mounts(), 1)
+  assert.equal(first.running, true)
+  assert.equal(second.running, true)
+  await tools.mcpod_disable.execute({ name: 'REA' })
 })

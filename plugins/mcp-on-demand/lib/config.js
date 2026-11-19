@@ -23,10 +23,15 @@
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
+import { statePath } from './state-dir.js'
+
 /** MCP server names the manager accepts. */
 const NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000
+
+/** How many servers may be connecting at once. Two Ghidra processes is already a lot. */
+const DEFAULT_MAX_CONCURRENT = 2
 
 /** @param {unknown} value @returns {boolean} */
 function isRecord(value) {
@@ -75,27 +80,64 @@ function normalizeServer(name, raw) {
   if (Number.isFinite(raw.toolCallTimeoutMs) && raw.toolCallTimeoutMs > 0) entry.toolCallTimeoutMs = raw.toolCallTimeoutMs
 
   const ttlMs = Number.isFinite(raw.ttlMs) && raw.ttlMs >= 0 ? raw.ttlMs : undefined
-  return { entry, ttlMs }
+  const description = typeof raw.description === 'string' ? clampText(raw.description, 240) : ''
+  const keywords = Array.isArray(raw.keywords)
+    ? raw.keywords.filter((item) => typeof item === 'string').map((item) => clampText(item, 40)).filter(Boolean).slice(0, 12)
+    : []
+  return { entry, ttlMs, description, keywords }
+}
+
+/** One line, capped. Config text is shown to the model, so it stays short. */
+function clampText(value, max) {
+  const text = String(value).replace(/\s+/g, ' ').trim()
+  return text.length > max ? text.slice(0, max) : text
+}
+
+/**
+ * @param {Record<string, unknown>} config
+ * @returns {string | false}
+ */
+function catalogFileOf(config) {
+  if (config.catalogFile === false) return false
+  if (typeof config.catalogFile === 'string' && config.catalogFile.trim() !== '') return config.catalogFile.trim()
+  return statePath('mcp-on-demand', 'catalog.json')
+}
+
+/**
+ * @param {Record<string, unknown>} config
+ * @returns {number}
+ */
+function maxConcurrentOf(config) {
+  const value = config.maxConcurrent
+  if (Number.isInteger(value) && value >= 1 && value <= 4) return value
+  return DEFAULT_MAX_CONCURRENT
 }
 
 /**
  * Read and validate this plugin's config.
  *
  * @param {unknown} raw
- * @returns {{ servers: Record<string, { entry: object, ttlMs: number }>, defaultTtlMs: number }}
+ * @returns {{ servers: Record<string, { entry: object, ttlMs: number, description: string, keywords: string[] }>, defaultTtlMs: number, catalogFile: string | false, maxConcurrent: number }}
  */
 export function readConfig(raw) {
   const config = isRecord(raw) ? raw : {}
   const source = isRecord(config.servers) ? config.servers : {}
-  /** @type {Record<string, { entry: object, ttlMs: number }>} */
+  const defaultTtlMs = Number.isFinite(config.defaultTtlMs) && config.defaultTtlMs >= 0 ? config.defaultTtlMs : DEFAULT_TTL_MS
+  /** @type {Record<string, { entry: object, ttlMs: number, description: string, keywords: string[] }>} */
   const servers = {}
   for (const [name, value] of Object.entries(source)) {
     const normalized = normalizeServer(name, value)
     servers[name] = {
       entry: normalized.entry,
-      ttlMs: normalized.ttlMs ?? (Number.isFinite(config.defaultTtlMs) && config.defaultTtlMs >= 0 ? config.defaultTtlMs : DEFAULT_TTL_MS),
+      ttlMs: normalized.ttlMs ?? defaultTtlMs,
+      description: normalized.description,
+      keywords: normalized.keywords,
     }
   }
-  const defaultTtlMs = Number.isFinite(config.defaultTtlMs) && config.defaultTtlMs >= 0 ? config.defaultTtlMs : DEFAULT_TTL_MS
-  return { servers, defaultTtlMs }
+  return {
+    servers,
+    defaultTtlMs,
+    catalogFile: catalogFileOf(config),
+    maxConcurrent: maxConcurrentOf(config),
+  }
 }
