@@ -252,6 +252,13 @@ test('cleanup endpoints report, save settings and run a sweep', async () => {
     assert.equal(run.status, 200)
     assert.equal(run.result.report.scanned, 0)
     assert.equal(run.result.report.deleted, 0)
+
+    const preview = await call({ action: 'previewCleanup' })
+    assert.equal(preview.status, 200)
+    assert.equal(preview.result.preview.scanned, 0)
+    assert.equal(preview.result.preview.eligible, 0)
+    assert.deepEqual(preview.result.preview.ids, [])
+    assert.equal(typeof preview.result.preview.days, 'number')
   } finally {
     if (previous === undefined) delete process.env['ARCHIVED_SESSIONS_CLEANUP_FILE']
     else process.env['ARCHIVED_SESSIONS_CLEANUP_FILE'] = previous
@@ -261,9 +268,17 @@ test('cleanup endpoints report, save settings and run a sweep', async () => {
 
 test('settings page renders the automatic cleanup panel', async () => {
   let plugin, render
+  const slots = []
+  let cursor = 0
   const React = {
     createElement: (type, props, ...children) => ({ type, props, children }),
-    useMemo: fn => fn(), useState: value => [value, () => {}], useRef: value => ({ current: value }),
+    useMemo: fn => fn(),
+    useState: initial => {
+      const index = cursor++
+      if (!(index in slots)) slots[index] = initial
+      return [slots[index], next => { slots[index] = typeof next === 'function' ? next(slots[index]) : next }]
+    },
+    useRef: value => ({ current: value }),
     useEffect: () => {}, useSyncExternalStore: () => ({ phase: 'ready', byId: {}, archivedSessionIds: [] }),
   }
   vm.runInNewContext(await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plugin = value.factory(() => React) } } } })
@@ -274,13 +289,25 @@ test('settings page renders the automatic cleanup panel', async () => {
     slots: { inject: (slot, fn) => fn(), register: (meta, component) => { render = component; return () => {} } },
   }
   plugin.apply(ctx)
-  const element = render()
-  const page = element.type(element.props)
+  const pageOf = () => { cursor = 0; const element = render(); return element.type(element.props) }
+  const page = pageOf()
   const flat = []
   const walk = node => { if (!node || typeof node !== 'object') return; flat.push(node); for (const child of node.children ?? []) walk(child) }
   walk(page)
   const text = JSON.stringify(flat)
   assert.match(text, /cleanupTitle/)
-  assert.match(text, /cleanupNow/)
+  assert.match(text, /cleanupSettings/)
+  assert.match(text, /sortNewest/)
+  assert.match(text, /groupByFolder/)
+  // The session list is the page; cleanup settings stay collapsed until opened.
+  const heading = flat.findIndex(node => node.type === 'h2')
+  const settings = flat.findIndex(node => node.type === 'button' && (node.children ?? []).includes('cleanupSettings'))
+  assert.ok(heading >= 0 && settings > heading)
+  assert.equal(flat.some(node => node.type === 'button' && (node.children ?? []).includes('cleanupNow')), false)
+  flat.find(node => node.type === 'button' && (node.children ?? []).includes('cleanupSettings')).props.onClick()
+  const opened = []
+  const walkOpened = node => { if (!node || typeof node !== 'object') return; opened.push(node); for (const child of node.children ?? []) walkOpened(child) }
+  walkOpened(pageOf())
+  assert.equal(opened.some(node => node.type === 'button' && (node.children ?? []).includes('cleanupNow')), true)
 })
 

@@ -513,6 +513,26 @@ export function apply(ctx, config) {
         json(res, 200, { ok: true, report })
         return
       }
+      // Read-only: which archived sessions the next cleanup would delete.
+      // Same scan as a real sweep, but dryRun never calls the removal transaction.
+      if (body?.action === 'previewCleanup') {
+        const report = await sweep('manual', true)
+        if (report?.busy) throw fail(t('busy'), 409)
+        const ids = Array.isArray(report.deletedIds) ? report.deletedIds.slice(0, 500) : []
+        json(res, 200, {
+          ok: true,
+          preview: {
+            days: report.days,
+            scanned: report.scanned ?? 0,
+            eligible: report.eligible ?? 0,
+            recent: report.recent ?? 0,
+            live: report.live ?? 0,
+            unknownAge: report.unknownAge ?? 0,
+            ids,
+          },
+        })
+        return
+      }
       const id = body?.sessionId
       // SessionId is an opaque host identity, not a filename (IM ids contain ':' and '@').
       // Deletion resolves it through the backend and independently validates the real directory.

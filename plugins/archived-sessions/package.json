@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-archived-sessions",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "type": "module",
   "description": "设置中的已归档会话管理：恢复、安全删除与超期自动清理",
   "main": "lib/index.js",

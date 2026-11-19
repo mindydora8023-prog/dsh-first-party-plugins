@@ -9,7 +9,10 @@ window.__ModuleLoader__.load({
     Object.assign(en, { select: 'Select session', selectAll: 'Select all results', clear: 'Clear selection', selected: 'Selected', restoreSelected: 'Restore selected', deleteSelected: 'Delete selected', batchWarning: 'Permanently delete the selected sessions? This cannot be undone.', succeeded: 'Succeeded', failures: 'Failed', withChildren: 'These hidden subagent sessions will be deleted too:', ghost: 'No log remains on disk; only the stale archive record is removed', blocked: 'These descendants cannot be removed with the parent; handle them first', childrenCount: 'hidden subagents', ghostCount: 'stale records', cleanup: 'Delete together', checking: 'Checking what can be deleted\u2026', orphanTitle: 'Orphaned subagents', orphanHint: 'The parent session log of these subagents is gone. They appear in no list, so this is the only place they can be cleaned up.', orphanScan: 'Scan for orphans', orphanEmpty: 'No orphaned subagents.', orphanBlocked: 'These orphaned sessions cannot be cleaned up', orphanDelete: 'Clean up all orphans', orphanConfirm: 'Permanently delete the logs of these orphaned subagents? This cannot be undone.', orphanDone: 'Orphaned subagents removed', orphanCount: 'orphaned sessions' })
     Object.assign(zh, { cleanupTitle: "\u81ea\u52a8\u6e05\u7406", cleanupHint: "\u5df2\u5f52\u6863\u4f1a\u8bdd\u5728\u6700\u540e\u6d3b\u52a8\u8d85\u8fc7\u8bbe\u5b9a\u5929\u6570\u540e\u4f1a\u88ab\u81ea\u52a8\u6c38\u4e45\u5220\u9664\uff0c\u9690\u85cf\u5b50 Agent \u4f1a\u4e00\u5e76\u6e05\u7406\uff1b\u88ab\u5bbf\u4e3b\u5360\u7528\u6216\u88ab\u5f15\u7528\u7684\u4f1a\u8bdd\u4f1a\u8df3\u8fc7\u3002", cleanupEnabled: "\u542f\u7528\u81ea\u52a8\u6e05\u7406", cleanupDays: "\u4fdd\u7559\u5929\u6570", cleanupSave: "\u4fdd\u5b58\u8bbe\u7f6e", cleanupSaved: "\u81ea\u52a8\u6e05\u7406\u8bbe\u7f6e\u5df2\u4fdd\u5b58\u3002", cleanupNow: "\u7acb\u5373\u6e05\u7406", cleanupConfirm: "\u786e\u8ba4\u7acb\u5373\u6e05\u7406\u6240\u6709\u8d85\u671f\u7684\u5df2\u5f52\u6863\u4f1a\u8bdd\uff1f\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002", cleanupRunning: "\u6b63\u5728\u6e05\u7406\u2026", cleanupLast: "\u4e0a\u6b21\u6e05\u7406", cleanupNever: "\u5c1a\u672a\u8fd0\u884c", cleanupDone: "\u6e05\u7406\u5b8c\u6210", cleanupDeletedLabel: "\u5df2\u5220\u9664", cleanupScannedLabel: "\u626b\u63cf", cleanupBlockedLabel: "\u8df3\u8fc7", cleanupErrorsLabel: "\u5931\u8d25", cleanupDaysInvalid: "\u4fdd\u7559\u5929\u6570\u9700\u4e3a 1 \u5230 3650 \u7684\u6574\u6570\u3002", cleanupOff: "\u81ea\u52a8\u6e05\u7406\u5df2\u5173\u95ed" })
     Object.assign(en, { cleanupTitle: 'Automatic cleanup', cleanupHint: 'Archived sessions whose last activity is older than the threshold are permanently deleted automatically, together with their hidden sub-agents. Sessions still held or referenced by the host are skipped.', cleanupEnabled: 'Enable automatic cleanup', cleanupDays: 'Keep days', cleanupSave: 'Save settings', cleanupSaved: 'Automatic cleanup settings saved.', cleanupNow: 'Clean up now', cleanupConfirm: 'Permanently clean up every expired archived session now? This cannot be undone.', cleanupRunning: 'Cleaning up\u2026', cleanupLast: 'Last cleanup', cleanupNever: 'Not run yet', cleanupDone: 'Cleanup finished', cleanupDeletedLabel: 'deleted', cleanupScannedLabel: 'scanned', cleanupBlockedLabel: 'skipped', cleanupErrorsLabel: 'failed', cleanupDaysInvalid: 'Keep days must be an integer from 1 to 3650.', cleanupOff: 'Automatic cleanup is off' })
+    Object.assign(zh, { sortNewest: '\u6700\u65b0', sortOldest: '\u6700\u65e9', sortTitle: '\u6309\u6807\u9898', groupByFolder: '\u6309\u76ee\u5f55', ungrouped: '\u672a\u5206\u7ec4', justNow: '\u521a\u521a', minutesAgo: '\u5206\u949f\u524d', hoursAgo: '\u5c0f\u65f6\u524d', yesterday: '\u6628\u5929', daysAgo: '\u5929\u524d', copyId: '\u590d\u5236 ID', copied: '\u5df2\u590d\u5236', copyFailed: '\u590d\u5236\u5931\u8d25', expiring: '\u5373\u5c06\u6e05\u7406', overdue: '\u5df2\u8d85\u671f', showExpiring: '\u53ea\u770b\u5373\u5c06\u6e05\u7406', showOverdue: '\u53ea\u770b\u5df2\u8d85\u671f', showAll: '\u5168\u90e8', progress: '\u8fdb\u5ea6', daysUnit: '\u5929', cleanupSettings: '\u6e05\u7406\u8bbe\u7f6e', hiddenSelected: '\u7b5b\u9009\u5916\u5df2\u9009' })
+    Object.assign(en, { sortNewest: 'Newest', sortOldest: 'Oldest', sortTitle: 'Title', groupByFolder: 'By folder', ungrouped: 'Ungrouped', justNow: 'Just now', minutesAgo: 'min ago', hoursAgo: 'h ago', yesterday: 'Yesterday', daysAgo: 'd ago', copyId: 'Copy ID', copied: 'Copied', copyFailed: 'Copy failed', expiring: 'Expiring', overdue: 'Overdue', showExpiring: 'Expiring only', showOverdue: 'Overdue only', showAll: 'All', progress: 'Progress', daysUnit: 'days', cleanupSettings: 'Cleanup settings', hiddenSelected: 'Selected outside this filter' })
     const button = { border: '1px solid var(--dsw-alias-border-primary, #8884)', background: 'transparent', color: 'inherit', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }
+    const danger = 'var(--dsw-alias-status-error, #d9534f)'
     const inspectTargets = async ids => {
       const res = await fetch('/archived-sessions/manage', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-archived-sessions-action': 'manage' }, body: JSON.stringify({ action: 'inspect', sessionIds: ids }) })
       const result = await res.json()
@@ -33,7 +36,10 @@ window.__ModuleLoader__.load({
       const [query, setQuery] = React.useState(''), [pending, setPending] = React.useState(null), [confirm, setConfirm] = React.useState(null), [notice, setNotice] = React.useState(null)
       const [selection, setSelection] = React.useState([]), [batchConfirm, setBatchConfirm] = React.useState(null), [plan, setPlan] = React.useState(null), [orphanView, setOrphanView] = React.useState(null)
       const [cleanup, setCleanup] = React.useState(null), [cleanupForm, setCleanupForm] = React.useState({ enabled: true, days: 5 }), [cleanupPending, setCleanupPending] = React.useState(false), [cleanupConfirm, setCleanupConfirm] = React.useState(false)
+      // New hooks stay after the original ones: tests index useState by call order.
+      const [sortKey, setSortKey] = React.useState('newest'), [grouped, setGrouped] = React.useState(false), [onlyExpiring, setOnlyExpiring] = React.useState(false), [preview, setPreview] = React.useState(null), [progress, setProgress] = React.useState(null), [copied, setCopied] = React.useState(null), [cleanupOpen, setCleanupOpen] = React.useState(false)
       const lock = React.useRef(false), alive = React.useRef(true)
+      const loadPreview = () => orphans({ action: 'previewCleanup' }).then(result => { if (alive.current) setPreview(result.preview ?? null) }).catch(() => {})
       // Orphans are invisible everywhere else, so surface them on open instead of behind a click.
       React.useEffect(() => {
         alive.current = true
@@ -43,10 +49,54 @@ window.__ModuleLoader__.load({
         orphans({ action: 'cleanupStatus' })
           .then(result => { if (alive.current && result.cleanup) { setCleanup(result.cleanup); setCleanupForm({ enabled: result.cleanup.enabled !== false, days: Number(result.cleanup.days) || 5 }) } })
           .catch(() => {})
+        loadPreview()
         return () => { alive.current = false }
       }, [])
       const ids = ws.archivedSessionIds ?? []
-      const rows = ids.map(id => list.byId[id] ?? { id }).filter(row => `${row.title ?? ''} ${row.id} ${row.cwd ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))
+      const stampOf = row => row.updatedAt ?? row.createdAt ?? 0
+      const folderOf = cwd => {
+        const parts = String(cwd ?? '').split(/[\\/]/).filter(Boolean)
+        return parts.length ? parts[parts.length - 1] : ''
+      }
+      const labelOf = id => {
+        const row = list.byId?.[id]
+        const title = typeof row?.title === 'string' && row.title.trim() ? row.title.trim() : ''
+        const short = id.length > 18 ? `${id.slice(0, 8)}...` : id
+        return title ? `${title} \u00b7 ${short}` : id
+      }
+      const ago = stamp => {
+        if (typeof stamp !== 'number' || !Number.isFinite(stamp) || stamp <= 0) return ''
+        const delta = Date.now() - stamp
+        if (delta < 0) return new Date(stamp).toLocaleString()
+        const minute = 60 * 1000, hour = 60 * minute, day = 24 * hour
+        if (delta < minute) return t('justNow')
+        if (delta < hour) return `${Math.floor(delta / minute)} ${t('minutesAgo')}`
+        if (delta < day) return `${Math.floor(delta / hour)} ${t('hoursAgo')}`
+        if (delta < 2 * day) return t('yesterday')
+        return `${Math.floor(delta / day)} ${t('daysAgo')}`
+      }
+      const dueIds = new Set(Array.isArray(preview?.ids) ? preview.ids : [])
+      // "Expiring" is only true while automatic cleanup is on. Otherwise the same rows are just over the age threshold.
+      const autoOn = !!cleanup && cleanup.enabled !== false
+      const dueLabel = autoOn ? 'expiring' : 'overdue'
+      const dueFilterLabel = autoOn ? 'showExpiring' : 'showOverdue'
+      let rows = ids.map(id => list.byId[id] ?? { id }).filter(row => `${row.title ?? ''} ${row.id} ${row.cwd ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+      if (onlyExpiring) rows = rows.filter(row => dueIds.has(row.id))
+      rows = rows.slice().sort((a, b) => {
+        if (sortKey === 'title') return labelOf(a.id).localeCompare(labelOf(b.id), undefined, { sensitivity: 'base' }) || String(a.id).localeCompare(String(b.id))
+        const diff = stampOf(a) - stampOf(b)
+        return (sortKey === 'oldest' ? diff : -diff) || String(a.id).localeCompare(String(b.id))
+      })
+      const groups = []
+      if (grouped) {
+        const buckets = new Map()
+        for (const row of rows) {
+          const name = folderOf(row.cwd) || t('ungrouped')
+          if (!buckets.has(name)) buckets.set(name, [])
+          buckets.get(name).push(row)
+        }
+        for (const [name, items] of [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))) groups.push({ name, items })
+      } else groups.push({ name: '', items: rows })
       const refresh = async () => { try { await sessions.refresh() } catch { if (alive.current) setNotice({ error: true, text: t('loadFailed') }) } }
       const selected = selection.filter(id => ids.includes(id))
       const toggle = id => { setBatchConfirm(null); setPlan(null); setSelection(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]) }
@@ -70,20 +120,22 @@ window.__ModuleLoader__.load({
       const childrenOf = (id, fallback) => Array.isArray(fallback) ? fallback : plan?.items?.find(item => item.id === id)?.children ?? []
       const batch = async (targets, action) => {
         if (lock.current || !targets.length) return
-        lock.current = true; setPending('batch'); setNotice(null); setConfirm(null); setBatchConfirm(null)
+        lock.current = true; setPending('batch'); setNotice(null); setConfirm(null); setBatchConfirm(null); setProgress({ done: 0, total: targets.length })
         const successes = [], failures = [], warnings = []
         let removed = 0
         try {
           for (const id of targets) {
-            try { const result = await perform(id, action, { cascade: action === 'delete', children: action === 'delete' ? childrenOf(id) : undefined }); successes.push(id); removed += result.children ?? 0; if (result.warning) warnings.push(`${id}: ${result.warning}`) }
-            catch (error) { failures.push(`${id}: ${error.message ?? t('failed')}`) }
+            try { const result = await perform(id, action, { cascade: action === 'delete', children: action === 'delete' ? childrenOf(id) : undefined }); successes.push(id); removed += result.children ?? 0; if (result.warning) warnings.push(`${labelOf(id)}: ${result.warning}`) }
+            catch (error) { failures.push(`${labelOf(id)}: ${error.message ?? t('failed')}`) }
+            if (alive.current) setProgress({ done: successes.length + failures.length, total: targets.length })
           }
           if (alive.current) {
             setSelection(current => current.filter(id => !successes.includes(id)))
             setNotice({ error: !!(failures.length || warnings.length), text: `${t('succeeded')}: ${successes.length} \u00b7 ${t('failures')}: ${failures.length}${removed ? ` \u00b7 ${t('childrenCount')}: ${removed}` : ''}${[...failures, ...warnings].length ? '\n' + [...failures, ...warnings].join('\n') : ''}` })
           }
           await refresh()
-        } finally { lock.current = false; if (alive.current) setPending(null) }
+          loadPreview()
+        } finally { lock.current = false; if (alive.current) { setPending(null); setProgress(null) } }
       }
       const act = async (id, action) => {
         if (lock.current) return
@@ -94,6 +146,7 @@ window.__ModuleLoader__.load({
           if (alive.current) setSelection(current => current.filter(value => value !== id))
           if (alive.current) { setConfirm(null); setPlan(null); setNotice({ error: false, text: t(action === 'restore' ? 'restored' : 'deleted') + (result.children ? ` \u00b7 ${t('childrenCount')}: ${result.children}` : '') }) }
           await refresh()
+          loadPreview()
         } catch (error) { if (alive.current) setNotice({ error: true, text: error.message ?? t('failed') }) }
         finally { lock.current = false; if (alive.current) setPending(null) }
       }
@@ -111,6 +164,7 @@ window.__ModuleLoader__.load({
           const result = await orphans({ action: 'deleteOrphans', sessionIds: targets })
           if (alive.current) { setOrphanView(null); setNotice({ error: false, text: `${t('orphanDone')}: ${result.removed ?? targets.length}${result.warning ? '\n' + result.warning : ''}` }) }
           await refresh()
+          loadPreview()
           if (alive.current) await scanOrphans()
         } catch (error) { if (alive.current) setNotice({ error: true, text: error.message ?? t('failed') }) }
         finally { lock.current = false; if (alive.current) setPending(null) }
@@ -123,6 +177,7 @@ window.__ModuleLoader__.load({
         try {
           const result = await orphans({ action: 'setCleanup', enabled: !!cleanupForm.enabled, days })
           if (alive.current && result.cleanup) { setCleanup(current => ({ ...(current ?? {}), ...result.cleanup })); setCleanupForm({ enabled: result.cleanup.enabled !== false, days: Number(result.cleanup.days) || days }); setNotice({ error: false, text: t('cleanupSaved') }) }
+          loadPreview()
         } catch (error) { if (alive.current) setNotice({ error: true, text: error.message ?? t('failed') }) }
         finally { if (alive.current) setCleanupPending(false) }
       }
@@ -141,20 +196,27 @@ window.__ModuleLoader__.load({
             setNotice({ error: !!report.errors, text: `${t('cleanupDone')} \u00b7 ${parts.join(' \u00b7 ')}` })
           }
           await refresh()
+          loadPreview()
         } catch (error) { if (alive.current) setNotice({ error: true, text: error.message ?? t('failed') }) }
         finally { if (alive.current) setCleanupPending(false) }
       }
       const planBlocked = plan?.blocked?.length > 0
       const detail = plan && !plan.loading ? plan : null
+      const nameList = (items, limit) => {
+        const shown = items.slice(0, limit)
+        const rest = items.length - shown.length
+        return h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontSize: 12 } }, shown.map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, item.reason ? `${item.label}: ${item.reason}` : item.label)), rest > 0 && h('li', { key: 'more' }, `+${rest}`))
+      }
       const confirmBox = (targets, batchDelete) => h('div', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-interactive-bg-hover, #8881)' } },
         h('p', { style: { margin: '0 0 8px', lineHeight: 1.6 } }, batchDelete ? `${t('batchWarning')} (${targets.length})` : t('warning')),
+        batchDelete && h('ul', { style: { margin: '0 0 8px', paddingLeft: 20, fontSize: 12 } }, targets.slice(0, 8).map(id => h('li', { key: id, style: { overflowWrap: 'anywhere' } }, labelOf(id))), targets.length > 8 && h('li', { key: 'more' }, `+${targets.length - 8}`)),
         plan?.loading && h('p', { role: 'status', style: { margin: '0 0 8px', opacity: .75 } }, t('checking')),
         detail && h('div', { style: { margin: '0 0 12px', fontSize: 13, lineHeight: 1.6 } },
-          detail.children.length > 0 && h('div', null, `${t('withChildren')} (${detail.children.length}):`, h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontFamily: 'monospace', fontSize: 12 } }, detail.children.map(id => h('li', { key: id, style: { overflowWrap: 'anywhere' } }, id)))),
-          detail.ghosts.length > 0 && h('div', null, h('strong', null, t('ghost')), h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontFamily: 'monospace', fontSize: 12 } }, detail.ghosts.map(id => h('li', { key: id, style: { overflowWrap: 'anywhere' } }, id)))),
-          detail.blocked.length > 0 && h('div', { role: 'alert', style: { color: 'var(--dsw-alias-status-error, #d9534f)' } }, h('strong', null, t('blocked')), h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontFamily: 'monospace', fontSize: 12 } }, detail.blocked.map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, `${item.id}: ${item.reason}`))))),
+          detail.children.length > 0 && h('div', null, `${t('withChildren')} (${detail.children.length}):`, nameList(detail.children.map(id => ({ id, label: labelOf(id) })), 8)),
+          detail.ghosts.length > 0 && h('div', null, h('strong', null, t('ghost')), nameList(detail.ghosts.map(id => ({ id, label: labelOf(id) })), 8)),
+          detail.blocked.length > 0 && h('div', { role: 'alert', style: { color: danger } }, h('strong', null, t('blocked')), nameList(detail.blocked.map(item => ({ id: item.id, label: labelOf(item.id), reason: item.reason })), 8))),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', style: { ...button, color: '#d9534f' }, disabled: !!pending || !!plan?.loading || (!batchDelete && planBlocked), onClick: () => batchDelete ? batch(targets.filter(id => ids.includes(id)), 'delete') : act(targets[0], 'delete') }, pending ? t('busy') : (detail?.children?.length ? t('cleanup') : t('confirm'))),
+          h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending || !!plan?.loading || planBlocked, onClick: () => batchDelete ? batch(targets.filter(id => ids.includes(id)), 'delete') : act(targets[0], 'delete') }, pending ? t('busy') : (detail?.children?.length ? t('cleanup') : t('confirm'))),
           h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => { setConfirm(null); setBatchConfirm(null); setPlan(null) } }, t('cancel'))))
       const orphanPanel = h('div', { style: { marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-primary, #8883)' } },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
@@ -164,24 +226,29 @@ window.__ModuleLoader__.load({
           orphanView.orphans?.length === 0 && orphanView.blocked?.length === 0 && h('p', { style: { opacity: .75, margin: 0 } }, t('orphanEmpty')),
           orphanView.orphans?.length > 0 && h('div', null,
             h('p', { style: { margin: '0 0 8px' } }, t('orphanHint')),
-            h('ul', { style: { margin: '0 0 12px', paddingLeft: 20, fontFamily: 'monospace', fontSize: 12 } }, orphanView.orphans.map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, `${item.id} \u2190 ${item.missingParent}`))),
+            h('ul', { style: { margin: '0 0 12px', paddingLeft: 20, fontSize: 12 } }, orphanView.orphans.slice(0, 12).map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, `${labelOf(item.id)} \u2190 ${item.missingParent}`)), orphanView.orphans.length > 12 && h('li', { key: 'more' }, `+${orphanView.orphans.length - 12}`)),
             orphanView.confirm
               ? h('div', { style: { padding: 12, borderRadius: 8, background: 'var(--dsw-alias-interactive-bg-hover, #8881)' } },
                 h('p', { style: { margin: '0 0 10px' } }, `${t('orphanConfirm')} (${orphanView.confirm.length})`),
                 h('div', { style: { display: 'flex', gap: 8 } },
-                  h('button', { type: 'button', style: { ...button, color: '#d9534f' }, disabled: !!pending, onClick: () => clearOrphans(orphanView.confirm, true) }, pending === 'orphans' ? t('busy') : t('confirm')),
+                  h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending, onClick: () => clearOrphans(orphanView.confirm, true) }, pending === 'orphans' ? t('busy') : t('confirm')),
                   h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => setOrphanView(view => ({ ...view, confirm: null })) }, t('cancel'))))
-              : h('button', { type: 'button', style: { ...button, color: '#d9534f' }, disabled: !!pending, onClick: () => clearOrphans(orphanView.orphans.map(item => item.id), false) }, `${t('orphanDelete')} (${orphanView.orphans.length})`)),
-          orphanView.blocked?.length > 0 && h('div', { role: 'alert', style: { color: 'var(--dsw-alias-status-error, #d9534f)', marginTop: 8 } },
+              : h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending, onClick: () => clearOrphans(orphanView.orphans.map(item => item.id), false) }, `${t('orphanDelete')} (${orphanView.orphans.length})`)),
+          orphanView.blocked?.length > 0 && h('div', { role: 'alert', style: { color: danger, marginTop: 8 } },
             h('strong', null, t('orphanBlocked')),
-            h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontFamily: 'monospace', fontSize: 12 } }, orphanView.blocked.map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, `${item.id}\uff08${item.missingParent}\uff09: ${item.reason}`)))))
+            h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontSize: 12 } }, orphanView.blocked.slice(0, 8).map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, `${labelOf(item.id)}\uff08${item.missingParent}\uff09: ${item.reason}`)), orphanView.blocked.length > 8 && h('li', { key: 'more' }, `+${orphanView.blocked.length - 8}`))))
       )
       const lastRun = cleanup?.lastRun
       const lastText = lastRun
         ? `${new Date(lastRun.at).toLocaleString()} \u00b7 ${t('cleanupScannedLabel')} ${lastRun.scanned ?? 0} \u00b7 ${t('cleanupDeletedLabel')} ${lastRun.deleted ?? 0}${lastRun.children ? ` \u00b7 ${t('childrenCount')} ${lastRun.children}` : ''}`
         : t('cleanupNever')
+      const previewText = preview ? `${t(dueLabel)}: ${preview.eligible ?? 0} / ${preview.scanned ?? 0} \u00b7 ${preview.days ?? cleanupForm.days} ${t('daysUnit')}` : ''
       const cleanupPanel = h('div', { style: { marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-primary, #8883)' } },
-        h('h3', { style: { fontSize: 15, margin: 0 } }, t('cleanupTitle')),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h('h3', { style: { fontSize: 15, margin: 0 } }, t('cleanupTitle')),
+          previewText && h('span', { style: { fontSize: 12, opacity: .75 } }, previewText),
+          h('button', { type: 'button', style: button, 'aria-expanded': cleanupOpen, onClick: () => setCleanupOpen(open => !open) }, t('cleanupSettings'))),
+        cleanupOpen && h('div', { style: { marginTop: 8 } },
         h('p', { style: { color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6, margin: '8px 0' } }, t('cleanupHint')),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 } },
           h('label', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('input', { type: 'checkbox', 'aria-label': t('cleanupEnabled'), checked: !!cleanupForm.enabled, disabled: cleanupPending, onChange: e => setCleanupForm(form => ({ ...form, enabled: e.target.checked })) }), t('cleanupEnabled')),
@@ -194,30 +261,46 @@ window.__ModuleLoader__.load({
           ? h('div', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-interactive-bg-hover, #8881)' } },
             h('p', { style: { margin: '0 0 10px', lineHeight: 1.6 } }, t('cleanupConfirm')),
             h('div', { style: { display: 'flex', gap: 8 } },
-              h('button', { type: 'button', style: { ...button, color: '#d9534f' }, disabled: cleanupPending, onClick: runCleanup }, cleanupPending ? t('cleanupRunning') : t('confirm')),
+              h('button', { type: 'button', style: { ...button, color: danger }, disabled: cleanupPending, onClick: runCleanup }, cleanupPending ? t('cleanupRunning') : t('confirm')),
               h('button', { type: 'button', style: button, disabled: cleanupPending, onClick: () => setCleanupConfirm(false) }, t('cancel'))))
-          : h('button', { type: 'button', style: { ...button, color: '#d9534f', marginTop: 12 }, disabled: cleanupPending, onClick: () => setCleanupConfirm(true) }, cleanupPending ? t('cleanupRunning') : t('cleanupNow'))
+          : h('button', { type: 'button', style: { ...button, color: danger, marginTop: 12 }, disabled: cleanupPending, onClick: () => setCleanupConfirm(true) }, cleanupPending ? t('cleanupRunning') : t('cleanupNow'))
+        )
       )
       return h('section', { style: { padding: '12px 0', color: 'var(--dsw-alias-label-primary)', fontSize: 14, minWidth: 0 } },
         h('h2', { style: { fontSize: 20, margin: '0 0 10px' } }, `${t('nav')} (${ids.length})`),
         h('p', { style: { color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } }, t('hint')),
-        cleanupPanel,
-        h('div', { style: { display: 'flex', gap: 8, margin: '16px 0' } }, h('input', { type: 'search', 'aria-label': t('search'), placeholder: t('search'), value: query, onChange: e => setQuery(e.target.value), style: { ...button, cursor: 'text', flex: 1, minWidth: 0 } }), h('button', { type: 'button', style: button, disabled: !!pending, onClick: refresh }, t('retry'))),
+        h('div', { style: { display: 'flex', gap: 8, margin: '16px 0', flexWrap: 'wrap' } }, h('input', { type: 'search', 'aria-label': t('search'), placeholder: t('search'), value: query, onChange: e => setQuery(e.target.value), style: { ...button, cursor: 'text', flex: 1, minWidth: 0 } }), h('button', { type: 'button', style: button, disabled: !!pending, onClick: refresh }, t('retry'))),
+        h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 } },
+          [['newest', 'sortNewest'], ['oldest', 'sortOldest'], ['title', 'sortTitle']].map(([key, label]) => h('button', { key, type: 'button', 'aria-pressed': sortKey === key, style: { ...button, fontWeight: sortKey === key ? 700 : 400 }, disabled: !!pending, onClick: () => setSortKey(key) }, t(label))),
+          h('button', { type: 'button', 'aria-pressed': grouped, style: { ...button, fontWeight: grouped ? 700 : 400 }, disabled: !!pending, onClick: () => setGrouped(value => !value) }, t('groupByFolder')),
+          preview && h('button', { type: 'button', 'aria-pressed': onlyExpiring, style: { ...button, fontWeight: onlyExpiring ? 700 : 400 }, disabled: !!pending, onClick: () => setOnlyExpiring(value => !value) }, `${onlyExpiring ? t('showAll') : t(dueFilterLabel)} (${preview.eligible ?? 0})`)),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 } },
           h('label', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('input', { type: 'checkbox', disabled: !!pending || !rows.length, checked: !!rows.length && rows.every(row => selected.includes(row.id)), onChange: e => { setBatchConfirm(null); setPlan(null); setSelection(current => e.target.checked ? [...new Set([...current, ...rows.map(row => row.id)])] : current.filter(id => !rows.some(row => row.id === id))) } }), t('selectAll')),
           h('span', null, `${t('selected')}: ${selected.length}`),
+          selected.length > rows.filter(row => selected.includes(row.id)).length && h('span', { style: { fontSize: 12, opacity: .7 } }, `${t('hiddenSelected')}: ${selected.length - rows.filter(row => selected.includes(row.id)).length}`),
           h('button', { type: 'button', style: button, disabled: !!pending || !selected.length, onClick: () => { setSelection([]); setBatchConfirm(null); setPlan(null) } }, t('clear')),
           h('button', { type: 'button', style: button, disabled: !!pending || !selected.length, onClick: () => batch([...selected], 'restore') }, t('restoreSelected')),
-          h('button', { type: 'button', style: { ...button, color: '#d9534f' }, disabled: !!pending || !selected.length, onClick: () => { setConfirm(null); setBatchConfirm([...selected]); return check([...selected]) } }, t('deleteSelected'))),
+          h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending || !selected.length, onClick: () => { setConfirm(null); setBatchConfirm([...selected]); return check([...selected]) } }, t('deleteSelected'))),
         batchConfirm && confirmBox(batchConfirm, true),
-        notice && h('p', { role: notice.error ? 'alert' : 'status', style: { lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: notice.error ? 'var(--dsw-alias-status-error, #d9534f)' : 'inherit' } }, notice.text),
-        loading ? h('p', { role: 'status' }, t('loading')) : (list.phase === 'error' || ws.phase === 'error') ? h('p', { role: 'alert' }, t('loadFailed')) : !rows.length ? h('p', { style: { textAlign: 'center', padding: '40px 0', opacity: .65 } }, t('empty')) : h('ul', { style: { listStyle: 'none', margin: 0, padding: 0 } }, rows.map(row => h('li', { key: row.id, style: { borderBottom: '1px solid var(--dsw-alias-border-primary, #8883)', padding: '14px 0' } },
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } }, h('input', { type: 'checkbox', checked: selected.includes(row.id), disabled: !!pending, 'aria-label': `${t('select')}: ${row.title || row.id}`, onChange: () => toggle(row.id) }), h('div', { style: { flex: '1 1 180px', minWidth: 0 } }, h('div', { title: row.title, style: { fontWeight: 600, overflowWrap: 'anywhere' } }, row.title || t('untitled')), h('div', { style: { fontSize: 12, opacity: .6, marginTop: 5, overflowWrap: 'anywhere' } }, row.cwd || row.id), row.updatedAt && h('div', { style: { fontSize: 12, opacity: .6, marginTop: 3 } }, new Date(row.updatedAt).toLocaleString())),
-          h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => act(row.id, 'restore') }, pending === row.id ? t('busy') : t('restore')),
-          h('button', { type: 'button', style: { ...button, color: 'var(--dsw-alias-status-error, #d9534f)' }, disabled: !!pending, onClick: () => { setBatchConfirm(null); setConfirm(row.id); setNotice(null); return check([row.id]) } }, t('delete'))),
-          confirm === row.id && confirmBox([row.id], false)
-        ))),
-        orphanPanel
+        progress && h('p', { role: 'status', style: { margin: '0 0 8px', fontSize: 13 } }, `${t('progress')}: ${progress.done} / ${progress.total}`),
+        notice && h('p', { role: notice.error ? 'alert' : 'status', style: { lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: notice.error ? danger : 'inherit' } }, notice.text),
+        loading ? h('p', { role: 'status' }, t('loading')) : (list.phase === 'error' || ws.phase === 'error') ? h('p', { role: 'alert' }, t('loadFailed')) : !rows.length ? h('p', { style: { textAlign: 'center', padding: '40px 0', opacity: .65 } }, t('empty')) : h('div', null, groups.map(group => h('div', { key: group.name || 'all' },
+          group.name && h('h3', { style: { fontSize: 13, margin: '14px 0 0', opacity: .75 } }, `${group.name} (${group.items.length})`),
+          h('ul', { style: { listStyle: 'none', margin: 0, padding: 0 } }, group.items.map(row => {
+            const when = ago(stampOf(row))
+            return h('li', { key: row.id, style: { borderBottom: '1px solid var(--dsw-alias-border-primary, #8883)', padding: '14px 0' } },
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } }, h('input', { type: 'checkbox', checked: selected.includes(row.id), disabled: !!pending, 'aria-label': `${t('select')}: ${row.title || row.id}`, onChange: () => toggle(row.id) }), h('div', { style: { flex: '1 1 180px', minWidth: 0 } },
+                h('div', { title: row.title, style: { fontWeight: 600, overflowWrap: 'anywhere', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' } }, h('span', null, row.title || t('untitled')), dueIds.has(row.id) && h('span', { style: { fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-status-warning, #b58105)' } }, t(dueLabel))),
+                h('div', { style: { fontSize: 12, opacity: .6, marginTop: 5, overflowWrap: 'anywhere' } }, row.cwd || row.id),
+                when && h('div', { style: { fontSize: 12, opacity: .6, marginTop: 3 } }, when)),
+              h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => { const text = row.id; const done = () => { if (alive.current) { setCopied(row.id); setTimeout(() => { if (alive.current) setCopied(current => current === row.id ? null : current) }, 1500) } }; const failCopy = () => { if (alive.current) setNotice({ error: true, text: t('copyFailed') }) }; if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, failCopy); else failCopy() } }, copied === row.id ? t('copied') : t('copyId')),
+              h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => act(row.id, 'restore') }, pending === row.id ? t('busy') : t('restore')),
+              h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending, onClick: () => { setBatchConfirm(null); setConfirm(row.id); setNotice(null); return check([row.id]) } }, t('delete'))),
+              confirm === row.id && confirmBox([row.id], false)
+            )
+          }))))),
+        orphanPanel,
+        cleanupPanel
       )
     }
     return { name: 'archived-sessions', inject: ['slots', 'locale', 'sessions', 'workspaces'], apply(ctx) {

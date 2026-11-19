@@ -155,6 +155,30 @@ test('bulk restore handles partial failure and retains failed selection', async 
   assert.deepEqual(Array.from(state[5]), ['b'])
   assert.ok(flatten(page()).some(node => node.type === 'button' && node.children.includes('confirm')))
 })
+test('batch confirm is disabled while any preflight item is blocked', async () => {
+  let plugin, render, cursor = 0, blocked = [{ id: 'child', reason: 'held' }]
+  const state = []
+  const React = { createElement: (type, props, ...children) => ({ type, props, children }), useMemo: fn => fn(), useRef: value => ({ current: value }), useEffect: () => {}, useState: initial => { const i = cursor++; if (!(i in state)) state[i] = initial; return [state[i], value => { state[i] = typeof value === 'function' ? value(state[i]) : value }] }, useSyncExternalStore: (subscribe, snapshot) => snapshot() }
+  const fetch = async () => ({ ok: true, json: async () => ({ ok: true, items: [{ id: 'a', archived: true, hasLog: true, children: [], blocked }] }) })
+  vm.runInNewContext(await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'), { fetch, window: { __ModuleLoader__: { load: value => { plugin = value.factory(() => React) } } } })
+  const ctx = { sessions: { list: { getSnapshot: () => ({ phase: 'ready', byId: { a: { id: 'a', title: 'Alpha' } } }) }, refresh: async () => {} }, workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: ['a'] }) } }, effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key }, slots: { inject: (slot, fn) => fn(), register: (meta, component) => { render = component; return () => {} } } }
+  plugin.apply(ctx)
+  const page = () => { cursor = 0; const element = render(); return element.type(element.props) }
+  const flatten = node => !node || typeof node !== 'object' ? [] : [node, ...(node.children ?? []).flat(Infinity).flatMap(flatten)]
+  const confirmOf = () => flatten(page()).find(node => node.type === 'button' && node.children.includes('confirm'))
+  const first = flatten(page()).find(node => node.type === 'button' && node.children.includes('delete')).props.onClick()
+  assert.equal(confirmOf().props.disabled, true)
+  await first
+  let confirm = confirmOf()
+  assert.equal(confirm.props.disabled, true)
+  assert.match(confirm.props.style.color, /--dsw-alias-status-error/)
+  blocked = []
+  flatten(page()).find(node => node.type === 'button' && node.children.includes('cancel')).props.onClick()
+  const opened = flatten(page()).find(node => node.type === 'button' && node.children.includes('delete')).props.onClick()
+  await opened
+  confirm = confirmOf()
+  assert.equal(confirm.props.disabled, false)
+})
 test('host rejects unauthenticated requests before reading body', async () => {
   let handler, status, output
   apply({ sessionPersistence: {}, effect: fn => fn(), webServer: { register: route => { handler = route.handler; return () => {} } }, connection: { requestRejection: () => 401 }, logger: { warn() {} } })

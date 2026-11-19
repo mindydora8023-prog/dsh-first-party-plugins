@@ -276,6 +276,8 @@ export async function runAutoCleanup(ctx, options) {
   const dryRun = options?.dryRun === true
   const deleteOne = options?.deleteOne
   const report = emptyReport(options?.reason ?? 'manual', dryRun)
+  // Callers (the settings preview) need the threshold that produced `eligible`.
+  report.days = days
 
   const { rows } = await scanArchived(ctx, now, days)
   report.scanned = rows.length
