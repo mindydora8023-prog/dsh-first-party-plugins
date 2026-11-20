@@ -898,6 +898,7 @@ test('client-side name candidates mirror the host expansion', () => {
 	assert.equal(grok.includes('grok-4.7'), true, 'context-window tag stripped');
 	assert.equal(grok.includes('grok-4'), false, 'not collapsed onto grok-4');
 	assert.equal(I.nameCandidates('anthropic/claude-opus-4-5@20251101').includes('claude-opus-4-5'), false, 'snapshot dates stay');
+	assert.equal(I.nameCandidates('apikeyfan/muse-wonder-1.0-contributor').includes('muse-wonder-1.0'), true, 'contributor is release noise');
 });
 
 test('a session running only on flat-priced models shows no period marker', () => {

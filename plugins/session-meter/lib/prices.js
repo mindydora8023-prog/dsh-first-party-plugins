@@ -18,7 +18,33 @@
 const DEEPSEEK_MARKER = 'deepseek';
 
 /** Trailing release-suffix noise that relays append to an official model id. */
-const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental)$/;
+const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental|contributor)$/;
+
+/**
+ * Trailing segments that carry model identity (tier / capability / modality),
+ * never distribution noise. The verified fallback in {@link selectModels} must
+ * never strip one of these: `qwen3-coder-flash` is not `qwen3-coder`, and
+ * `llama-pro` is not `llama`.
+ */
+const MEANINGFUL_TAIL = new Set([
+  'flash', 'pro', 'mini', 'nano', 'micro', 'turbo', 'max', 'ultra', 'plus',
+  'lite', 'air', 'code', 'coder', 'vision', 'image', 'audio', 'video',
+  'instruct', 'chat', 'base', 'small', 'medium', 'large', 'reasoning',
+  'thinking', 'open', 'fast', 'spark', 'preview', 'beta', 'alpha',
+]);
+
+/**
+ * Canonical spelling of a model id for near-match comparison: version
+ * separators between digits are equivalent (`muse-wonder-1-0` is
+ * `muse-wonder-1.0`, `claude-opus-4-5` is `claude-opus-4.5`), and a
+ * context-window tag is not part of the id.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+export function normalizeModelKey(value) {
+  return String(value).toLowerCase().replace(CONTEXT_SUFFIX, '').replace(/(\d)[-_](?=\d)/g, '$1.');
+}
 
 /**
  * Context-window tag a route appends after the real id (`grok-4.7@500k`,
@@ -127,6 +153,17 @@ export function buildCatalog(modelsDev, usdToCny) {
       if (rate === undefined) continue;
       models[providerKey + '/' + id] = rate;
       if (models[id] === undefined) models[id] = rate;
+      // Vendor-canonical spelling (`meta/muse-wonder-1.0`) for relay routes
+      // whose own provider prefix is not a catalog provider at all.
+      const canonical = entry && typeof entry === 'object' && typeof entry.canonical_model_id === 'string'
+        ? entry.canonical_model_id.toLowerCase()
+        : '';
+      if (canonical.length > 0 && !canonical.includes(DEEPSEEK_MARKER)) {
+        if (models[canonical] === undefined) models[canonical] = rate;
+        const slash = canonical.lastIndexOf('/');
+        const tail = slash >= 0 ? canonical.slice(slash + 1) : canonical;
+        if (tail.length > 0 && models[tail] === undefined) models[tail] = rate;
+      }
     }
   }
   return models;
@@ -170,6 +207,59 @@ export function nameCandidates(model) {
 }
 
 /**
+ * Last-resort lookup for a routed id the deterministic candidates missed.
+ *
+ * A hit requires ALL of: (a) the normalized candidate and the normalized
+ * catalog key are equal after stripping trailing noise -- release words via
+ * `RELEASE_SUFFIX`, trailing version segments (`-1.0` after the
+ * 1.0-stripped form), or distribution suffixes; (b) the two ORIGINAL ids
+ * share the same first segment (the family token: `muse-...`, `gpt-...`),
+ * so a strip can never wander across families; (c) the candidate's last
+ * segment is not a meaningful word (see MEANINGFUL_TAIL), so `qwen3-coder`
+ * never prices as anything else and `llama-pro` stays unpriced when the
+ * catalog only knows `llama`; (d) exactly ONE catalog key satisfies the
+ * above -- ambiguity is a miss, never a guess.
+ *
+ * Candidates are tried most-specific first, so a shorter candidate only
+ * wins when no longer one matched any key.
+ *
+ * @param {Record<string, object>} models
+ * @param {string} name - routed model id.
+ * @returns {object|undefined}
+ */
+function verifiedFallback(models, name) {
+  const candidates = nameCandidates(name);
+  // Exact spellings already failed; the fallback works on normalized forms.
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalized = normalizeModelKey(candidate);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    const parts = normalized.split('-');
+    if (parts.length < 2) continue;
+    const last = parts[parts.length - 1];
+    if (MEANINGFUL_TAIL.has(last)) continue;
+    // Strip forms of THIS candidate: noise word, one trailing version, or
+    // one distribution word. Each form is one strip away from what the
+    // route actually reported, never a chain.
+    const stripForms = new Set();
+    const noise = normalized.replace(RELEASE_SUFFIX, '');
+    if (noise !== normalized) stripForms.add(noise);
+    stripForms.add(parts.slice(0, -1).join('-'));
+    const matched = [];
+    for (const key of Object.keys(models)) {
+      const normalizedKey = normalizeModelKey(key);
+      if (stripForms.has(normalizedKey) && normalizedKey.split('-')[0] === parts[0]) {
+        matched.push(key);
+      }
+    }
+    if (matched.length === 1) return models[matched[0]];
+    if (matched.length > 1) return undefined;
+  }
+  return undefined;
+}
+
+/**
  * Pick the requested models out of the catalog.
  *
  * @param {Record<string, object>} models - result of {@link buildCatalog}.
@@ -187,6 +277,10 @@ export function selectModels(models, names) {
         hits[name] = rate;
         break;
       }
+    }
+    if (hits[name] === undefined) {
+      const fallback = verifiedFallback(models, name);
+      if (fallback !== undefined) hits[name] = fallback;
     }
   }
   return hits;

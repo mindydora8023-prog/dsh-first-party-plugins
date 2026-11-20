@@ -1,6 +1,6 @@
 # 会话费用估算
 
-在 DeepSeek Harness 输入区显示当前会话费用，并为适用的 DeepSeek 模型显示峰谷时段。版本 0.3.52，MIT 许可证。
+在 DeepSeek Harness 输入区显示当前会话费用，并为适用的 DeepSeek 模型显示峰谷时段。版本 0.3.53，MIT 许可证。
 
 ## 计算方式
 
@@ -20,7 +20,7 @@
 
 宿主端运行时可请求以下服务，并缓存结果：
 
-- 价格目录：<https://models.dev/api.json>。版本 0.3.52 起，只有请求里出现非 DeepSeek 模型才下载；只用 DeepSeek 时不再在启动时拉取。
+- 价格目录：<https://models.dev/api.json>。版本 0.3.52 起，只有请求里出现非 DeepSeek 模型才下载；只用 DeepSeek 时不再在启动时拉取。版本 0.3.53 起，目录匹配兼容分发变体名（剥除 preview/latest/free/contributor 等发行尾缀）、版本分隔符写法（`1-0` 与 `1.0`）与 canonical 官方 id 索引，确切候选仍未命中时才启用受控兜底（剥尾后归一相等、家族首段相同、末段非身份词、目录中唯一）。
 - 美元兑人民币汇率：<https://open.er-api.com/v6/latest/USD>
 - DeepSeek 内置价格表参考：<https://api-docs.deepseek.com/zh-cn/quick_start/pricing>
 

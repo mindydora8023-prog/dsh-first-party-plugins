@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildCatalog, classifyNames, cnyEntry, nameCandidates, scaleRates, selectModels, usdToCnyOf } from '../lib/prices.js';
+import { buildCatalog, classifyNames, cnyEntry, nameCandidates, normalizeModelKey, scaleRates, selectModels, usdToCnyOf } from '../lib/prices.js';
 
 const FX = 7.2;
 
@@ -79,6 +79,48 @@ test('a context-window tag is stripped, a snapshot date is not', () => {
 	assert.equal(hits['cursor/grok-4.7@500k'].input, 14.4);
 	assert.equal(hits['cursor/grok-4.7@500k'].output, 43.2);
 	assert.equal(hits['anthropic/claude-opus-4-5@20251101'].input, 36, 'the dated key wins over the bare sibling');
+});
+
+test('a contributor variant resolves to the canonical catalog model', () => {
+	const catalog = buildCatalog({
+		meta: { models: { 'muse-wonder-1.0': { cost: { input: 4, output: 20, cache_read: 0.2 } } } },
+	}, FX);
+	const hits = selectModels(catalog, ['apikeyfan/muse-wonder-1.0-contributor']);
+	assert.equal(hits['apikeyfan/muse-wonder-1.0-contributor'].input, 28.8);
+	assert.equal(nameCandidates('apikeyfan/muse-wonder-1.0-contributor').includes('muse-wonder-1.0'), true);
+});
+
+test('a dash-written version resolves to the dotted catalog id', () => {
+	const catalog = buildCatalog({
+		kenari: { models: { 'muse-wonder-1-0': { cost: { input: 4, output: 20 } } } },
+	}, FX);
+	assert.equal(normalizeModelKey('relay/muse-wonder-1-0'), 'relay/muse-wonder-1.0');
+	const hits = selectModels(catalog, ['relay/muse-wonder-1-0-contributor']);
+	assert.equal(hits['relay/muse-wonder-1-0-contributor'].input, 28.8);
+});
+
+test('the canonical model id is indexed for relay routes', () => {
+	const catalog = buildCatalog({
+		opencode: { models: { 'muse-wonder-1.0': { cost: { input: 4, output: 20 }, canonical_model_id: 'meta/muse-wonder-1.0' } } },
+	}, FX);
+	assert.equal(catalog['meta/muse-wonder-1.0'].input, 28.8);
+});
+
+test('the verified fallback never strips a meaningful tier word', () => {
+	const catalog = buildCatalog({
+		vendor: { models: { 'qwen3-coder': { cost: { input: 1, output: 2 } }, llama: { cost: { input: 1, output: 2 } } } },
+	}, FX);
+	const hits = selectModels(catalog, ['relay/qwen3-coder-flash', 'relay/llama-pro']);
+	assert.deepEqual(Object.keys(hits), [], 'flash/pro carry identity and stay unpriced');
+});
+
+test('the verified fallback refuses an ambiguous strip', () => {
+	const catalog = buildCatalog({
+		kenari: { models: { 'muse-wonder-1-0': { cost: { input: 1, output: 2 } } } },
+		meta: { models: { 'muse-wonder-1.0': { cost: { input: 9, output: 9 } } } },
+	}, FX);
+	const hits = selectModels(catalog, ['relay/muse-wonder-x']);
+	assert.deepEqual(Object.keys(hits), [], 'dash and dotted spellings both match, so it stays unpriced');
 });
 
 test('selectModels answers only the names that resolved', () => {

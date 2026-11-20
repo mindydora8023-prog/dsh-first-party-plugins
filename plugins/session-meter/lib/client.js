@@ -592,7 +592,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/** Trailing release-suffix noise a relay may append to an official id. */
-		const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental)$/;
+		const RELEASE_SUFFIX = /-(preview|latest|free|beta|alpha|experimental|contributor)$/;
 		/**
 		 * Context-window tag a route appends (`grok-4.7@500k`). Not part of the
 		 * catalog id. Snapshot dates (`@20250929`) have no k/m/b unit and stay.
