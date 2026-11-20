@@ -8,7 +8,6 @@
 |---|---|---|
 | filekit | 文档解析器为本地实现，工具定义及一份契约测试明确记录宿主移植；旧 Office fixtures 实际含库模板字节 | 加 DeepSeek MIT；用自编最简 OOXML 生成器替换含模板样例；收录 |
 | github | REST 封装和凭据/代理工具为工作区实现，工具助手为宿主兼容移植；旧图标是 GitHub 品牌轮廓 | 加 DeepSeek MIT；换本次新写的分支节点 SVG；收录 |
-| gmail | 本地 IMAP/SMTP、MIME 与工具接线，工具助手为宿主兼容移植 | 加 DeepSeek MIT；只发布插件，排除独立 Python CLI 与本机启动器；收录 |
 | ops-lite | 自开发读取集成，完整性和失败策略有明确 dsh-ops 改编标记，工具助手含宿主移植 | 保留 DeepSeek、T-Auto MIT 与模块映射；修正 bundle 打包缺项；收录 |
 | next-say | 宿主集成、补全与输入层为本地开发；预测辅助模块与 dsh-prompt-predict 存在实质对应 | 将 predict.js 按上游改编处理，保留 ferrisching MIT；补生成器完整性检查；收录 |
 | task-radar | 通知发动机主干改编自 Pasumao；少量助手保守保留 chenchao 声明 | 0.3.0 批次已加完整 MIT、重绘图标及可复现生成器，修复打包、测试和文档；收录，见[专项记录](task-radar-audit.md) |
@@ -19,7 +18,7 @@ archived-sessions、session-meter 为首批已收录插件，继续保留。第�
 
 ## DeepSeek 兼容模块
 
-四个工具插件 `lib/define.js` 与工作区共享源相同。共享源自述 compiler/validator 是宿主行为的 faithful ports。filekit 的 `test/contract.test.mjs` 也注明 compiler/checker 移植。按已有说明与实现对应保守披露，而不以仅行为一致推断复制。
+工具插件 `lib/define.js` 与工作区共享源相同。共享源自述 compiler/validator 是宿主行为的 faithful ports。filekit 的 `test/contract.test.mjs` 也注明 compiler/checker 移植。按已有说明与实现对应保守披露，而不以仅行为一致推断复制。
 
 本次读取已安装 `@deepseek-ai/dsh-tools` 0.2.2-rc.1 的清单与 LICENSE，确认 MIT，`Copyright (c) 2026 DeepSeek`，上游目录为 [packages/core/tools](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/core/tools)。每个涉及的独立包都附完整许可；共享源目录也附一份。最初采用时的历史提交未记录，本次版本号是核对基准。
 

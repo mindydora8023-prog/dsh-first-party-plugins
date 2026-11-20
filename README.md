@@ -1,6 +1,6 @@
 # DSH 自开发插件
 
-面向 DeepSeek Harness 的九款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
+面向 DeepSeek Harness 的八款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
@@ -8,7 +8,6 @@
 | [session-meter](plugins/session-meter/README.md) | 0.3.52 | 会话费用、峰谷时段、缓存节省、上下文占用 | 工作区实现；运行时外部价格数据 |
 | [filekit](plugins/filekit/README.md) | 0.2.0 | CSV/TSV、DOCX、XLSX、PPTX 转 Markdown，PDF 文本页 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
 | [github](plugins/github/README.md) | 0.2.0 | GitHub 分页读取、提交 diff、PR 行评论、CI 失败日志，以及 Issue/评论写入 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
-| [gmail](plugins/gmail/README.md) | 0.1.1 | IMAP/SMTP 邮件读取与操作 | [DeepSeek 兼容模块](plugins/gmail/THIRD_PARTY_NOTICES.md) |
 | [ops-lite](plugins/ops-lite/README.md) | 0.2.0 | 一次读取文件、目录或 glob，并可按字面量定位 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
 | [next-say](plugins/next-say/README.md) | 0.2.3 | 下一句预测、前缀跟随、逐词采纳、历史补全 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
 | [task-radar](plugins/task-radar/README.md) | 0.3.0 | 页内可点卡片、到点消失的 Windows Toast、静音时段 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
@@ -47,7 +46,7 @@ npm test
 npm run check
 ```
 
-默认测试不连接真实 GitHub/Gmail，不发送邮件，不读取个人会话。每个插件测试子进程设 60 秒硬超时；没有行为测试的主题只验证入口语法，未伪装成行为测试覆盖。
+默认测试不连接真实 GitHub，不读取个人会话。每个插件测试子进程设 60 秒硬超时；没有行为测试的主题只验证入口语法，未伪装成行为测试覆盖。
 
 工具插件保留可选真实宿主比较测试：未设置 `DSH_HOST_CHECKOUT` 且没有兼容宿主检出时，相关用例明确显示跳过。可将变量设为含 node_modules/@deepseek-ai 的兼容检出根目录；宿主代码不随本仓库分发。纯函数、协议、替身与共享一致性用例仍会实际执行。
 
@@ -57,7 +56,7 @@ GitHub Actions 覆盖 Windows/Linux 与 Node.js 22/24。远端运行结果见 [A
 
 ## 使用行为
 
-归档插件默认开启超过 5 天的归档清理，安装后应在设置页核对。GitHub 与 Gmail 写工具会操作真实账户；next-say 预测使用辅助模型调用，会产生实际费用。具体开关与数据目录见各插件说明。
+归档插件默认开启超过 5 天的归档清理，安装后应在设置页核对。GitHub 写工具会操作真实账户；next-say 预测使用辅助模型调用，会产生实际费用。具体开关与数据目录见各插件说明。
 
 仓库不分发宿主解包树、真实会话、个人账号配置、凭据、附件、日志或外部价格快照。运行时文件应存放到用户状态目录或显式配置的数据目录。
 
