@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-task-radar",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "任务雷达：任务结束时页内可点卡片打开会话，Windows Toast 到点消失，可设静音时段；浏览器系统通知默认关闭以免重复弹窗",
+  "description": "任务雷达：任务结束时页内可点卡片打开会话，Windows Toast 到点消失，可设静默时段；新增通用 webhook 推送，浏览器系统通知默认关闭以免重复弹窗",
   "main": "lib/index.js",
   "exports": {
     ".": {

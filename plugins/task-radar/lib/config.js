@@ -65,6 +65,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   system: Object.freeze({ enabled: false }),
   /** In-window card. Clicking it opens the session; it does not need OS permission. */
   page: Object.freeze({ enabled: true }),
+  /** Generic HTTP webhook: POST a JSON notification to a URL you control. */
+  webhook: Object.freeze({ enabled: false, url: '' }),
   /** Local-time quiet window. End may be earlier than start (crosses midnight). */
   quiet: Object.freeze({
     enabled: false,
@@ -79,6 +81,12 @@ function bool(value, fallback) {
 
 function str(value) {
   return typeof value === 'string' ? value.slice(0, STR_LIMIT) : '';
+}
+
+/** Keep only a trimmed absolute http(s) URL; anything else becomes ''. */
+function httpUrl(value) {
+  const text = typeof value === 'string' ? value.trim().slice(0, STR_LIMIT) : '';
+  return /^https?:\/\/[^\s]+$/i.test(text) ? text : '';
 }
 
 function objectAt(value) {
@@ -140,6 +148,7 @@ export function normalizeConfig(value) {
   const toast = objectAt(source.toast);
   const system = objectAt(source.system);
   const page = objectAt(source.page);
+  const webhook = objectAt(source.webhook);
   const quiet = objectAt(source.quiet);
   return {
     enabled: bool(source.enabled, DEFAULT_CONFIG.enabled),
@@ -166,6 +175,10 @@ export function normalizeConfig(value) {
     },
     page: {
       enabled: bool(page.enabled, DEFAULT_CONFIG.page.enabled),
+    },
+    webhook: {
+      enabled: bool(webhook.enabled, DEFAULT_CONFIG.webhook.enabled),
+      url: httpUrl(webhook.url),
     },
     quiet: {
       enabled: bool(quiet.enabled, DEFAULT_CONFIG.quiet.enabled),

@@ -497,6 +497,24 @@ async function generate(ctx, session, settings, options = {}) {
 }
 
 
+/** UTC date key (YYYY-MM-DD) for the daily call budget. */
+function dayKey(nowMs) {
+  try {
+    return new Date(nowMs).toISOString().slice(0, 10);
+  } catch {
+    return '1970-01-01';
+  }
+}
+
+/** Current budget usage for a state object, rolling over at UTC midnight. */
+function usageFor(state, settings, nowMs) {
+  const day = dayKey(nowMs);
+  if (state.usage === undefined || state.usage === null || state.usage.day !== day) {
+    state.usage = { day, used: 0 };
+  }
+  return { day: state.usage.day, used: state.usage.used, budget: Number(settings?.dailyCallBudget) || 0 };
+}
+
 /** Route table for the same-origin API. */
 function createHandler(ctx, state) {
   return async (request, response) => {
@@ -528,7 +546,7 @@ function createHandler(ctx, state) {
         return;
       }
       if (path === `${ROUTE}/settings` && request.method === 'GET') {
-        json(response, 200, { ok: true, settings: state.settings, defaults: DEFAULTS });
+        json(response, 200, { ok: true, settings: state.settings, defaults: DEFAULTS, usage: usageFor(state, state.settings, Date.now()) });
         return;
       }
 
@@ -667,11 +685,26 @@ function createHandler(ctx, state) {
             return;
           }
         }
+        // Daily call budget: refuse before spending a model call. `0` = unlimited.
+        const budget = Number(settings.dailyCallBudget) || 0;
+        if (budget > 0) {
+          const usage = usageFor(state, settings, Date.now());
+          if (usage.used >= budget) {
+            json(response, 200, { ok: false, reason: 'budget', usage });
+            return;
+          }
+        }
         const result = await generate(ctx, session, settings, {
           avoid: typeof body.avoid === 'string' ? body.avoid : undefined,
           forceDifferent: body.forceDifferent === true,
           draft: typeof body.draft === 'string' ? body.draft : undefined,
         });
+        // Count a call only when a model call actually happened. Refusals such as
+        // no-route / no-history / no-llm carry no elapsedMs and cost nothing.
+        if (result.elapsedMs !== undefined) {
+          const usage = usageFor(state, settings, Date.now());
+          state.usage.used = usage.used + 1;
+        }
         if (turn !== undefined && result.reason !== 'superseded') {
           const previousAttempt = attempts.get(sessionId);
           const used = (previousAttempt?.turn === turn ? previousAttempt.used : 0) + 1;

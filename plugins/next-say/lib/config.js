@@ -37,6 +37,8 @@ export const DEFAULTS = Object.freeze({
   historyMinChars: 2,
   /** Pause everything for this long when the user asks for a break. */
   pausedUntil: 0,
+  /** Max model calls per UTC day; 0 means unlimited. */
+  dailyCallBudget: 0,
 });
 
 /** Per-field bounds. A value outside its range is clamped, never rejected. */
@@ -47,6 +49,7 @@ const RANGES = Object.freeze({
   timeoutMs: [2000, 60000],
   historyMinChars: [1, 8],
   pausedUntil: [0, Number.MAX_SAFE_INTEGER],
+  dailyCallBudget: [0, 100000],
 });
 
 const MODES = new Set(['auto', 'manual']);

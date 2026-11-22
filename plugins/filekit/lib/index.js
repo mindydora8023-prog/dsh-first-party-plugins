@@ -138,6 +138,8 @@ async function register(ctx, config, dirs) {
       return [
         `Available: ${visible.join(', ')}.`,
         'filekit reads CSV/TSV, DOCX, XLSX, PPTX, and PDF text only. Office files come back as Markdown. It is not OCR, does not recalculate formulas, and rejects legacy .doc/.xls/.ppt.',
+        'Use filekit_outline first to see a document\'s structure, then read the range you need.',
+        'Use filekit_search to find text inside one document; it returns the matching unit locations.',
         'When a result says "Use offset=N to continue", call again with that offset.',
         'Plain text files go to ops_read_files, not these tools.',
       ].join('\n')

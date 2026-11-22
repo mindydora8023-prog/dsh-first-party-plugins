@@ -15,6 +15,7 @@
  * Nothing here is required for the pill to work: without the route the client
  * falls back to its built-in DeepSeek table.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -50,13 +51,82 @@ export function statusFilePath() {
   return statePath('session-meter', 'session-meter-status.json');
 }
 
+/** Route the browser half reads for the account balance (read-only, key-gated). */
+const BALANCE_PATH = '/session-meter/balance';
+/** The only endpoint that may receive the balance credential. */
+const BALANCE_URL = 'https://api.deepseek.com/user/balance';
+/** Short cache so opening the panel repeatedly does not hammer the endpoint. */
+const BALANCE_TTL_MS = 60 * 1000;
+
+/**
+ * Build a reader for the DeepSeek account balance.
+ *
+ * Deliberately opt-in: with no key it returns `{ok:false, reason:'no-key'}` and
+ * never touches the network. A failed request is a quiet `{ok:false}` too, so the
+ * pill never breaks because a balance could not be fetched. The response is
+ * cached for a minute for the current credential. The transport, key provider
+ * and clock are injectable for offline tests.
+ *
+ * @param {{fetchImpl?:Function, keyProvider?:Function, timeoutMs?:number, now?:Function}} [options]
+ * @returns {Function} async () => balance result
+ */
+export function createBalanceReader(options = {}) {
+  const doFetch = typeof options.fetchImpl === 'function'
+    ? options.fetchImpl
+    : (typeof fetch === 'function' ? fetch : undefined);
+  const clock = typeof options.now === 'function' ? options.now : Date.now;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 8000;
+  let cache;
+  return async function readBalance() {
+    try {
+      const key = typeof options.keyProvider === 'function' ? String(options.keyProvider() || '').trim() : '';
+      if (key === '') {
+        cache = undefined;
+        return { ok: false, reason: 'no-key' };
+      }
+      if (doFetch === undefined) return { ok: false, reason: 'no-fetch' };
+      const keyHash = createHash('sha256').update(key).digest('hex');
+      if (cache?.keyHash !== keyHash) cache = { keyHash };
+      // Each key change replaces the slot, so an older in-flight read only
+      // updates its own slot and cannot evict the current credential's result.
+      const slot = cache;
+      const at = clock();
+      if (slot.value !== undefined && at - slot.value.fetchedAt < BALANCE_TTL_MS) return slot.value;
+      const response = await doFetch(BALANCE_URL, {
+        headers: { authorization: 'Bearer ' + key, accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (response === undefined || response === null || response.ok === false) {
+        return { ok: false, reason: 'http', status: response ? response.status : 0 };
+      }
+      const body = await response.json();
+      const infos = Array.isArray(body && body.balance_infos) ? body.balance_infos : [];
+      const value = {
+        ok: true,
+        available: body && body.is_available === true,
+        balances: infos.map((item) => ({
+          currency: String(item && item.currency != null ? item.currency : ''),
+          total: String(item && item.total_balance != null ? item.total_balance : ''),
+          granted: String(item && item.granted_balance != null ? item.granted_balance : ''),
+          toppedUp: String(item && item.topped_up_balance != null ? item.topped_up_balance : ''),
+        })),
+        fetchedAt: at,
+      };
+      slot.value = value;
+      return value;
+    } catch {
+      return { ok: false, reason: 'error' };
+    }
+  };
+}
+
 
 /**
  * Bumped when the cached payload shape changes.
  * Version 2 (rates only) still loads; the next save adds `catalogEtag`.
  */
-const CACHE_VERSION = 3;
-/** Older snapshot this loader can still price from. */
+const CACHE_VERSION = 3;/** Older snapshot this loader can still price from. */
 const CACHE_VERSION_MIN = 2;
 /** Route the browser half reads. */
 const ROUTE = '/session-meter/prices';
@@ -490,6 +560,36 @@ export function apply(ctx) {
     return registered;
   };
 
+  // Balance: read-only, key-gated, loopback-only, failure-quiet. Registered
+  // BEFORE the price route so a test that captures "the last registered route"
+  // still sees the price route.
+  const readBalance = createBalanceReader({
+    keyProvider: () => process.env.SESSION_METER_DEEPSEEK_KEY ?? process.env.DEEPSEEK_API_KEY ?? '',
+    timeoutMs: numberFromEnv('SESSION_METER_BALANCE_TIMEOUT_MS', 8000),
+  });
+  const balanceHandler = async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('method not allowed');
+      return;
+    }
+    const address = req.socket?.remoteAddress;
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address)) {
+      const denied = JSON.stringify({ ok: false, reason: 'forbidden' });
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(denied) });
+      res.end(req.method === 'HEAD' ? undefined : denied);
+      return;
+    }
+    let value;
+    try { value = await readBalance(); } catch { value = { ok: false, reason: 'error' }; }
+    const body = JSON.stringify(value);
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  };
+  const attachBalanceRoute = (server) => {
+    ctx.effect(() => server.register({ kind: 'exact', path: BALANCE_PATH, handler: balanceHandler }), 'session-meter balance route');
+  };
+
   // `webServer` may be provided AFTER this plugin activates (a fresh boot has no
   // guaranteed order between the two). Reading it once with `get` and returning
   // when absent left the route permanently unregistered, which surfaced only as
@@ -498,13 +598,13 @@ export function apply(ctx) {
     ctx.inject(['webServer'], (childCtx) => {
       status.web_server = true;
       const server = typeof childCtx.get === 'function' ? childCtx.get('webServer') : childCtx.webServer;
-      if (server !== undefined && server !== null) attachRoute(server);
+      if (server !== undefined && server !== null) { attachBalanceRoute(server); attachRoute(server); }
       writeStatus();
     });
   } else {
     const server = typeof ctx.get === 'function' ? ctx.get('webServer') : ctx.webServer;
     status.web_server = server !== undefined && server !== null;
-    if (status.web_server) attachRoute(server);
+    if (status.web_server) { attachBalanceRoute(server); attachRoute(server); }
     writeStatus();
   }
 }

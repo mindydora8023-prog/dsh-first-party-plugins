@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "GitHub",
-    "description": "Search and page through GitHub repos, files, issues and pull requests; read a commit diff, PR line comments, and the tail of a failed CI log."
+    "description": "Search and page through GitHub repos, files, issues and pull requests; read a commit diff, PR line comments and a failed CI log; write issues, comments, pull requests, merges and reviews."
   }
 }

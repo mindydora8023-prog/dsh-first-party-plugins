@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Task radar",
-    "description": "Clickable in-page card that opens the session when a task finishes, auto-dismissing Windows toast, and quiet hours. Browser notifications stay off by default so the same event is not shown twice."
+    "description": "Clickable in-page card that opens the session when a task finishes, auto-dismissing Windows toast, and quiet hours; plus an optional generic webhook push. Browser notifications stay off by default so the same event is not shown twice."
   }
 }

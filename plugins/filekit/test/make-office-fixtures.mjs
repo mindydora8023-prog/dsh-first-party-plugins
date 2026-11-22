@@ -42,12 +42,14 @@ function relationships(items) {
 function contentTypes(overrides) {
   return xml('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' + overrides.map(([part, type]) => `<Override PartName="/${part}" ContentType="application/vnd.openxmlformats-officedocument.${type}+xml"/>`).join('') + '</Types>')
 }
-const p = (text) => `<w:p><w:r><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`
+const p = (text, style) => `<w:p>${style ? `<w:pPr><w:pStyle w:val="${style}"/></w:pPr>` : ''}<w:r><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`
 const table = '<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>' + [1, 2].map(r => '<w:tr>' + [1, 2, 3].map(c => `<w:tc><w:tcPr/>${p(`R${r}C${c}`)}</w:tc>`).join('') + '</w:tr>').join('') + '</w:tbl>'
 const docx = {
-  '[Content_Types].xml': contentTypes([['word/document.xml', 'wordprocessingml.document.main']]),
+  '[Content_Types].xml': contentTypes([['word/document.xml', 'wordprocessingml.document.main'], ['word/styles.xml', 'wordprocessingml.styles']]),
   '_rels/.rels': relationships([['rId1', 'officeDocument', 'word/document.xml']]),
-  'word/document.xml': xml('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + p('FileKit Report') + p('First paragraph with an & ampersand and <angle> brackets.') + '<w:p><w:r><w:t xml:space="preserve">Second paragraph </w:t><w:tab/><w:t>after a tab</w:t></w:r></w:p>' + table + p('Paragraph after the table.') + '<w:sectPr/></w:body></w:document>'),
+  'word/_rels/document.xml.rels': relationships([['rId1', 'styles', 'styles.xml']]),
+  'word/styles.xml': xml('<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style></w:styles>'),
+  'word/document.xml': xml('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + p('FileKit Report', 'Heading1') + p('First paragraph with an & ampersand and <angle> brackets.') + '<w:p><w:r><w:t xml:space="preserve">Second paragraph </w:t><w:tab/><w:t>after a tab</w:t></w:r></w:p>' + table + p('Paragraph after the table.') + '<w:sectPr/></w:body></w:document>'),
 }
 const sheetNS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const cell = (ref, value) => {

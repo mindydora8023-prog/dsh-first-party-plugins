@@ -76,6 +76,10 @@ test('the read-only tool set is built and writes can be disabled', () => {
     'github_actions',
     'github_create_issue',
     'github_comment',
+    'github_create_pr',
+    'github_update_issue',
+    'github_merge_pr',
+    'github_submit_review',
   ]) {
     assert.ok(full.has(name), `missing tool ${name}`)
   }

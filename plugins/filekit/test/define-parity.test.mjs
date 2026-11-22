@@ -90,11 +90,13 @@ const PLUGIN = {
   ],
 
   expectTools: [
+    'filekit_outline',
     'filekit_read_docx',
     'filekit_read_pdf',
     'filekit_read_pptx',
     'filekit_read_table',
     'filekit_read_xlsx',
+    'filekit_search',
   ],
 
   /** The prompt section order this plugin asks for (see its cordis section). */

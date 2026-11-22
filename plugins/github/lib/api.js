@@ -317,6 +317,22 @@ export function describeWriteCheck(method, path) {
   if (commentCreate !== null && method === 'POST') {
     return `call github_issue for ${commentCreate[1]}/${commentCreate[2]} #${commentCreate[3]} and check whether your comment is already there`
   }
+  const prCreate = /\/repos\/([^/]+)\/([^/]+)\/pulls$/.exec(path)
+  if (prCreate !== null && method === 'POST') {
+    return `call github_pulls for ${prCreate[1]}/${prCreate[2]} and look for the pull request you just opened`
+  }
+  const prMerge = /\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge$/.exec(path)
+  if (prMerge !== null && method === 'PUT') {
+    return `call github_pulls with number ${prMerge[3]} for ${prMerge[1]}/${prMerge[2]} and check whether it is now merged`
+  }
+  const review = /\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/reviews$/.exec(path)
+  if (review !== null && method === 'POST') {
+    return `call github_pulls with number ${review[3]} for ${review[1]}/${review[2]} and check the latest reviews`
+  }
+  const issuePatch = /\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/.exec(path)
+  if (issuePatch !== null && method === 'PATCH') {
+    return `call github_issue for ${issuePatch[1]}/${issuePatch[2]} #${issuePatch[3]} and verify the fields you changed`
+  }
   return 'read the resource back first and look for the change you attempted'
 }
 

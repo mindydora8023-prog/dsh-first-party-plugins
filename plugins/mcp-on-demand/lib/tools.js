@@ -655,6 +655,67 @@ export function buildTools(ctx, config, state) {
     },
   }
 
-  const tools = [mcpList, mcpFind, mcpProbe, mcpEnable, mcpDisable]
+  const mcpHealth = {
+    name: 'mcpod_health',
+    description:
+      'Preflight one MCP server WITHOUT mounting it: validate its definition, report whether it is mounted and for '
+      + 'how long, and how fresh its cached tool catalog is. Pass probe:true for a bounded live connect that reports '
+      + 'reachability and then disconnects. Use it to triage a server before mcpod_enable.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Server name as mcpod_list reports it.' },
+      probe: { type: 'boolean', description: 'Also connect once (bounded) to confirm reachability. Default false (cheap).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          ok: { type: 'boolean' },
+        },
+        required: ['text', 'ok'],
+        additionalProperties: false,
+      },
+      render: (_args, value) => text(typeof value?.text === 'string' ? value.text : ''),
+    },
+    async execute(args) {
+      const name = typeof args?.name === 'string' ? args.name : ''
+      const definition = config.servers[name]
+      if (definition === undefined) {
+        return { ok: false, text: `No server called ${name} is configured. Call mcpod_list for the available names.` }
+      }
+      const entry = definition.entry || {}
+      const issues = []
+      if (entry.transport === 'streamable-http') {
+        if (typeof entry.url !== 'string' || entry.url === '') issues.push('streamable-http needs a url')
+      } else if (typeof entry.command !== 'string' || entry.command === '') {
+        issues.push('stdio needs a command')
+      }
+      const live = state.live.get(name)
+      let mounted = 'no'
+      if (live !== undefined) {
+        const ttlSeconds = live.ttlMs > 0 ? Math.max(0, Math.round((live.expiresAt - now()) / 1000)) : 0
+        mounted = `yes, ${managerStatus(name)}, ttl=${ttlSeconds}s`
+      }
+      const cached = catalog.servers ? catalog.servers[name] : undefined
+      const tools = cached && typeof cached.toolCount === 'number'
+        ? cached.toolCount
+        : Array.isArray(cached?.tools) ? cached.tools.length : undefined
+      const ageSeconds = cached && typeof cached.at === 'number' ? Math.max(0, Math.round((now() - cached.at) / 1000)) : undefined
+      const stale = ageSeconds !== undefined && ageSeconds > 7 * 24 * 3600
+      const lines = [
+        `Server: ${name}`,
+        `configured: ${issues.length === 0 ? 'yes' : 'no (' + issues.join('; ') + ')'}`,
+        `mounted: ${mounted}`,
+        `catalog: ${tools === undefined ? 'none' : tools + ' tool(s)'}${ageSeconds !== undefined ? ', age ' + ageSeconds + 's' + (stale ? ' (stale)' : '') : ''}`,
+      ]
+      if (args?.probe === true) {
+        const result = await probeServer(name, definition)
+        lines.push(`probe: ${result.ok === true ? 'reachable, ' + (Array.isArray(result.tools) ? result.tools.length : 0) + ' tool(s)' : 'failed: ' + (result.error || 'unknown error')}`)
+      }
+      return { ok: issues.length === 0, text: lines.join('\n') }
+    },
+  }
+
+  const tools = [mcpList, mcpFind, mcpProbe, mcpEnable, mcpDisable, mcpHealth]
   return Object.assign(tools, { noteActivity, hold, prompt: () => catalogPrompt(config.servers, catalog, now()) })
 }

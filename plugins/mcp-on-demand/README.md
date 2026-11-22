@@ -8,7 +8,7 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
 
 这个插件把开关交给模型：工具定义留在插件配置里，`mcpod_enable` 时才 `ctx.mcpManager.register()`，`mcpod_disable` 时调用返回的 disposer 卸载。工具随之中途出现、随之中途消失，不重启宿主。
 
-## 五个工具
+## 六个工具
 
 | 工具 | 作用 |
 |---|---|
@@ -16,7 +16,8 @@ DSH 自带的 `@deepseek-ai/dsh-mcp-manager` 会把 `config.servers` 里的每�
 | `mcpod_find` | 在记住的工具名目录里搜索，不启动进程，也不把 schema 放进提示词 |
 | `mcpod_probe` | 连上一台、记下工具名、再断开；不把服务器留在挂载状态 |
 | `mcpod_enable` | 挂载一台；`name` 必填，`ttl_seconds` 可覆盖 TTL（0 = 不自动释放） |
-| `mcpod_disable` | 卸载并关闭子进程；其工具从下一次请求起消失，目录仍留着 |
+| `mcpod_disable` | 卸载并关闭子进程，保留目录 |
+| `mcpod_health` | 查看配置、已有挂载及目录新鲜度，可选做一次有界连通性探测 |
 
 挂上之后工具名是 `mcp__<服务器名>__<工具>`，例如 `mcp__REA__binary_session`。
 
@@ -81,8 +82,8 @@ mcp__REA__binary_session       -> Error: unknown tool "mcp__REA__binary_session"
 
 | 文件 | 内容 |
 |---|---|
-| `lib/index.js` | 插件入口：注册五个工具、目录提示段、卸载时释放 |
-| `lib/tools.js` | 五个工具的定义与渲染 |
+| `lib/index.js` | 插件入口，注册工具和目录提示段，卸载时释放服务器 |
+| `lib/tools.js` | 六个工具的定义与渲染 |
 | `lib/catalog.js` | 工具名目录的读写、过期与搜索 |
 | `lib/limit.js` | 同时连接上限，以及同一台服务器的启用/探测互斥 |
 | `lib/routes.js` | 设置页读取、启停与探测的 HTTP 处理 |

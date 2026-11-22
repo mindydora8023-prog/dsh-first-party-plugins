@@ -107,12 +107,12 @@ async function register(ctx, config, dirs) {
   }
   const { defineTool, source } = await loadTools()
   const { readConfig } = await import('./config.js')
-  const { buildReadFilesTool } = await import('./tools.js')
+  const { buildReadFilesTool, buildTreeTool } = await import('./tools.js')
 
   const resolved = readConfig(config)
-  const definition = buildReadFilesTool(ctx, resolved)
+  const definitions = [buildReadFilesTool(ctx, resolved), buildTreeTool(ctx, resolved)]
 
-  const dispose = ctx.tools.register(defineTool(definition))
+  const disposers = definitions.map((definition) => ctx.tools.register(defineTool(definition)))
 
   // Guidance is scoped: it disappears from the prompt when the tool does.
   const sectionDisposer = resolved.promptGuidance
@@ -126,6 +126,7 @@ async function register(ctx, config, dirs) {
         if (ctx.tools.get('ops_read_files', scope) === undefined) return ''
         return [
           'ops_read_files reads several plain-text files in one call. A path may be a file, a directory, or a glob (* ? **).',
+          'ops_tree lists a directory as an indented tree in one call (names only; vendor/VCS folders and credentials are skipped).',
           'literal opens that file on the first exact match; around is lines of context before the hit (default 20).',
           'CSV/TSV/DOCX/XLSX/PDF go to the filekit readers, not here.',
           'pending > 0 means resend the files not yet returned; a file with more lines continues at its nextOffset.',
@@ -141,8 +142,10 @@ async function register(ctx, config, dirs) {
         ctx.logger.warn('ops-lite: prompt section disposal failed: %s', error?.message ?? String(error))
       }
     }
-    try { dispose() } catch (error) {
-      ctx.logger.warn('ops-lite: tool disposal failed: %s', error?.message ?? String(error))
+    for (const dispose of disposers.reverse()) {
+      try { dispose() } catch (error) {
+        ctx.logger.warn('ops-lite: tool disposal failed: %s', error?.message ?? String(error))
+      }
     }
   }, 'ops-lite registrations')
 
@@ -168,7 +171,7 @@ async function register(ctx, config, dirs) {
         loaded_at: new Date().toISOString(),
         pid: process.pid,
         plugin_version: version,
-        tools: [definition.name],
+        tools: definitions.map((definition) => definition.name),
         define_tool_source: source,
         state_root: stateProvenance(),
         config: resolved,
@@ -179,6 +182,7 @@ async function register(ctx, config, dirs) {
     }
   }
 
-  ctx.logger.info('ops-lite: registered %s', definition.name)
-  return [definition]
+  const toolNames = definitions.map((definition) => definition.name)
+  ctx.logger.info('ops-lite: registered %d tool(s): %s', toolNames.length, toolNames.join(', '))
+  return definitions
 }

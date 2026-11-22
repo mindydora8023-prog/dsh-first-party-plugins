@@ -1,6 +1,6 @@
 # filekit
 
-DSH 宿主插件，提供五个有界、只读的文档读取工具。版本 0.2.0。Office 文档按 Markdown 返回，分页约定不变：
+DSH 宿主插件，提供七个有界、只读的文档工具。版本 0.4.0。Office 文档按 Markdown 返回。可先查看大纲或搜索命中，再读取需要的范围。
 
 | 工具 | 内容与边界 |
 | --- | --- |
@@ -8,7 +8,9 @@ DSH 宿主插件，提供五个有界、只读的文档读取工具。版本 0.2
 | `filekit_read_docx` | DOCX 正文转 Markdown：标题、链接和表格；不解析页眉页脚、批注、图像或旧版 DOC |
 | `filekit_read_xlsx` | 工作簿转 Markdown 表格。省略 `sheet` 时读第一张并给出其余表头；公式显示缓存值 |
 | `filekit_read_pptx` | 幻灯片转 Markdown，含表格和有文字的演讲者备注；不描述图片，不读旧版 PPT |
-| `filekit_read_pdf` | 经典 PDF 的文本页；不进行 OCR，对部分字体和对象流存在限制 |
+| `filekit_read_pdf` | 经典 PDF 的文本页，文本提取受字体和对象流支持范围限制 |
+| `filekit_outline` | 查看 DOCX 标题、XLSX 工作表与表头、PPTX 幻灯片标题或 PDF 页首文字 |
+| `filekit_search` | 在单个 DOCX、XLSX、PPTX 或 PDF 中搜索字面文本，并返回命中位置 |
 
 读取通过宿主 `ctx.fs`，受宿主文件访问规则约束；工具有输出预算、分页提示和取消信号。纯文本多文件读取由独立的 ops-lite 插件提供。
 

@@ -262,6 +262,98 @@ function buildPdfTool(config, ctx) {
   }
 }
 
+/** Detect a document format from a path's extension, or '' when unknown. */
+function formatFromPath(path) {
+  const match = /\.([a-z0-9]+)$/i.exec(String(path ?? ''))
+  if (match === null) return ''
+  const ext = match[1].toLowerCase()
+  if (ext === 'docx') return 'docx'
+  if (ext === 'xlsx') return 'xlsx'
+  if (ext === 'pptx') return 'pptx'
+  if (ext === 'pdf') return 'pdf'
+  return ''
+}
+
+/** filekit_outline: headings/sheets/slides/pages without reading the body. */
+function buildOutlineTool(config, ctx) {
+  return {
+    name: 'filekit_outline',
+    description: 'List a document\'s outline without reading the body: DOCX headings, XLSX sheets plus their header row, PPTX slide titles, or PDF page count with the first line of each page. Use it to choose which range to read next.',
+    parameters: {
+      path: { type: 'string', required: true, description: 'Path to a .docx, .xlsx, .pptx or .pdf file.' },
+      limit: { type: 'integer', description: `Maximum outline entries to return. Default ${config.docDefaultLimit}.` },
+    },
+    output: textOutput(),
+    isConcurrencySafe: () => true,
+    timeoutMs: 120000,
+    async execute(args, exec) {
+      const format = formatFromPath(args?.path)
+      if (format === '') {
+        throw new Error('filekit_outline supports .docx, .xlsx, .pptx and .pdf only; plain text belongs to ops_read_files')
+      }
+      const { resolved, info } = await prepare(ctx, exec, config, args?.path)
+      const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
+      const limit = positiveInt(args?.limit, config.docDefaultLimit, 1, config.docMaxLimit)
+      const { buildOutline } = await import('./outline.js')
+      const doc = buildOutline(buffer, format, {
+        maxEntries: limit,
+        maxBytes: config.maxOutputBytes,
+        maxPdfPages: config.pdfMaxPages,
+      })
+      const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
+      return {
+        text: `<path>${resolved.displayPath}</path>\n<type>outline:${format}</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        entryCount: doc.entryCount,
+        totalEntries: doc.totalEntries,
+        truncated: doc.truncated,
+      }
+    },
+  }
+}
+
+/** filekit_search: find text inside one document without dumping its body. */
+function buildSearchTool(config, ctx) {
+  return {
+    name: 'filekit_search',
+    description: 'Search the text of one document (DOCX, XLSX, PPTX or PDF) and return the matching units with their location (paragraph, table cell, sheet row, slide or page). Plain substring match, case-insensitive by default.',
+    parameters: {
+      path: { type: 'string', required: true, description: 'Path to a .docx, .xlsx, .pptx or .pdf file.' },
+      query: { type: 'string', required: true, description: 'Text to find (literal substring).' },
+      ignore_case: { type: 'boolean', description: 'Case-insensitive match. Default true.' },
+      limit: { type: 'integer', description: `Maximum matches to return. Default 50.` },
+    },
+    output: textOutput(),
+    isConcurrencySafe: () => true,
+    timeoutMs: 120000,
+    async execute(args, exec) {
+      const format = formatFromPath(args?.path)
+      if (format === '') {
+        throw new Error('filekit_search supports .docx, .xlsx, .pptx and .pdf only; plain text belongs to ops_read_files')
+      }
+      const query = typeof args?.query === 'string' ? args.query : ''
+      if (query.trim() === '') throw new Error('query must be a non-empty string')
+      const { resolved, info } = await prepare(ctx, exec, config, args?.path)
+      const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
+      const limit = positiveInt(args?.limit, 50, 1, config.docMaxLimit)
+      const ignoreCase = bool(args?.ignore_case, true)
+      const { searchDocument } = await import('./search.js')
+      const doc = searchDocument(buffer, format, query, {
+        limit,
+        ignoreCase,
+        maxBytes: config.maxOutputBytes,
+        maxPdfPages: config.pdfMaxPages,
+      })
+      const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
+      return {
+        text: `<path>${resolved.displayPath}</path>\n<type>search:${format}</type>\n<query>${query}</query>\n<content>\n${doc.text}${warn}\n</content>`,
+        hits: doc.hits,
+        scanned: doc.scanned,
+        truncated: doc.truncated,
+      }
+    },
+  }
+}
+
 /**
  * Build all tool definitions for the resolved config.
  *
@@ -283,5 +375,7 @@ export function buildTools(config, ctx) {
     buildXlsxTool(config, ctx),
     buildPptxTool(config, ctx),
     buildPdfTool(config, ctx),
+    buildOutlineTool(config, ctx),
+    buildSearchTool(config, ctx),
   ]
 }

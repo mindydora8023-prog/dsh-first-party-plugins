@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-mcp-on-demand",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "MCP 按需装载：设置页可搜索、探测工具名；模型用到才挂载，用完即释放",
+  "description": "MCP 按需装载：设置页可搜索、探测工具名；模型用到才挂载，用完即释放；mcpod_health 可先做配置/目录/连通性体检",
   "main": "lib/index.js",
   "type": "module",
   "exports": {

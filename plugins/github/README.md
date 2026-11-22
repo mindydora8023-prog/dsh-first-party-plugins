@@ -1,6 +1,6 @@
 # GitHub 原生工具
 
-为 DeepSeek Harness 提供 16 个 GitHub 工具，覆盖仓库、文件、提交、分支、Issue、PR、Actions 查询，以及创建 Issue 与发表评论。版本 0.2.0。工具数量没增加：列表带 `has_more` / `next_page`；`github_read_file` 用 `offset` 和 `limit` 按行翻页；`github_search_code` 带回命中片段；`github_commits` 传 `sha` 返回该次提交的 patch；`github_pulls` 传 `number` 返回行级评论；`github_actions` 传 `run_id` 返回失败 job、annotation 和一条日志尾部。写操作仍要先向用户确认。
+为 DeepSeek Harness 提供 20 个 GitHub 工具，覆盖仓库、文件、提交、分支、Issue、PR、Actions 查询，以及创建 Issue、发表评论、创建/合并 PR、修改 Issue、提交 review。版本 0.3.0。列表带 `has_more` / `next_page`；`github_read_file` 用 `offset` 和 `limit` 按行翻页；`github_search_code` 带回命中片段；`github_commits` 传 `sha` 返回该次提交的 patch；`github_pulls` 传 `number` 返回行级评论；`github_actions` 传 `run_id` 返回失败 job、annotation 和一条日志尾部。写操作仍要先向用户确认。
 
 使用 Node.js 内置 fetch 和子进程，无第三方 npm 运行时依赖。主体在本工作区开发，工具参数兼容模块带有 DeepSeek MIT 来源，见[来源说明](THIRD_PARTY_NOTICES.md)。
 
@@ -10,7 +10,7 @@
 
 凭据依次支持插件配置、GITHUB_TOKEN/GH_TOKEN 环境变量、凭据文件、Git Credential Manager 与 gh CLI。读取凭据仅发生在实际调用插件工具时；本包不分发任何账号凭据。
 
-建议使用环境变量或源码目录之外的凭据文件。`useGitCredential` 与 `useGhCli` 可分别关闭。关闭 `allowWrite` 后不注册写工具；默认开启时，创建 Issue 与评论会真实写入 GitHub。
+建议使用环境变量或源码目录之外的凭据文件。`useGitCredential` 与 `useGhCli` 可分别关闭。关闭 `allowWrite` 后不注册写工具；默认开启时，创建 Issue、评论、PR、合并与 review 会真实写入 GitHub。
 
 匿名模式可读公开仓库，受 GitHub 匿名配额限制；代码搜索及写操作需要登录。可通过 `apiBaseUrl` 使用 GitHub Enterprise。代理可来自显式配置、环境变量和 Windows 系统代理。
 

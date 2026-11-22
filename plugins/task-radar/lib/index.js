@@ -201,6 +201,72 @@ export function fireToast(ctx, cfg, payload) {
   return defaultToastSender(ctx, cfg, payload);
 }
 
+// -- webhook (generic HTTP) ------------------------------------------------
+
+export const WEBHOOK_TIMEOUT_MS = 8000;
+
+/**
+ * POST a JSON notification to a user-supplied URL.
+ *
+ * Deliberately generic: `{title, body, location, kind, session, at}`. Endpoints
+ * that accept this shape (custom receivers, ntfy-style relays, or a tiny adapter
+ * in front of Bark/Server Chan/Feishu/DingTalk) can use it directly. The call is
+ * bounded and never throws into the event path: a broken endpoint must not break
+ * the toast or the page card.
+ *
+ * `fetchImpl` is injectable so tests never touch the network.
+ */
+export function createWebhookSender({ fetchImpl, timeoutMs = WEBHOOK_TIMEOUT_MS } = {}) {
+  const doFetch = typeof fetchImpl === 'function'
+    ? fetchImpl
+    : (typeof fetch === 'function' ? fetch : undefined);
+  return function sendWebhook(ctx, cfg, payload) {
+    const warn = (message) => {
+      if (ctx.logger && ctx.logger.warn) ctx.logger.warn(message);
+    };
+    const url = cfg && cfg.webhook ? cfg.webhook.url : '';
+    if (typeof url !== 'string' || url === '') return false;
+    if (doFetch === undefined) {
+      warn('task-radar: webhook skipped (no fetch available)');
+      return false;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      Promise.resolve(doFetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: payload.title,
+          body: payload.body,
+          location: payload.location || '',
+          kind: payload.kind,
+          session: payload.session,
+          at: payload.at,
+        }),
+        signal: controller.signal,
+      })).then(
+        (response) => {
+          if (response && typeof response.ok === 'boolean' && response.ok === false) {
+            warn('task-radar: webhook responded ' + String(response.status));
+          }
+        },
+        (error) => warn('task-radar: webhook failed: ' + String(error)),
+      ).finally(() => clearTimeout(timer));
+      return true;
+    } catch (error) {
+      clearTimeout(timer);
+      warn('task-radar: webhook failed: ' + String(error));
+      return false;
+    }
+  };
+}
+
+const defaultWebhookSender = createWebhookSender();
+export function fireWebhook(ctx, cfg, payload) {
+  return defaultWebhookSender(ctx, cfg, payload);
+}
+
 // -- labels ----------------------------------------------------------------
 
 function truncate(text, max) {
@@ -308,6 +374,7 @@ const REASON_KIND = {
 export function apply(ctx, options = {}) {
   // Only function-valued overrides affect execution; persisted config stays data.
   const toastSender = options && typeof options.toastSender === 'function' ? options.toastSender : fireToast;
+  const webhookSender = options && typeof options.webhookSender === 'function' ? options.webhookSender : fireWebhook;
   const nowOf = options && typeof options.now === 'function' ? options.now : Date.now;
   const file = configFilePath();
   const stored = readConfigFile(file);
@@ -401,6 +468,9 @@ export function apply(ctx, options = {}) {
 
     pushJournal({ at: now, kind, title, body, location, session: id });
     if (cfg.toast.enabled) toastSender(ctx, cfg, { title, body, location });
+    if (cfg.webhook && cfg.webhook.enabled && cfg.webhook.url) {
+      webhookSender(ctx, cfg, { title, body, location, kind, session: id, at: now });
+    }
     if (ctx.logger && ctx.logger.debug) ctx.logger.debug('task-radar: ' + kind + ' -> ' + title + (location ? ' (' + location + ')' : ''));
   }
 

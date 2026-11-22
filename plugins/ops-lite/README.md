@@ -1,6 +1,6 @@
 # 有界多文件读取
 
-为 DeepSeek Harness 增加 `ops_read_files`：一次读取多个 UTF-8 文本文件。`path` 可以是文件、目录，或 `*` / `?` / `**` 通配。版本 0.2.0。分页与 `retry: never` 的约定不变。
+为 DeepSeek Harness 提供 `ops_read_files` 和 `ops_tree`。`ops_read_files` 一次读取多个 UTF-8 文本文件，`path` 可以是文件、目录或通配。`ops_tree` 列出目录结构，可设置深度和条目上限，并跳过依赖目录、版本控制目录和凭据路径。版本 0.3.0。
 
 - 目录只取直接子文件里的文本；通配跳过 `node_modules`、`.git`、`dist`，并丢掉凭据路径。
 - `literal` 从第一次精确命中打开窗口，`around` 是命中行之前的上下文，默认 20 行。

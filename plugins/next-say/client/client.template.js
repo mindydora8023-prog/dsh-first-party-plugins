@@ -419,6 +419,8 @@ window.__ModuleLoader__.load({
       const dismissed = React.useRef('');
       const accepted = React.useRef('');
       const historyRef = React.useRef([]);
+      /** Current position in the user-prompt history recall (ArrowUp/ArrowDown). */
+      const recallRef = React.useRef(null);
       /**
        * The live draft, readable from callbacks (predict) without re-creating them
        * on every keystroke.
@@ -453,6 +455,7 @@ window.__ModuleLoader__.load({
         historyRef.current = [];
         dismissed.current = '';
         accepted.current = '';
+        recallRef.current = null;
         lastPoolFetch.current = 0;
         triedOnMount.current = false;
       }
@@ -532,7 +535,7 @@ window.__ModuleLoader__.load({
       // history, so this is a string scan, not a request.
       const local = React.useMemo(() => {
         if (!enabled || paused || !inputReady || settings === null || settings.historyEnabled !== true) return null;
-        if (blankDraft) return null;
+        if (blankDraft || recallRef.current?.text === draft) return null;
         // The draft the user dismissed must not be re-offered -- but only that
         // exact draft. Any further edit produces a new draft and may complete
         // again, which is what makes Escape a per-suggestion decision rather
@@ -835,7 +838,8 @@ window.__ModuleLoader__.load({
       // Showing a completion's full text next to a draft it starts with looks
       // like the draft being repeated, and accepting it would insert the
       // sentence twice.
-      const modelLive = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && !running;
+      const recalling = !blankDraft && recallRef.current?.text === draft;
+      const modelLive = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && !running && !recalling;
       const modelFollows = !modelLive || blankDraft ? null : suggestionRemainder(suggestion, draft);
       const modelText = !modelLive
         ? ''
@@ -902,6 +906,39 @@ window.__ModuleLoader__.load({
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
       }, [acceptSuggested, dismiss, local, modelText, enabled, paused, inputReady, sessionId]);
+
+      // History recall: ArrowUp/ArrowDown walk the user's earlier prompts into
+      // the draft when the box is empty (or currently showing a recalled prompt).
+      // Uses the composer's own `setDraft`, which is the only way to replace the
+      // WHOLE draft (insertText only writes at the caret), so cycling works.
+      // The decision is a pure function so it is unit-tested without a DOM.
+      React.useEffect(() => {
+        if (typeof document === 'undefined') return undefined;
+        const inputs = inputActions;
+        if (!inputs || typeof inputs.setDraft !== 'function') return undefined;
+        const onKeyDown = (event) => {
+          if (event.defaultPrevented || event.isComposing) return;
+          if (!enabled || paused || !inputReady || !live.current.inputReady) return;
+          if (scope.current !== currentScope) return;
+          if (!inComposer(sessionId)) return;
+          if (event.altKey === true || event.ctrlKey === true || event.metaKey === true || event.shiftKey === true) return;
+          // A visible model/local suggestion owns the arrow keys; do not fight it.
+          if (modelText !== '' || local !== null) return;
+          const step = historyRecallStep(historyRef.current, recallRef.current, draft, event.key);
+          if (step === null) return;
+          if (step.action === 'clear') {
+            recallRef.current = null;
+            inputs.setDraft('');
+          } else {
+            recallRef.current = { index: step.index, text: step.text };
+            inputs.setDraft(step.text);
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => document.removeEventListener('keydown', onKeyDown, true);
+      }, [inputActions, enabled, paused, inputReady, blankDraft, draft, sessionId, modelText, local, historyEpoch]);
 
       // A prediction belongs to ONE finished turn, so there are two different
       // ways for it to stop applying:
@@ -1272,6 +1309,36 @@ window.__ModuleLoader__.load({
       }, SettingsPage));
     }
 
+    /**
+     * Decide the next history-recall action. Pure, so it is unit-tested.
+     * @param {Array} items history pool ({text}[])
+     * @param {{index:number,text:string}|null} current prior recall
+     * @param {string} draft current draft text
+     * @param {string} key 'ArrowUp' | 'ArrowDown'
+     * @returns {{action:'set',index:number,text:string}|{action:'clear'}|null}
+     */
+    function historyRecallStep(items, current, draft, key) {
+      const list = Array.isArray(items) ? items : [];
+      if (list.length === 0) return null;
+      if (key !== 'ArrowUp' && key !== 'ArrowDown') return null;
+      const recalling = current && typeof current.text === 'string' ? current : null;
+      const text = typeof draft === 'string' ? draft : '';
+      const blank = text.trim() === '';
+      const onRecalled = recalling !== null && text === recalling.text;
+      if (!blank && !onRecalled) return null;
+      if (key === 'ArrowUp') {
+        const nextIndex = blank ? list.length - 1 : Math.max(0, (recalling ? recalling.index : list.length) - 1);
+        const next = list[nextIndex];
+        const value = next && typeof next.text === 'string' ? next.text : '';
+        return value !== '' ? { action: 'set', index: nextIndex, text: value } : null;
+      }
+      if (recalling === null) return null;
+      const nextIndex = recalling.index + 1;
+      if (nextIndex >= list.length) return { action: 'clear' };
+      const next = list[nextIndex];
+      return next && typeof next.text === 'string' ? { action: 'set', index: nextIndex, text: next.text } : null;
+    }
+
     const moduleExports = {
       name: 'next-say',
       inject: ['slots', 'locale'],
@@ -1289,6 +1356,7 @@ window.__ModuleLoader__.load({
         clampTo,
         inComposer,
         historyCompletion,
+        historyRecallStep,
         normalizeForMatch,
         SuggestionRow,
         GhostPainter,

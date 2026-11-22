@@ -1,6 +1,19 @@
 # 发布检查记录
 
-最近核对：2026-11-19。仓库：<https://github.com/mindydora8023-prog/dsh-first-party-plugins>。
+最近核对于 2026-11-22。
+
+## 0.4.0
+
+- archived-sessions 0.8.0 增加只读归档清单和可选回收站。
+- session-meter 0.5.1 增加 CSV/JSON 明细、逐请求估算、本地日账本和可选 DeepSeek 账户余额。
+- filekit 0.4.0 增加文档大纲与全文检索。公开 DOCX 测试样例增加标题，仍可由随仓生成器重建。
+- github 0.3.0 增加创建和合并 PR、更新 Issue 与提交评审。
+- ops-lite 0.3.0 增加有界目录树。
+- next-say 0.4.0 增加方向键历史召回与每日预测调用预算。
+- task-radar 0.4.0 增加通用 webhook 通知。
+- mcp-on-demand 0.4.0 增加 MCP 健康检查。
+
+设置页的加载、保存、重试和反馈约定见 [设置页 UX](docs/settings-ux-pattern.md)。
 
 ## mcp-on-demand 0.3.0
 

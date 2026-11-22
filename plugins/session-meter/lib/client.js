@@ -107,6 +107,9 @@ window.__ModuleLoader__.load({
 			estimate: "Estimated at official DeepSeek prices, cache discount included",
 			estimateCatalog: "Estimated from each model's own official price list",
 			byModel: "Per model",
+			byRequest: "Recent requests",
+			balanceLabel: "Balance",
+			today: "Today total",
 			nextChange: "Next change in",
 			model: "Model",
 			unknown: "unknown",
@@ -146,6 +149,9 @@ window.__ModuleLoader__.load({
 			estimate: "\u6309 DeepSeek \u5b98\u65b9\u4ef7\u683c\u4f30\u7b97\uff0c\u542b\u7f13\u5b58\u6298\u6263",
 			estimateCatalog: "\u6309\u5404\u6a21\u578b\u5b98\u65b9\u4ef7\u76ee\u8868\u4f30\u7b97",
 			byModel: "\u5206\u6a21\u578b",
+			byRequest: "\u8fd1\u51e0\u6b21\u8bf7\u6c42",
+			balanceLabel: "\u4f59\u989d",
+			today: "\u4eca\u65e5\u7d2f\u8ba1",
 			nextChange: "\u8ddd\u5207\u6362",
 			model: "\u6a21\u578b",
 			unknown: "\u672a\u77e5",
@@ -707,6 +713,44 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * Per-request cost list, cheapest useful "per turn" view. Prices each
+		 * request at the period its own start time fixes, using the same helpers
+		 * the session total uses, so the two cannot drift. Pure: no DOM, no clock.
+		 * @param {Array} requests
+		 * @param {{current?:object, rateAt?:Function, config?:object}} [opts]
+		 * @returns {Array<{index:number,turn:number|undefined,step:number|undefined,model:string,at:number|undefined,priced:boolean,cost:number,tokens:number}>}
+		 */
+		function requestCosts(requests, opts = {}) {
+			const list = Array.isArray(requests) ? requests : [];
+			const current = opts.current && typeof opts.current === "object" ? opts.current : {};
+			const lookup = typeof opts.rateAt === "function"
+				? opts.rateAt
+				: (model, at) => rateAt(model, at, opts.config);
+			const instants = pinnedInstants(list);
+			const out = [];
+			for (let index = 0; index < list.length; index += 1) {
+				const request = list[index];
+				const buckets = bucketsOf(request && request.usage);
+				if (buckets === undefined) continue;
+				const id = modelOfRequest(request) || {};
+				const model = id.model !== undefined ? id.model : current.model;
+				const at = instants[index];
+				const priced = lookup(model, at);
+				out.push({
+					index,
+					turn: Number.isFinite(request && request.turn) ? request.turn : undefined,
+					step: Number.isFinite(request && request.step) ? request.step : undefined,
+					model: model || "",
+					at,
+					priced: priced !== undefined,
+					cost: priced !== undefined ? costOf(buckets, priced.rate) : 0,
+					tokens: totalBilledTokens(buckets),
+				});
+			}
+			return out;
+		}
+
+		/**
 		 * Provider/model a request actually ran on. The assistant message's own
 		 * source is authoritative; a request that has not settled yet falls back
 		 * to the header it was issued with.
@@ -809,7 +853,7 @@ window.__ModuleLoader__.load({
 		 * @param {object} [input.config] - overrides PEAK (tests / diagnostics).
 		 * @param {Function} [input.rateAt] - `(model, at) => {rate, reference}|undefined`;
 		 *   defaults to the built-in table plus the fetched catalog.
-		 * @returns {{cost: number, rows: Array, unpricedTokens: number, remainderTokens: number, pinned: Map}}
+		 * @returns {{cost: number, datedCosts: Map, rows: Array, unpricedTokens: number, remainderTokens: number, pinned: Map}}
 		 */
 		/**
 		 * A number that changes when any request's usage, or the session totals,
@@ -977,12 +1021,15 @@ window.__ModuleLoader__.load({
 					continue;
 				}
 				const previous = entries.get(key);
-				const at = entry.at !== undefined ? entry.at : (previous !== undefined ? previous.at : undefined);
-				const own = entry.own || (previous !== undefined && previous.own === true);
+				const at = !entry.own && previous?.own === true
+					? previous.at
+					: (entry.at ?? previous?.at);
+				const own = entry.own || previous?.own === true;
 				entries.set(key, { provider: entry.provider, model: entry.model, at, own, usage: entry.usage });
 			}
 
 			const rows = new Map();
+			const datedCosts = new Map();
 			const charged = zeroBuckets();
 			let cost = 0;
 			let unpricedTokens = 0;
@@ -1024,7 +1071,7 @@ window.__ModuleLoader__.load({
 			 * render-time clock is never consulted: tokens used in one period
 			 * must keep that period's price.
 			 */
-			const charge = (entry, estimated) => {
+			const charge = (entry, estimated, requestId) => {
 				const row = rowOf(entry.provider, entry.model);
 				addInto(row.usage, entry.usage);
 				addInto(charged, entry.usage);
@@ -1059,9 +1106,18 @@ window.__ModuleLoader__.load({
 				if (priced.periodPriced === true) row.periodPriced = true;
 				row.cost += rowCost;
 				cost += rowCost;
+				if (requestId !== undefined && entry.own === true && Number.isFinite(rowCost)) {
+					const date = localDateKey(at);
+					let day = datedCosts.get(date);
+					if (day === undefined) {
+						day = new Map();
+						datedCosts.set(date, day);
+					}
+					day.set(requestId, rowCost);
+				}
 			};
 
-			for (const entry of entries.values()) charge(entry, false);
+			for (const [requestId, entry] of entries) charge(entry, false, requestId);
 			for (const entry of loose) charge(entry, false);
 
 			// Whole-log projection minus what the seen requests already account
@@ -1093,12 +1149,13 @@ window.__ModuleLoader__.load({
 				}
 			} else if (entries.size === 0 && loose.length === 0) {
 				// No tokenUsage projection either: nothing billable to show.
-				return { cost, rows: [], unpricedTokens, remainderTokens: 0, periodPriced: currentUsesPeriods(), pinned: entries };
+				return { cost, datedCosts, rows: [], unpricedTokens, remainderTokens: 0, periodPriced: currentUsesPeriods(), pinned: entries };
 			}
 
 			const visibleRows = [...rows.values()].filter((row) => totalBilledTokens(row.usage) > 0);
 			return {
 				cost,
+				datedCosts,
 				rows: visibleRows,
 				unpricedTokens,
 				remainderTokens: totals === undefined ? 0 : remainderTokens,
@@ -1468,6 +1525,18 @@ window.__ModuleLoader__.load({
 			panelLine: {
 				padding: "1px 0",
 			},
+			exportButton: {
+				appearance: "none",
+				background: "transparent",
+				border: "1px solid var(--dsw-alias-border-l3)",
+				borderRadius: "var(--dsw-radius-sm, 6px)",
+				padding: "0 6px",
+				marginTop: "4px",
+				color: "inherit",
+				font: "inherit",
+				fontSize: "11px",
+				cursor: "pointer",
+			},
 		};
 
 		/**
@@ -1494,6 +1563,118 @@ window.__ModuleLoader__.load({
 		/** One line, for callers that still want the compact form. */
 		function modelLine(row, t) {
 			return modelLines(row, t).join("  ");
+		}
+
+		/**
+		 * Serialize a breakdown for export (CSV or JSON). Pure: no DOM, no clock,
+		 * so a test can assert the exact bytes. Costs are CNY estimates already in
+		 * the breakdown; this only re-shapes them for a spreadsheet or a script.
+		 */
+		function exportBreakdown(breakdown, format) {
+			const rows = Array.isArray(breakdown && breakdown.rows) ? breakdown.rows : [];
+			const shape = (row) => {
+				const usage = row.usage || {};
+				return {
+					model: row.model || "",
+					priced: row.priced === true,
+					uncachedInputTokens: numberOrZero(usage.uncachedInputTokens),
+					outputTokens: numberOrZero(usage.outputTokens),
+					cacheReadTokens: numberOrZero(usage.cacheReadTokens),
+					cacheWriteTokens: numberOrZero(usage.cacheWriteTokens),
+					billedTokens: totalBilledTokens(usage),
+					costCny: row.priced === true && Number.isFinite(row.cost) ? row.cost : null,
+					reference: row.reference === true,
+					estimated: row.estimated === true,
+				};
+			};
+			const shaped = rows.map(shape);
+			if (String(format).toLowerCase() === "csv") {
+				const header = "model,priced,uncachedInputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,billedTokens,costCny,reference,estimated";
+				const esc = (value) => {
+					const text = value === null || value === undefined ? "" : String(value);
+					return /[",\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+				};
+				const body = shaped.map((row) => [
+					row.model, row.priced, row.uncachedInputTokens, row.outputTokens,
+					row.cacheReadTokens, row.cacheWriteTokens, row.billedTokens,
+					row.costCny === null ? "" : row.costCny, row.reference, row.estimated,
+				].map(esc).join(","));
+				return [header, ...body].join("\n");
+			}
+			return JSON.stringify({
+				totalCny: Number.isFinite(breakdown && breakdown.cost) ? breakdown.cost : null,
+				unpricedTokens: numberOrZero(breakdown && breakdown.unpricedTokens),
+				remainderTokens: numberOrZero(breakdown && breakdown.remainderTokens),
+				rows: shaped,
+			}, null, 2);
+		}
+
+		/* ---------------------------------------------------------- day ledger */
+
+		const LEDGER_STORAGE_KEY = "dsh-session-meter-ledger";
+		const LEDGER_VERSION = 2;
+		const LEDGER_MAX_DAYS = 60;
+		const LEDGER_MAX_SESSIONS = 200;
+
+		/** Local calendar day key, e.g. 2026-11-22. */
+		function localDateKey(ms) {
+			const date = new Date(Number.isFinite(ms) ? ms : Date.now());
+			return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+		}
+
+		function normalizeLedger(ledger) {
+			// Earlier ledgers stored lifetime totals without request dates.
+			if (ledger?.version === LEDGER_VERSION && ledger.days && typeof ledger.days === "object") return ledger;
+			return { version: LEDGER_VERSION, days: {} };
+		}
+
+		/** Upsert dated estimates by session and request, keeping requests already seen. */
+		function updateDayLedger(ledger, sessionId, datedCosts) {
+			ledger = normalizeLedger(ledger);
+			if (typeof sessionId !== "string" || sessionId === "" || datedCosts.size === 0) return ledger;
+			const days = { ...ledger.days };
+			const retainedDates = [...new Set([...Object.keys(days), ...datedCosts.keys()])].sort().slice(-LEDGER_MAX_DAYS);
+			let changed = false;
+			for (const date of retainedDates) {
+				const costs = datedCosts.get(date);
+				if (costs === undefined) continue;
+				const sessions = days[date] ?? {};
+				const previous = (Object.hasOwn(sessions, sessionId) ? sessions[sessionId] : undefined) ?? {};
+				if ([...costs].every(([requestId, cost]) => previous[requestId] === cost)) continue;
+				const merged = { ...sessions, [sessionId]: { ...previous, ...Object.fromEntries(costs) } };
+				const ids = Object.keys(merged);
+				for (const id of ids.slice(0, Math.max(0, ids.length - LEDGER_MAX_SESSIONS))) delete merged[id];
+				days[date] = merged;
+				changed = true;
+			}
+			if (!changed) return ledger;
+			return { version: LEDGER_VERSION, days: Object.fromEntries(retainedDates.map((date) => [date, days[date]])) };
+		}
+
+		/** One day's summed cost from the ledger. */
+		function dayTotal(ledger, date) {
+			const sessions = normalizeLedger(ledger).days[date];
+			let total = 0;
+			for (const requests of Object.values(sessions ?? {})) {
+				for (const cost of Object.values(requests ?? {})) if (Number.isFinite(cost)) total += cost;
+			}
+			return total;
+		}
+
+		function loadLedger(fallback) {
+			try {
+				if (typeof localStorage !== "undefined") {
+					const raw = localStorage.getItem(LEDGER_STORAGE_KEY);
+					if (typeof raw === "string" && raw !== "") return normalizeLedger(JSON.parse(raw));
+				}
+			} catch { /* storage is best-effort */ }
+			return normalizeLedger(fallback);
+		}
+
+		function saveLedger(ledger) {
+			try {
+				if (typeof localStorage !== "undefined") localStorage.setItem(LEDGER_STORAGE_KEY, JSON.stringify(ledger));
+			} catch { /* storage full or blocked: the ledger is best-effort */ }
 		}
 
 		/* A host without the Trajectory feature still renders; hooks must run in a
@@ -1528,6 +1709,8 @@ window.__ModuleLoader__.load({
 			const [now, setNow] = React.useState(() => Date.now());
 			const [liveRevision, setLiveRevision] = React.useState(0);
 			const [open, setOpen] = React.useState(false);
+			const [balance, setBalance] = React.useState(null);
+			const [ledger, setLedger] = React.useState(() => loadLedger());
 			const buttonRef = React.useRef(null);
 			const swallowClickRef = React.useRef(false);
 			const countdownRef = React.useRef(false);
@@ -1537,6 +1720,27 @@ window.__ModuleLoader__.load({
 
 			React.useEffect(() => liveSubscribe(() => setLiveRevision((value) => value + 1)), []);
 
+			// Account balance: fetched only when the panel opens, from the host's
+			// read-only, key-gated route. Absent key / offline / non-loopback just
+			// means no line; the pill never depends on it.
+			React.useEffect(() => {
+				if (!open) {
+					setBalance(null);
+					return undefined;
+				}
+				let alive = true;
+				const controller = new AbortController();
+				try {
+					if (typeof fetch === "function") {
+						fetch("/session-meter/balance", { signal: controller.signal, headers: { accept: "application/json" } })
+							.then((response) => (response && response.ok ? response.json() : null))
+							.then((value) => { if (alive && value && value.ok === true) setBalance(value); })
+							.catch(() => {});
+					}
+				} catch { /* no fetch: balance stays absent */ }
+				return () => { alive = false; controller.abort(); };
+			}, [open]);
+
 			const peak = isPeakAt(now);
 			const model = selection && selection.next ? selection.next.model : undefined;
 			const provider = selection && selection.next ? selection.next.provider : undefined;
@@ -1545,8 +1749,11 @@ window.__ModuleLoader__.load({
 			// The retention ledger survives window rewrites within this mount; a
 			// remount (session switch, page reload) re-derives from what loads.
 			const pinnedRef = React.useRef(null);
-			if (pinnedRef.current === null) pinnedRef.current = new Map();
 			const memoRef = React.useRef(null);
+			if (pinnedRef.current === null || memoRef.current?.sessionId !== props.sessionId) {
+				pinnedRef.current = new Map();
+				memoRef.current = null;
+			}
 			const stamp = inputStamp(requests, usage);
 			const breakdownInput = {
 				requests,
@@ -1565,6 +1772,7 @@ window.__ModuleLoader__.load({
 			// but only recomputed when the result itself changed.
 			const previousMemo = memoRef.current;
 			memoRef.current = {
+				sessionId: props.sessionId,
 				requests,
 				totals: usage,
 				model,
@@ -1579,6 +1787,14 @@ window.__ModuleLoader__.load({
 					: breakdownKey(breakdownInput),
 			};
 			pinnedRef.current = breakdown.pinned;
+			// Merge against the latest storage before writing, including on panel open
+			// so previously observed requests from other sessions remain visible.
+			React.useEffect(() => {
+				const stored = loadLedger(ledger);
+				const updated = updateDayLedger(stored, props.sessionId, breakdown.datedCosts);
+				if (updated !== stored) saveLedger(updated);
+				setLedger(updated);
+			}, [breakdown.datedCosts, open, props.sessionId]);
 			const tokens = totalBilledTokens(usage);
 			const flip = nextFlipAt(now);
 			const fill = contextFill(pressure);
@@ -1655,10 +1871,12 @@ window.__ModuleLoader__.load({
 						retryAt: live.retryAt,
 						retryDue: live.lastError !== undefined && nowMs >= live.retryAt,
 					});
+					const midnight = new Date(nowMs);
+					const delay = open ? Math.min(wait, midnight.setHours(24, 0, 0, 0) - nowMs) : wait;
 					timer = setTimeout(() => {
 						timer = null;
 						if (!stopped) setNow(Date.now());
-					}, wait);
+					}, delay);
 				};
 				// A hidden page has no viewer. Waking on show also covers a machine
 				// that slept past the flip: the timeout alone would not have fired.
@@ -1673,7 +1891,7 @@ window.__ModuleLoader__.load({
 					clear();
 					try { document.removeEventListener("visibilitychange", onVisible); } catch { /* ignore */ }
 				};
-			}, [now, liveRevision, showPeriod, soon, clockStale, showPill]);
+			}, [now, liveRevision, showPeriod, soon, clockStale, showPill, open]);
 
 			const summary = [];
 			if (showPeriod) summary.push(textKey(t, peak ? "peakTip" : "offPeakTip"));
@@ -1738,6 +1956,18 @@ window.__ModuleLoader__.load({
 					const blocks = breakdown.rows.map((row) => modelLines(row, t).join("\n"));
 					detail.push(textKey(t, "byModel") + ":\n" + blocks.join("\n\n"));
 					if (breakdown.rows.some((row) => row.reference)) detail.push(textKey(t, "referenceNote"));
+					const perRequest = requestCosts(requests, { current: { model, provider } });
+					if (perRequest.length > 0) {
+						const recent = perRequest.slice(-10);
+						const reqLines = recent.map((row) => {
+							const tag = row.turn !== undefined
+								? "T" + row.turn + (row.step !== undefined ? "." + row.step : "")
+								: "#" + (row.index + 1);
+							const amount = row.priced ? fmtMoney(row.cost) : textKey(t, "noPrice");
+							return tag + "  " + fmtTokens(row.tokens) + "  " + amount;
+						});
+						detail.push(textKey(t, "byRequest") + ":\n" + reqLines.join("\n"));
+					}
 				}
 				detailText = detail.join("\n");
 			}
@@ -1757,6 +1987,12 @@ window.__ModuleLoader__.load({
 				for (let index = 0; index < chunks.length; index += 1) {
 					if (chunks[index].length > 0) lines.push(chunks[index]);
 				}
+				if (balance && balance.ok === true && Array.isArray(balance.balances) && balance.balances.length > 0) {
+					const account = balance.balances[0];
+					lines.push(textKey(t, "balanceLabel") + " " + (account.currency ? account.currency + " " : "") + account.total);
+				}
+				const todayCost = dayTotal(ledger, localDateKey(Date.now()));
+				if (todayCost > 0) lines.push(textKey(t, "today") + " " + fmtMoney(todayCost));
 			}
 
 			// The dock clips overflow and is the containing block for `position:
@@ -1819,6 +2055,16 @@ window.__ModuleLoader__.load({
 					} catch { /* already closed */ }
 				};
 			}, [open]);
+
+			const copyExport = (format) => {
+				let text;
+				try { text = exportBreakdown(breakdown, format); } catch { return; }
+				try {
+					if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+						navigator.clipboard.writeText(text);
+					}
+				} catch { /* clipboard unavailable: the breakdown is still visible in the panel */ }
+			};
 
 			const dotColor = peak
 				? "var(--dsw-alias-state-warn-primary)"
@@ -1894,6 +2140,13 @@ window.__ModuleLoader__.load({
 						style: style.panel,
 					},
 					lines.map((line, index) => h("div", { key: index, style: style.panelLine }, line)),
+					h(
+						"div",
+						{ key: "export", style: style.panelLine },
+						h("button", { type: "button", style: style.exportButton, onClick: () => copyExport("csv"), title: "Copy as CSV" }, "CSV"),
+						" ",
+						h("button", { type: "button", style: style.exportButton, onClick: () => copyExport("json"), title: "Copy as JSON" }, "JSON"),
+					),
 				),
 			);
 		}
@@ -1976,6 +2229,11 @@ window.__ModuleLoader__.load({
 			cacheSaved,
 			burnPerHour,
 			unpricedOnly,
+			exportBreakdown,
+			requestCosts,
+			updateDayLedger,
+			dayTotal,
+			localDateKey,
 			SessionMeter,
 		};
 		return module.exports;

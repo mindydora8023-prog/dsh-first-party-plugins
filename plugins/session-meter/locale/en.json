@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Session meter",
-    "description": "Shows under the input box the peak or off-peak window, this session's estimated cost, what the cache saved, and how full the context window is"
+    "description": "Shows under the input box the peak or off-peak window, this session's estimated cost, what the cache saved, and how full the context window is; the panel can export the per-model breakdown as CSV/JSON, list recent per-request and per-day costs, and show the account balance when a DeepSeek key is configured"
   }
 }

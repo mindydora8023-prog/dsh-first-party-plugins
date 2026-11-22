@@ -1,1 +1,1 @@
-{"meta": {"title": "多文件读取", "description": "一次读多个文件、目录或 glob，并按字面量定位到行；结构化失败、有界预算、紧凑渲染（不碰 discovery/PTC/shell）"}}
+{"meta": {"title": "多文件读取", "description": "一次读多个文件、目录或 glob，并按字面量定位到行；另有目录树 ops_tree；结构化失败、有界预算、紧凑渲染（不碰 discovery/PTC/shell）"}}

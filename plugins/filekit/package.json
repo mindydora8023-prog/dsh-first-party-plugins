@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-filekit",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "有界只读文档工具：CSV/TSV 分页 + DOCX/XLSX/PPTX 转 Markdown + PDF 文本页（纯文本多文件读取在 ops-lite）",
+  "description": "有界只读文档工具：CSV/TSV 分页 + DOCX/XLSX/PPTX 转 Markdown + PDF 文本页 + 文档大纲与全文检索（纯文本多文件读取在 ops-lite）",
   "main": "lib/index.js",
   "exports": {
     ".": {
@@ -30,7 +30,7 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/text.js && node --check lib/csv.js && node --check lib/zip.js && node --check lib/md.js && node --check lib/docx.js && node --check lib/xlsx.js && node --check lib/pptx.js && node --check lib/pdf.js && node --check lib/guard.js && node --check lib/access.js && node --check lib/define.js",
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/outline.js && node --check lib/search.js && node --check lib/text.js && node --check lib/csv.js && node --check lib/zip.js && node --check lib/md.js && node --check lib/docx.js && node --check lib/xlsx.js && node --check lib/pptx.js && node --check lib/pdf.js && node --check lib/guard.js && node --check lib/access.js && node --check lib/define.js",
     "test": "node --test test/*.test.mjs",
     "fixture:pdf": "node test/make-pdf-fixture.mjs test/fixtures/sample.pdf"
   },

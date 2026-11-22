@@ -20,6 +20,8 @@ export const LIMITS = Object.freeze({
   callMaxBytes: 200 * 1024,
   maxFileBytes: 32 * 1024 * 1024,
   textBudget: 64 * 1024,
+  treeMaxDepth: 8,
+  treeMaxEntries: 2000,
 })
 
 const text = (value, fallback) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback)
@@ -50,6 +52,7 @@ export function readConfig(raw) {
   const known = new Set([
     'maxFiles', 'defaultLimit', 'maxLimit', 'maxLineLength',
     'maxOutputBytes', 'callMaxBytes', 'maxFileBytes', 'textBudget',
+    'treeDefaultDepth', 'treeMaxDepth', 'treeMaxEntries',
     'denyCredentialReads', 'promptGuidance', 'statusFile',
   ])
   for (const key of Object.keys(source)) {
@@ -65,6 +68,9 @@ export function readConfig(raw) {
     callMaxBytes: int(source.callMaxBytes, LIMITS.callMaxBytes, 8192, 16 * 1024 * 1024),
     maxFileBytes: int(source.maxFileBytes, LIMITS.maxFileBytes, 64 * 1024, 256 * 1024 * 1024),
     textBudget: int(source.textBudget, LIMITS.textBudget, 4096, 1024 * 1024),
+    treeDefaultDepth: int(source.treeDefaultDepth, 2, 0, LIMITS.treeMaxDepth),
+    treeMaxDepth: int(source.treeMaxDepth, LIMITS.treeMaxDepth, 0, LIMITS.treeMaxDepth),
+    treeMaxEntries: int(source.treeMaxEntries, LIMITS.treeMaxEntries, 1, LIMITS.treeMaxEntries),
     denyCredentialReads: bool(source.denyCredentialReads, true),
     promptGuidance: bool(source.promptGuidance, true),
     // Before 2026-10-26 this plugin ignored `statusFile` entirely and always wrote

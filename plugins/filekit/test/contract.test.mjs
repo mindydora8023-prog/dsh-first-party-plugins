@@ -116,7 +116,7 @@ function checkSchema(root) {
 test('every tool parameter schema is inside the host subset', () => {
   const config = readConfig({}, { pluginDir: PLUGIN_DIR, profileDir: '', home: '' })
   const definitions = buildTools(config)
-  assert.equal(definitions.length, 5)
+  assert.equal(definitions.length, 7)
   for (const definition of definitions) {
     const schema = compilePropertyMap(definition.parameters)
     const violations = checkSchema(schema)

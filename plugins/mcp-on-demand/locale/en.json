@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "MCP on demand",
-    "description": "A settings page lists mountable MCP servers, searches them, and probes tool names. The model mounts a server only while a task needs it."
+    "description": "A settings page lists mountable MCP servers, searches them, and probes tool names. The model mounts a server only while a task needs it. mcpod_health preflights a server's config, catalog and reachability without mounting it."
   }
 }

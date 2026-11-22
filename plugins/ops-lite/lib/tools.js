@@ -429,3 +429,57 @@ export function buildReadFilesTool(ctx, config) {
     },
   }
 }
+
+/**
+ * Build the `ops_tree` tool definition: a bounded directory listing.
+ *
+ * @param {object} ctx - plugin context holding the `fs` service.
+ * @param {object} config - resolved plugin config.
+ * @returns {object} a tool definition accepted by `tools.register()`.
+ */
+export function buildTreeTool(ctx, config) {
+  return {
+    name: 'ops_tree',
+    description:
+      'List a directory as an indented tree in one call. Directories end with "/". '
+      + 'Vendor/VCS folders (node_modules, .git, dist, coverage, .svn, .hg) and credential paths are skipped. '
+      + 'Depth and entry count are capped. This lists names only; use ops_read_files for contents.',
+    parameters: {
+      path: {
+        type: 'string',
+        required: true,
+        description: 'Directory (or file) to list, resolved against the session workspace. Use "." for the workspace root.',
+      },
+      depth: {
+        type: 'integer',
+        description: `Directory depth to descend. Default ${config.treeDefaultDepth}, maximum ${config.treeMaxDepth}.`,
+      },
+      max_entries: {
+        type: 'integer',
+        description: `Maximum entries to list. Default ${config.treeMaxEntries}, hard cap ${config.treeMaxEntries}.`,
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => [{ type: 'text', text: typeof value?.text === 'string' ? value.text : '' }],
+    },
+    isConcurrencySafe: () => true,
+    timeoutMs: 120000,
+    async execute(args, exec) {
+      const requested = typeof args?.path === 'string' && args.path.trim() !== '' ? args.path.trim() : '.'
+      const depth = boundedInt(args?.depth, config.treeDefaultDepth, 0, config.treeMaxDepth)
+      const maxEntries = boundedInt(args?.max_entries, config.treeMaxEntries, 1, config.treeMaxEntries)
+      const { buildTree } = await import('./tree.js')
+      try {
+        const result = await buildTree(ctx, exec, { depth, maxDepth: config.treeMaxDepth, maxEntries }, requested)
+        return { text: result.text, entries: result.entries, truncated: result.truncated }
+      } catch (error) {
+        return {
+          text: `cannot list ${JSON.stringify(requested)}: ${error?.message ?? String(error)}`,
+          entries: 0,
+          truncated: false,
+        }
+      }
+    },
+  }
+}

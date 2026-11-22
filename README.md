@@ -4,20 +4,20 @@
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
-| [archived-sessions](plugins/archived-sessions/README.md) | 0.6.1 | 归档恢复、目录筛选、删除预检与超期清理预览 | 工作区实现 |
-| [session-meter](plugins/session-meter/README.md) | 0.3.54 | 会话费用、缺价提示、峰谷时段、缓存节省与上下文占用 | 工作区实现；运行时外部价格数据 |
-| [filekit](plugins/filekit/README.md) | 0.2.0 | CSV/TSV、DOCX、XLSX、PPTX 转 Markdown，PDF 文本页 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
-| [github](plugins/github/README.md) | 0.2.0 | GitHub 分页读取、提交 diff、PR 行评论、CI 失败日志，以及 Issue/评论写入 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
-| [ops-lite](plugins/ops-lite/README.md) | 0.2.0 | 一次读取文件、目录或 glob，并可按字面量定位 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
-| [next-say](plugins/next-say/README.md) | 0.2.3 | 下一句预测、前缀跟随、逐词采纳、历史补全 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
-| [task-radar](plugins/task-radar/README.md) | 0.3.0 | 页内可点卡片、到点消失的 Windows Toast、静音时段 | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
-| [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.3.0 | 按需挂载 MCP：目录搜索、探测后断开，用到才挂载 | 工作区实现 |
+| [archived-sessions](plugins/archived-sessions/README.md) | 0.8.0 | 归档筛选、清理预检、清单导出与可选回收站 | 工作区实现 |
+| [session-meter](plugins/session-meter/README.md) | 0.5.1 | 会话费用、CSV/JSON、逐请求费用、本地日账本与可选账户余额 | 工作区实现；运行时外部价格数据 |
+| [filekit](plugins/filekit/README.md) | 0.4.0 | CSV/TSV、DOCX、XLSX、PPTX、PDF 文本读取、大纲与全文检索 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
+| [github](plugins/github/README.md) | 0.3.0 | GitHub 分页读取、CI 日志、创建和合并 PR、更新 Issue 与提交评审 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
+| [ops-lite](plugins/ops-lite/README.md) | 0.3.0 | 有界多文件读取、字面量定位与目录树 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |
+| [next-say](plugins/next-say/README.md) | 0.4.0 | 下一句预测、本地补全、方向键历史召回与每日调用预算 | [dsh-prompt-predict 辅助逻辑](plugins/next-say/THIRD_PARTY_NOTICES.md) |
+| [task-radar](plugins/task-radar/README.md) | 0.4.0 | 页内通知、Windows Toast、静音时段与通用 webhook | [Pasumao 通知引擎改编、保留社区署名](plugins/task-radar/THIRD_PARTY_NOTICES.md) |
+| [mcp-on-demand](plugins/mcp-on-demand/README.md) | 0.4.0 | MCP 按需挂载、目录搜索、探测与健康检查 | 工作区实现 |
 
-逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 已补齐社区改编声明、替换来源不明图标并完成发布整理，见[审计与整改记录](docs/task-radar-audit.md)。历史退役插件未纳入当前发行范围。
+逐包判断、复用范围、素材处理与来源记录见[来源审计](docs/source-audit.md)。task-radar 的社区改编和素材来源见[审计与整改记录](docs/task-radar-audit.md)。本轮改动见[发布检查记录](RELEASE-CHECK.md)，设置交互约定见[设置页 UX](docs/settings-ux-pattern.md)。
 
 ## 安装
 
-需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 0.3.0 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本；其他插件的原始发布环境为 DSH 0.2.2-rc.1。各包的宿主版本要求以其清单与说明为准。升级或重载前先检查正在运行的会话，安排好操作时机。
+需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本。各包的宿主版本要求见其清单与说明。升级或重载前先检查正在运行的会话，安排好操作时机。
 
 下载或克隆本仓库，选取需要的插件。在 DSH 插件管理中使用本地包安装入口；或者关闭宿主后，合并目标 profile 的配置。以下仅以两个插件示例，请替换绝对路径并保留原配置：
 

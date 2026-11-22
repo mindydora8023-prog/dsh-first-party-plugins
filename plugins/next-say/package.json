@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-next-say",
-  "version": "0.2.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "输入框内的下一句建议：回合结束后预测你要说的话，草稿非空时用本地历史做前缀补全，Tab 只填入草稿、不发送",
+  "description": "输入框内的下一句建议：回合结束后预测你要说的话，草稿非空时用本地历史做前缀补全，Tab 只填入草稿、不发送；支持每日调用预算与 ↑/↓ 历史召回",
   "main": "lib/index.js",
   "exports": {
     ".": {

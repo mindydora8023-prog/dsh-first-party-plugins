@@ -1,5 +1,5 @@
-import { dirname, relative, resolve, join, basename } from 'node:path'
-import { lstat, realpath, rename, rm, mkdir } from 'node:fs/promises'
+import { dirname, relative, resolve, join, basename, sep, isAbsolute } from 'node:path'
+import { lstat, realpath, rename, rm, mkdir, rmdir, readdir, readFile, open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 
 // User-facing refusal text lives in lib/reasons.js as escaped catalogue entries:
@@ -12,6 +12,39 @@ export const inject = ['webServer', 'connection', 'workspaceRegistry', 'sessionP
 const endpoint = '/archived-sessions/manage'
 const fail = (message, status = 409) => Object.assign(new Error(message), { status })
 const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)) }
+
+/** A stable-enough identity for a workspace record (used by recycle restore). */
+function workspaceKeyOf(workspace, index) {
+  if (workspace && typeof workspace === 'object') {
+    for (const field of ['path', 'id', 'title']) {
+      const value = workspace[field]
+      if (typeof value === 'string' && value !== '') return field + ':' + value
+    }
+  }
+  return 'index:' + index
+}
+
+const recycleDirOf = root => join(dirname(root), `${basename(root)}-recycle`)
+const quarantineDirOf = root => join(dirname(root), `${basename(root)}-deleted`)
+const quarantineId = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/
+
+async function statIfPresent(path) {
+  try { return await lstat(path) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+}
+
+async function ownedDirectory(path) {
+  const info = await statIfPresent(path)
+  if (!info) return false
+  if (!info.isDirectory() || relative(path, await realpath(path)) !== '') throw fail(t('storage-invalid'))
+  return true
+}
+
+async function createOwnedDirectory(path) {
+  if (await ownedDirectory(path)) return false
+  await mkdir(path)
+  return true
+}
 
 // This extension deliberately fails closed for other persistence implementations.
 // Never construct a deletion path from an untrusted session id or its cwd.
@@ -186,6 +219,19 @@ export function withDeadline(work, timeoutMs) {
   return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
 }
 
+function enqueueMutation(ctx, operation, budget = DEFAULT_DELETE_TIMEOUT_MS) {
+  let expired = false
+  const queued = ctx.workspaceRegistry.enqueueOperation(() => {
+    // A request that expired while waiting must not start later. A running
+    // transaction retains the host queue and its writer fence until it settles.
+    if (!expired) return operation()
+  })
+  return withDeadline(queued, budget).catch(error => {
+    expired = error.status === 504
+    throw error
+  })
+}
+
 /** Resolve one stored session's directory without trusting the id: the backend decides the path. */
 async function locate(backend, id) {
   const selected = await backend.findLog(id)
@@ -227,6 +273,59 @@ function announceRemoved(ctx, ids) {
   }
 }
 
+const registryFields = { header: 'headers', sessionPath: 'sessionPaths', invalidSessionPath: 'invalidSessionPaths' }
+
+function snapshotEntries(registry, id) {
+  return Object.entries(registryFields).flatMap(([field, key]) => {
+    const map = registry[key]
+    return map ? [{ field, map, present: map.has(id), value: map.get(id) }] : []
+  })
+}
+
+function restoreEntries(id, entries) {
+  for (const { map, present, value } of entries) {
+    if (present) map.set(id, value)
+    else map.delete(id)
+  }
+}
+
+function snapshotState(registry) {
+  const state = registry.requireState()
+  return { ...state, archivedSessionIds: [...state.archivedSessionIds], pinnedSessionIds: [...state.pinnedSessionIds] }
+}
+
+const sameIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index])
+
+async function restoreState(registry, before) {
+  const current = registry.requireState()
+  if (!sameIds(current.archivedSessionIds, before.archivedSessionIds) || !sameIds(current.pinnedSessionIds, before.pinnedSessionIds)) {
+    await registry.setState(before)
+  }
+}
+
+async function rollback(ctx, steps) {
+  let complete = true
+  for (const step of steps.reverse()) {
+    try { await step() }
+    catch (error) {
+      complete = false
+      ctx.logger?.warn('archived-sessions: rollback step failed: %s', error.message)
+    }
+  }
+  return complete
+}
+
+async function writeRecycleSnapshot(path, record, onCreate) {
+  const file = await open(path, 'wx')
+  try {
+    onCreate()
+    await file.writeFile(JSON.stringify(record), 'utf8')
+    await file.sync()
+  } finally {
+    await file.close()
+  }
+}
+
 /**
  * The one removal transaction. `targets` are already authorised by the caller; this only
  * resolves, locks, isolates and cleans up, rolling metadata back if any step fails.
@@ -236,77 +335,87 @@ function announceRemoved(ctx, ids) {
 async function runRemoval(ctx, targets, options) {
   const registry = ctx.workspaceRegistry, backend = ctx.sessionPersistence
   const root = await realpath(backend.root)
-  const resolved = []
-  for (const entry of targets) {
-    const location = await locate(backend, entry.id)
-    if (location) await validateLocation(root, location)
-    resolved.push({ ...entry, location })
-  }
-  // Keep new writers out while the transaction owns these ids (ghost ids included).
-  options.fence?.(resolved.map(target => target.id))
-
-  const leases = [], moved = [], detached = new Map(), prior = new Map()
+  const removed = new Set(targets.map(target => target.id))
+  const releaseFence = options.fence?.([...removed])
+  const leases = [], undo = [], warnings = [], files = []
+  const quarantine = quarantineDirOf(root), recycleRoot = recycleDirOf(root)
+  const recycle = options.recycle === true
+  let committed = false
   try {
-    for (const target of resolved) if (target.location) leases.push(await backend.acquireLease(target.id, undefined, target.location.path))
-    const quarantine = join(dirname(root), `${basename(root)}-deleted`)
-    if (resolved.some(target => target.location)) await mkdir(quarantine, { recursive: true })
-    for (const target of resolved) {
-      if (!target.location) continue
-      const isolated = join(quarantine, randomUUID())
-      await rename(target.location.path, isolated)
-      moved.push({ target, isolated })
+    for (const id of removed) {
+      if (isLive(ctx, id)) throw fail(t('session-live'))
+      const location = await locate(backend, id)
+      if (!location) continue
+      await validateLocation(root, location)
+      const key = randomUUID()
+      files.push({ id, location, isolated: join(quarantine, key), sidecar: join(recycleRoot, key + '.json'), moved: false })
     }
-    for (const target of resolved) {
-      if (registry.headers?.has(target.id)) prior.set(`header:${target.id}`, registry.headers.get(target.id))
-      if (registry.sessionPaths?.has(target.id)) prior.set(`path:${target.id}`, registry.sessionPaths.get(target.id))
-      if (registry.invalidSessionPaths?.has(target.id)) prior.set(`invalid:${target.id}`, registry.invalidSessionPaths.get(target.id))
-    }
-    for (const workspace of registry.list()) {
-      let snapshot
-      for (const target of resolved) {
-        if (!workspace.sessionIds.includes(target.id)) continue
-        snapshot ??= [...workspace.sessionIds]
-        await workspace.detachSession(target.id)
+    for (const { id, location } of files) leases.push(await backend.acquireLease(id, undefined, location.path))
+    const before = snapshotState(registry)
+    const prior = new Map([...removed].map(id => [id, snapshotEntries(registry, id)]))
+    const workspaces = [...registry.list()].map((workspace, index) => ({
+      workspace, key: workspaceKeyOf(workspace, index), sessionIds: [...workspace.sessionIds],
+    })).filter(({ sessionIds }) => sessionIds.some(id => removed.has(id)))
+
+    if (files.length) await createOwnedDirectory(quarantine)
+    if (recycle && files.length) {
+      await createOwnedDirectory(recycleRoot)
+      const removedAt = Date.now()
+      for (const file of files) {
+        const { id, location, isolated, sidecar } = file
+        const entries = Object.fromEntries(prior.get(id).map(({ field, value }) => [field, value ?? null]))
+        await writeRecycleSnapshot(sidecar, {
+          ...entries, version: 2, id, originalPath: location.path, isolatedPath: isolated, removedAt,
+          archived: before.archivedSessionIds.includes(id), pinned: before.pinnedSessionIds.includes(id),
+          workspaces: workspaces.filter(({ sessionIds }) => sessionIds.includes(id)).map(({ key, sessionIds }) => ({ key, sessionIds })),
+        }, () => undo.push(() => {
+          // A failed move back still needs the snapshot for recovery.
+          if (!file.moved) return rm(sidecar, { force: true })
+        }))
       }
-      if (snapshot) detached.set(workspace, snapshot)
     }
-    const removed = new Set(resolved.map(target => target.id))
-    for (const target of resolved) {
-      registry.headers?.delete(target.id)
-      registry.sessionPaths?.delete(target.id)
-      registry.invalidSessionPaths?.delete(target.id)
+    for (const file of files) {
+      const { location, isolated } = file
+      await rename(location.path, isolated)
+      file.moved = true
+      undo.push(async () => {
+        await rename(isolated, location.path)
+        file.moved = false
+      })
     }
-    const state = registry.requireState()
-    await registry.setState({ ...state, pinnedSessionIds: state.pinnedSessionIds.filter(value => !removed.has(value)), archivedSessionIds: state.archivedSessionIds.filter(value => !removed.has(value)) })
+    for (const { workspace, sessionIds } of workspaces) {
+      undo.push(() => workspace.mutate(record => sameIds(record.sessionIds, sessionIds) ? record : { ...record, sessionIds }))
+      for (const id of sessionIds) if (removed.has(id)) await workspace.detachSession(id)
+    }
+    for (const [id, entries] of prior) {
+      undo.push(() => restoreEntries(id, entries))
+      for (const { map } of entries) map.delete(id)
+    }
+    undo.push(() => restoreState(registry, before))
+    await registry.setState({ ...before, pinnedSessionIds: before.pinnedSessionIds.filter(id => !removed.has(id)), archivedSessionIds: before.archivedSessionIds.filter(id => !removed.has(id)) })
+
+    committed = true
   } catch (error) {
-    // Failed metadata cleanup must not leave a half-deleted state. Restore the
-    // in-memory metadata even when nothing was moved to quarantine: a pure ghost
-    // batch (no log on disk, moved.length === 0) still detached workspaces and
-    // deleted registry entries before registry.setState threw; skipping this
-    // would leave the workspace membership removed while the archive record
-    // remains -- exactly the half-state this transaction must avoid.
-    try {
-      for (const { target, isolated } of moved) await rename(isolated, target.location.path)
-      for (const [key, value] of prior) {
-        const [kind, sessionId] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
-        if (kind === 'header') registry.headers?.set(sessionId, value)
-        if (kind === 'path') registry.sessionPaths?.set(sessionId, value)
-        if (kind === 'invalid') registry.invalidSessionPaths?.set(sessionId, value)
-      }
-      for (const [workspace, ids] of detached) await workspace.mutate(record => ({ ...record, sessionIds: ids }))
-    } catch { throw fail(t('delete-incomplete'), 500) }
+    if (!await rollback(ctx, undo)) throw fail(t('delete-incomplete'), 500)
     throw error
-  } finally { for (const lease of leases) await lease.release() }
-  // Metadata is committed (a failure above threw before reaching here). Announce the
-  // removal now so no client keeps a stale sidebar row, then drop the quarantine copy.
-  announceRemoved(ctx, resolved.map(target => target.id))
-  // No computed user path reaches rm: every isolated entry is a fresh UUID under our quarantine.
-  const warnings = []
-  for (const { target, isolated } of moved) {
-    try { await rm(isolated, { recursive: true, force: false }) }
-    catch { warnings.push(t('quarantine-failed', { id: target.id })) }
+  } finally {
+    try {
+      for (const lease of leases) {
+        try { await lease.release() }
+        catch (error) { ctx.logger?.warn('archived-sessions: lease release failed: %s', error.message) }
+      }
+      if (committed) {
+        announceRemoved(ctx, [...removed])
+        if (!recycle) {
+          for (const { id, isolated } of files) {
+            try { await rm(isolated, { recursive: true, force: false }) }
+            catch { warnings.push(t('quarantine-failed', { id })) }
+          }
+        }
+      }
+    } finally { releaseFence?.() }
   }
-  return { removed: resolved.length, ghosts: resolved.filter(target => !target.location).length, warnings }
+  return { removed: removed.size, ghosts: removed.size - files.length, warnings }
 }
 
 /**
@@ -315,7 +424,7 @@ async function runRemoval(ctx, targets, options) {
  */
 export async function deleteArchived(ctx, id, options = {}) {
   const budget = options.timeoutMs ?? DEFAULT_DELETE_TIMEOUT_MS
-  return ctx.workspaceRegistry.enqueueOperation(() => withDeadline(deleteArchivedLocked(ctx, id, options), budget))
+  return enqueueMutation(ctx, () => deleteArchivedLocked(ctx, id, options), budget)
 }
 
 async function deleteArchivedLocked(ctx, id, options) {
@@ -350,7 +459,7 @@ async function deleteArchivedLocked(ctx, id, options) {
  */
 export async function deleteOrphans(ctx, ids, options = {}) {
   const budget = options.timeoutMs ?? DEFAULT_DELETE_TIMEOUT_MS
-  return ctx.workspaceRegistry.enqueueOperation(() => withDeadline(deleteOrphansLocked(ctx, ids, options), budget))
+  return enqueueMutation(ctx, () => deleteOrphansLocked(ctx, [...new Set(ids)], options), budget)
 }
 
 async function deleteOrphansLocked(ctx, ids, options) {
@@ -396,6 +505,137 @@ export async function inspectOrphans(ctx) {
   return plan
 }
 
+/**
+ * Read-only inventory of every archived session, for backup or audit before a
+ * cleanup. Never mutates anything: it reuses `inspectArchived`'s read-only
+ * description (hasLog / children / blocked) over the registry's archived ids.
+ * Capped like the inspect route so a huge registry cannot flood a response.
+ */
+export async function listArchivedInventory(ctx) {
+  const all = Array.isArray(ctx.workspaceRegistry?.archivedSessionIds) ? ctx.workspaceRegistry.archivedSessionIds : []
+  const ids = all.slice(0, 500)
+  const items = await inspectArchived(ctx, ids)
+  return { total: all.length, shown: ids.length, items }
+}
+
+async function readRecycleRecords(ctx, { includeMissing = false } = {}) {
+  const backend = ctx.sessionPersistence
+  if (typeof backend?.root !== 'string') throw fail(t('backend-unsupported'))
+  const root = await realpath(backend.root)
+  const recycleRoot = recycleDirOf(root), quarantine = quarantineDirOf(root)
+  if (!await ownedDirectory(recycleRoot) || !await ownedDirectory(quarantine)) return []
+  const records = []
+  for (const name of await readdir(recycleRoot)) {
+    if (!name.endsWith('.json') || !quarantineId.test(name.slice(0, -5))) continue
+    const sidecar = join(recycleRoot, name)
+    try {
+      if (!(await statIfPresent(sidecar))?.isFile()) continue
+      const record = JSON.parse(await readFile(sidecar, 'utf8'))
+      if (!record || ![1, 2].includes(record.version) || typeof record.id !== 'string' || !Number.isFinite(record.removedAt)) continue
+      if (typeof record.isolatedPath !== 'string' || typeof record.originalPath !== 'string' || !isAbsolute(record.originalPath)) continue
+      const key = record.version === 2 ? name.slice(0, -5) : basename(record.isolatedPath)
+      const isolated = join(quarantine, key)
+      if (!quarantineId.test(key) || record.isolatedPath !== isolated) continue
+      const segments = relative(root, record.originalPath).split(sep)
+      if (segments.length !== 2 || segments.some(segment => !/^[A-Za-z0-9._~-]+$/.test(segment) || segment === '.' || segment === '..')) continue
+      const original = join(root, ...segments)
+      if (record.originalPath !== original) continue
+      if (!await ownedDirectory(isolated) && !includeMissing) continue
+      records.push({ record, sidecar, isolated, original })
+    } catch { /* Ignore corrupt or inaccessible records. */ }
+  }
+  return records.sort((left, right) => right.record.removedAt - left.record.removedAt)
+}
+
+/** Read-only list of sessions currently held in the recycle bin. */
+export async function listRecycle(ctx) {
+  return (await readRecycleRecords(ctx)).map(({ record, sidecar, original }) => ({
+    recycleId: basename(sidecar), id: record.id, removedAt: record.removedAt,
+    originalPath: original, archived: record.archived === true,
+  }))
+}
+
+function restoreMember(ids, snapshot, id) {
+  if (ids.includes(id)) return ids
+  const at = snapshot.indexOf(id)
+  const next = snapshot.slice(at + 1).find(value => ids.includes(value))
+  const index = next === undefined ? ids.length : ids.indexOf(next)
+  return [...ids.slice(0, index), id, ...ids.slice(index)]
+}
+
+/** Restore a recycled session within the same host queue as delete and purge. */
+export async function restoreRecycle(ctx, id, options = {}) {
+  return enqueueMutation(ctx, () => restoreRecycleLocked(ctx, id, options), options.timeoutMs)
+}
+
+async function restoreRecycleLocked(ctx, id, options) {
+  const registry = ctx.workspaceRegistry, backend = ctx.sessionPersistence
+  const chosen = (await readRecycleRecords(ctx)).find(item => item.record.id === id)
+  if (!chosen) throw fail('recycle record not found', 404)
+  const { record, sidecar, isolated, original } = chosen
+  const releaseFence = options.fence?.([id])
+  const undo = []
+  try {
+    await assertParentIdle(ctx, id)
+    if (await backend.findLog?.(id)) throw fail('restore target already exists', 409)
+    const project = dirname(original)
+    if (await createOwnedDirectory(project)) undo.push(() => rmdir(project))
+    if (await statIfPresent(original)) throw fail('restore target already exists', 409)
+    const before = snapshotState(registry)
+    if (!await ownedDirectory(dirname(isolated)) || !await ownedDirectory(isolated)) throw fail(t('storage-invalid'))
+    await rename(isolated, original)
+    undo.push(() => rename(original, isolated))
+
+    const prior = snapshotEntries(registry, id)
+    undo.push(() => restoreEntries(id, prior))
+    for (const { map, field } of prior) {
+      if (record[field] !== null && record[field] !== undefined) map.set(id, record[field])
+    }
+    const workspaces = new Map([...registry.list()].map((workspace, index) => [workspaceKeyOf(workspace, index), workspace]))
+    for (const snapshot of Array.isArray(record.workspaces) ? record.workspaces : []) {
+      const workspace = workspaces.get(snapshot?.key)
+      if (!workspace || !Array.isArray(snapshot.sessionIds) || !snapshot.sessionIds.includes(id)) continue
+      let previousIds
+      undo.push(() => {
+        if (previousIds) return workspace.mutate(current => ({ ...current, sessionIds: previousIds }))
+      })
+      await workspace.mutate(current => {
+        const ids = restoreMember(current.sessionIds, snapshot.sessionIds, id)
+        if (ids === current.sessionIds) return current
+        previousIds = [...current.sessionIds]
+        return { ...current, sessionIds: ids }
+      })
+    }
+    const archived = new Set(before.archivedSessionIds), pinned = new Set(before.pinnedSessionIds)
+    if (record.archived === true) archived.add(id)
+    if (record.pinned === true) pinned.add(id)
+    undo.push(() => restoreState(registry, before))
+    await registry.setState({ ...before, archivedSessionIds: [...archived], pinnedSessionIds: [...pinned] })
+    await rm(sidecar)
+    return { restored: true, id, archived: record.archived === true }
+  } catch (error) {
+    if (!await rollback(ctx, undo)) throw fail('recycle restore rollback incomplete', 500)
+    throw error
+  } finally { releaseFence?.() }
+}
+
+/** Delete recycled sessions older than `days`. Returns how many were purged. */
+export async function purgeExpiredRecycle(ctx, days = 7, now = Date.now()) {
+  return enqueueMutation(ctx, async () => {
+    const limit = (Number.isFinite(days) && days > 0 ? days : 7) * 24 * 60 * 60 * 1000
+    let purged = 0
+    for (const { record, isolated, sidecar } of await readRecycleRecords(ctx, { includeMissing: true })) {
+      if (now - record.removedAt < limit) continue
+      try {
+        if (await ownedDirectory(dirname(isolated)) && await ownedDirectory(isolated)) await rm(isolated, { recursive: true })
+        await rm(sidecar)
+        purged += 1
+      } catch (error) { ctx.logger?.warn('archived-sessions: recycle purge failed: %s', error.message) }
+    }
+    return { purged }
+  })
+}
+
 function sameOrigin(req) {
   const origin = req.headers.origin, host = req.headers.host
   if (req.headers['sec-fetch-site'] === 'cross-site') return false
@@ -414,6 +654,11 @@ const STARTUP_DELAY_MS = 90 * 1000
 
 export function apply(ctx, config) {
   const locks = new Set()
+  const fence = ids => {
+    if (ids.some(id => locks.has(id))) throw fail(t('busy'))
+    for (const id of ids) locks.add(id)
+    return () => { for (const id of ids) locks.delete(id) }
+  }
   const baseConfig = config && typeof config === 'object' ? config : {}
   let sweeping = false
 
@@ -435,10 +680,11 @@ export function apply(ctx, config) {
         days: state.config.days,
         dryRun,
         reason,
-        deleteOne: (id, options) => deleteArchived(ctx, id, options),
+        deleteOne: (id, options) => deleteArchived(ctx, id, { ...options, fence }),
       })
       if (!dryRun) {
         try { await saveLastRun(report, file) } catch (error) { ctx.logger?.warn('archived-sessions: cleanup status write failed: %s', error?.message ?? String(error)) }
+        try { await purgeExpiredRecycle(ctx, Number.isFinite(baseConfig.recycleDays) && baseConfig.recycleDays > 0 ? baseConfig.recycleDays : 7) } catch (error) { ctx.logger?.warn('archived-sessions: recycle purge failed: %s', error?.message ?? String(error)) }
       }
       return report
     } finally {
@@ -484,14 +730,30 @@ export function apply(ctx, config) {
         json(res, 200, { ok: true, ...await inspectOrphans(ctx) })
         return
       }
+      if (body?.action === 'export') {
+        json(res, 200, { ok: true, ...await listArchivedInventory(ctx) })
+        return
+      }
+      if (body?.action === 'recycleList') {
+        json(res, 200, { ok: true, items: await listRecycle(ctx) })
+        return
+      }
+      if (body?.action === 'recycleRestore') {
+        const sid = body?.sessionId
+        if (invalidSessionId(sid)) throw fail(t('id-invalid'), 400)
+        json(res, 200, { ok: true, ...await restoreRecycle(ctx, sid, { fence }) })
+        return
+      }
+      if (body?.action === 'recyclePurge') {
+        const days = Number.isInteger(body?.days) && body.days > 0 ? body.days : 7
+        json(res, 200, { ok: true, ...await purgeExpiredRecycle(ctx, days) })
+        return
+      }
       if (body?.action === 'deleteOrphans') {
         const ids = body?.sessionIds
         if (!Array.isArray(ids) || ids.length > 500) throw fail(t('ids-invalid'), 400)
         for (const value of ids) if (invalidSessionId(value)) throw fail(t('id-invalid'), 400)
-        const reserved = new Set()
-        for (const value of ids) { if (locks.has(value)) throw fail(t('busy')); locks.add(value); reserved.add(value) }
-        try { json(res, 200, { ok: true, ...await deleteOrphans(ctx, ids, { fence: next => { for (const value of next) { locks.add(value); reserved.add(value) } } }) }) }
-        finally { for (const value of reserved) locks.delete(value) }
+        json(res, 200, { ok: true, ...await deleteOrphans(ctx, ids, { fence }) })
         return
       }
       if (body?.action === 'cleanupStatus') {
@@ -538,18 +800,16 @@ export function apply(ctx, config) {
       // Deletion resolves it through the backend and independently validates the real directory.
       if (invalidSessionId(id)) throw fail(t('id-invalid'), 400)
       if (!['restore', 'delete'].includes(body.action)) throw fail(t('action-invalid'), 400)
-      if (locks.has(id)) throw fail(t('busy'))
-      const reserved = new Set([id])
-      locks.add(id)
-      try {
-        if (body.action === 'restore') {
-          await ctx.workspaceRegistry.unarchiveSession(id)
-          json(res, 200, { ok: true, restored: true })
-          return
-        }
-        const result = await deleteArchived(ctx, id, { cascade: body.cascade === true, expect: Array.isArray(body.children) ? body.children : undefined, fence: ids => { for (const value of ids) { locks.add(value); reserved.add(value) } } })
-        json(res, 200, { ok: true, ...result })
-      } finally { for (const value of reserved) locks.delete(value) }
+      if (body.action === 'restore') {
+        await ctx.workspaceRegistry.unarchiveSession(id) // The host method holds the same registry queue.
+        json(res, 200, { ok: true, restored: true })
+        return
+      }
+      const result = await deleteArchived(ctx, id, {
+        cascade: body.cascade === true, recycle: body.recycle === true || baseConfig.recycle === true,
+        expect: Array.isArray(body.children) ? body.children : undefined, fence,
+      })
+      json(res, 200, { ok: true, ...result })
     } catch (error) { ctx.logger.warn('archived-sessions: %s', error.message); json(res, error.status ?? 500, { ok: false, error: error.status ? error.message : t('internal') }) }
   } }), 'archived-sessions management endpoint')
 }

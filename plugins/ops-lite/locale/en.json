@@ -1,1 +1,1 @@
-{"meta": {"title": "Multi-file read", "description": "Read files, directories, or globs in one call, and jump to an exact literal. Structured failures, bounded budgets, compact output. No discovery, PTC, or shell."}}
+{"meta": {"title": "Multi-file read", "description": "Read files, directories, or globs in one call, jump to an exact literal, and list a directory as a bounded tree (ops_tree). Structured failures, bounded budgets, compact output. No discovery, PTC, or shell."}}

@@ -1,6 +1,6 @@
 {
   "name": "dsh-first-party-plugins",
-  "version": "0.3.11",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "license": "MIT",

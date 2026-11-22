@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "GitHub",
-    "description": "GitHub 原生工具：仓库/代码/Issue/PR 搜索与分页读取、单次提交 diff、PR 行评论、CI 失败日志，复用浏览器登录"
+    "description": "GitHub 原生工具：仓库/代码/Issue/PR 搜索与分页读取、单次提交 diff、PR 行评论、CI 失败日志，复用浏览器登录；写操作：建 issue/评论/建 PR/改 issue/合并 PR/提交 review"
   }
 }

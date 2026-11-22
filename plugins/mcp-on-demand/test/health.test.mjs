@@ -1,0 +1,72 @@
+/**
+ * mcpod_health: config validation + catalog freshness + optional live probe.
+ */
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import { buildTools } from '../lib/tools.js'
+
+function harness(options = {}) {
+  const live = new Map()
+  const ctx = { logger: { info() {}, warn() {} }, tools: { definitions: () => [] } }
+  const config = {
+    servers: {
+      REA: { entry: { transport: 'stdio', command: 'node' }, ttlMs: 30000, description: 'Ghidra' },
+      bad: { entry: { transport: 'stdio' } },
+      web: { entry: { transport: 'streamable-http' } },
+    },
+    defaultTtlMs: 60000,
+  }
+  const state = {
+    live,
+    now: () => 10_000,
+    catalog: options.catalog || { servers: { REA: { toolCount: 5, at: 10_000 - 3600 * 1000 } } },
+    manager: () => ({ list: () => [], probe: options.probe }),
+  }
+  const built = buildTools(ctx, config, state)
+  return { h: Object.fromEntries(built.map((t) => [t.name, t])), live }
+}
+
+function textOf(parts) {
+  assert.ok(Array.isArray(parts))
+  return parts[0].text
+}
+
+test('mcpod_health reports config, mount and catalog freshness', async () => {
+  const { h } = harness()
+  const out = await h.mcpod_health.execute({ name: 'REA' })
+  assert.equal(out.ok, true)
+  assert.match(out.text, /configured: yes/)
+  assert.match(out.text, /mounted: no/)
+  assert.match(out.text, /catalog: 5 tool\(s\), age 3600s/)
+})
+
+test('mcpod_health flags a malformed definition', async () => {
+  const { h } = harness()
+  const bad = await h.mcpod_health.execute({ name: 'bad' })
+  assert.equal(bad.ok, false)
+  assert.match(bad.text, /stdio needs a command/)
+  const web = await h.mcpod_health.execute({ name: 'web' })
+  assert.match(web.text, /streamable-http needs a url/)
+})
+
+test('mcpod_health shows an active mount with remaining ttl', async () => {
+  const { h, live } = harness()
+  live.set('REA', { ttlMs: 30000, expiresAt: 10_000 + 12_000, busy: 0, dispose() {} })
+  const out = await h.mcpod_health.execute({ name: 'REA' })
+  assert.match(out.text, /mounted: yes/)
+  assert.match(out.text, /ttl=12s/)
+})
+
+test('mcpod_health probe:true does a bounded live check', async () => {
+  const { h } = harness({ probe: async () => ({ ok: true, toolNames: ['a', 'b'] }) })
+  const out = await h.mcpod_health.execute({ name: 'REA', probe: true })
+  assert.match(out.text, /probe: reachable, 2 tool\(s\)/)
+})
+
+test('mcpod_health rejects an unknown server', async () => {
+  const { h } = harness()
+  const out = await h.mcpod_health.execute({ name: 'nope' })
+  assert.equal(out.ok, false)
+  assert.match(out.text, /No server called nope/)
+})
