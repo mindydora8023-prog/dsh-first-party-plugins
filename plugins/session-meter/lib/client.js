@@ -98,6 +98,9 @@ window.__ModuleLoader__.load({
 			peak: "Peak",
 			offPeak: "Off-peak",
 			spend: "Session cost",
+			pricedSubtotal: "Priced subtotal",
+			unpricedUsage: "Usage without a price",
+			estimatedHistory: "History estimated at the selected model's rate (~)",
 			noPrice: "unpriced",
 			peakTip: "Peak window: 09:00-12:00 and 14:00-18:00 Beijing time on weekdays",
 			offPeakTip: "Off-peak: every price is half the peak price",
@@ -134,6 +137,9 @@ window.__ModuleLoader__.load({
 			peak: "\u9ad8\u5cf0",
 			offPeak: "\u4f4e\u8c37",
 			spend: "\u672c\u4f1a\u8bdd\u82b1\u8d39",
+			pricedSubtotal: "\u5df2\u8ba1\u4ef7\u5c0f\u8ba1",
+			unpricedUsage: "\u7f3a\u4ef7\u7528\u91cf",
+			estimatedHistory: "\u6309\u5f53\u524d\u6a21\u578b\u8d39\u7387\u8865\u4f30\u7684\u5386\u53f2\u7528\u91cf (~)",
 			noPrice: "\u672a\u5b9a\u4ef7",
 			peakTip: "\u9ad8\u5cf0\u65f6\u6bb5 09:00-12:00\u300114:00-18:00\uff08\u5317\u4eac\u65f6\u95f4\uff0c\u5de5\u4f5c\u65e5\uff09",
 			offPeakTip: "\u7a7a\u95f2\u4f4e\u8c37\uff0c\u5355\u4ef7\u4e3a\u9ad8\u5cf0\u7684\u4e00\u534a",
@@ -1445,13 +1451,13 @@ window.__ModuleLoader__.load({
 				position: "fixed",
 				margin: 0,
 				boxSizing: "border-box",
-				width: "320px",
+				width: "min(320px, calc(100vw - 16px))",
 				maxHeight: "240px",
 				overflow: "auto",
 				padding: "8px 10px",
 				borderRadius: "var(--dsw-radius-sm, 6px)",
-				border: "1px solid var(--dsw-alias-separator-primary)",
-				background: "var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #1c1c1c))",
+				border: "1px solid var(--dsw-alias-border-l3)",
+				background: "var(--dsw-alias-bg-layer-2)",
 				color: "var(--dsw-alias-label-secondary, inherit)",
 				font: "inherit",
 				fontSize: "12px",
@@ -1577,7 +1583,9 @@ window.__ModuleLoader__.load({
 			const flip = nextFlipAt(now);
 			const fill = contextFill(pressure);
 			const saved = cacheSaved(breakdown.rows, (model, at) => rateAt(model, at), now);
-			const burn = burnPerHour(breakdown.cost, breakdown.pinned, now);
+			const hasUnpricedUsage = breakdown.unpricedTokens > 0;
+			const allUnpriced = hasUnpricedUsage && unpricedOnly(breakdown);
+			const burn = hasUnpricedUsage ? undefined : burnPerHour(breakdown.cost, breakdown.pinned, now);
 			// The host draws its own context ring on this same row, and hides that
 			// ring while a turn is running. A second "context 12%" on every idle
 			// session only lengthens the pill. The percent earns a place here once
@@ -1601,7 +1609,8 @@ window.__ModuleLoader__.load({
 			// shows the cost alone instead of a label that would never change.
 			const showPeriod = breakdown.periodPriced === true;
 			const periodLabel = showPeriod ? textKey(t, peak ? "peak" : "offPeak") : undefined;
-			const costLabel = tokens > 0 && unpricedOnly(breakdown) ? textKey(t, "noPrice") : fmtMoney(breakdown.cost);
+			const costKey = hasUnpricedUsage && !allUnpriced ? "pricedSubtotal" : "spend";
+			const costLabel = textKey(t, costKey) + " " + (allUnpriced ? textKey(t, "noPrice") : fmtMoney(breakdown.cost));
 			// Zero is not a cost. A period-priced model still announces the window.
 			const showCost = tokens > 0;
 			const showPill = showPeriod || showCost;
@@ -1670,7 +1679,14 @@ window.__ModuleLoader__.load({
 			if (showPeriod) summary.push(textKey(t, peak ? "peakTip" : "offPeakTip"));
 			// No tokens yet: the pill is only the period. "Estimated cost" would
 			// describe a bill that does not exist.
-			if (tokens > 0) summary.push(textKey(t, showPeriod ? "estimate" : "estimateCatalog"));
+			if (tokens > 0 && !allUnpriced) {
+				const useCatalog = !showPeriod || breakdown.rows.some((row) => row.reference);
+				summary.push(textKey(t, useCatalog ? "estimateCatalog" : "estimate"));
+			}
+			if (hasUnpricedUsage) {
+				if (!allUnpriced) summary.push(costLabel);
+				summary.push(textKey(t, "unpricedUsage") + " " + fmtTokens(breakdown.unpricedTokens) + " " + textKey(t, "tokensUnit"));
+			}
 			if (showPeriod && flip !== undefined) summary.push(textKey(t, "nextChange") + " " + fmtSpan(flip - now, t));
 			if (rate) {
 				const mark = current && current.reference ? "*" : "";
@@ -1685,6 +1701,9 @@ window.__ModuleLoader__.load({
 				summary.push(textKey(t, "model") + " " + model);
 			}
 			if (tokens > 0) summary.push(textKey(t, "tokens") + " " + fmtTokens(tokens));
+			if (breakdown.remainderTokens > 0) {
+				summary.push(textKey(t, "estimatedHistory") + " " + fmtTokens(breakdown.remainderTokens) + " " + textKey(t, "tokensUnit"));
+			}
 			if (saved > 0) summary.push(textKey(t, "saved") + " " + fmtMoney(saved));
 			if (burn !== undefined) summary.push(textKey(t, "burn") + " " + fmtMoney(burn) + textKey(t, "perHour"));
 			if (fill !== undefined) {
@@ -1852,7 +1871,7 @@ window.__ModuleLoader__.load({
 						showPeriod && h("span", { style: style.label }, periodLabel),
 						soonLabel !== undefined && h("span", { style: style.soon }, soonLabel),
 						showPeriod && showCost && tokens > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
-						showCost && h("span", { style: style.label }, textKey(t, "spend") + " " + costLabel),
+						showCost && h("span", { style: style.label }, costLabel),
 						saved > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
 						saved > 0 && h("span", { style: style.label }, textKey(t, "saved") + " " + fmtMoney(saved)),
 						showFill && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),

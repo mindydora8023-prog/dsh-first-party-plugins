@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-session-meter",
-  "version": "0.3.53",
+  "version": "0.3.54",
   "private": true,
   "type": "module",
   "description": "输入框下方显示高峰或低谷、本会话花费、缓存省下的钱，以及上下文占用",

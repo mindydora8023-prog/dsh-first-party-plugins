@@ -4,8 +4,8 @@
 
 | 插件 | 版本 | 功能 | 来源记录 |
 |---|---|---|---|
-| [archived-sessions](plugins/archived-sessions/README.md) | 0.6.0 | 归档恢复、排序分组、删除预检与超期清理预览 | 工作区实现 |
-| [session-meter](plugins/session-meter/README.md) | 0.3.53 | 会话费用、峰谷时段、缓存节省、上下文占用 | 工作区实现；运行时外部价格数据 |
+| [archived-sessions](plugins/archived-sessions/README.md) | 0.6.1 | 归档恢复、目录筛选、删除预检与超期清理预览 | 工作区实现 |
+| [session-meter](plugins/session-meter/README.md) | 0.3.54 | 会话费用、缺价提示、峰谷时段、缓存节省与上下文占用 | 工作区实现；运行时外部价格数据 |
 | [filekit](plugins/filekit/README.md) | 0.2.0 | CSV/TSV、DOCX、XLSX、PPTX 转 Markdown，PDF 文本页 | [DeepSeek 兼容模块](plugins/filekit/THIRD_PARTY_NOTICES.md) |
 | [github](plugins/github/README.md) | 0.2.0 | GitHub 分页读取、提交 diff、PR 行评论、CI 失败日志，以及 Issue/评论写入 | [DeepSeek 兼容模块、新绘分支图标](plugins/github/THIRD_PARTY_NOTICES.md) |
 | [ops-lite](plugins/ops-lite/README.md) | 0.2.0 | 一次读取文件、目录或 glob，并可按字面量定位 | [DeepSeek 与 dsh-ops 改编部分](plugins/ops-lite/THIRD_PARTY_NOTICES.md) |

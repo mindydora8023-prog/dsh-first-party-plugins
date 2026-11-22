@@ -9,15 +9,22 @@ window.__ModuleLoader__.load({
     Object.assign(en, { select: 'Select session', selectAll: 'Select all results', clear: 'Clear selection', selected: 'Selected', restoreSelected: 'Restore selected', deleteSelected: 'Delete selected', batchWarning: 'Permanently delete the selected sessions? This cannot be undone.', succeeded: 'Succeeded', failures: 'Failed', withChildren: 'These hidden subagent sessions will be deleted too:', ghost: 'No log remains on disk; only the stale archive record is removed', blocked: 'These descendants cannot be removed with the parent; handle them first', childrenCount: 'hidden subagents', ghostCount: 'stale records', cleanup: 'Delete together', checking: 'Checking what can be deleted\u2026', orphanTitle: 'Orphaned subagents', orphanHint: 'The parent session log of these subagents is gone. They appear in no list, so this is the only place they can be cleaned up.', orphanScan: 'Scan for orphans', orphanEmpty: 'No orphaned subagents.', orphanBlocked: 'These orphaned sessions cannot be cleaned up', orphanDelete: 'Clean up all orphans', orphanConfirm: 'Permanently delete the logs of these orphaned subagents? This cannot be undone.', orphanDone: 'Orphaned subagents removed', orphanCount: 'orphaned sessions' })
     Object.assign(zh, { cleanupTitle: "\u81ea\u52a8\u6e05\u7406", cleanupHint: "\u5df2\u5f52\u6863\u4f1a\u8bdd\u5728\u6700\u540e\u6d3b\u52a8\u8d85\u8fc7\u8bbe\u5b9a\u5929\u6570\u540e\u4f1a\u88ab\u81ea\u52a8\u6c38\u4e45\u5220\u9664\uff0c\u9690\u85cf\u5b50 Agent \u4f1a\u4e00\u5e76\u6e05\u7406\uff1b\u88ab\u5bbf\u4e3b\u5360\u7528\u6216\u88ab\u5f15\u7528\u7684\u4f1a\u8bdd\u4f1a\u8df3\u8fc7\u3002", cleanupEnabled: "\u542f\u7528\u81ea\u52a8\u6e05\u7406", cleanupDays: "\u4fdd\u7559\u5929\u6570", cleanupSave: "\u4fdd\u5b58\u8bbe\u7f6e", cleanupSaved: "\u81ea\u52a8\u6e05\u7406\u8bbe\u7f6e\u5df2\u4fdd\u5b58\u3002", cleanupNow: "\u7acb\u5373\u6e05\u7406", cleanupConfirm: "\u786e\u8ba4\u7acb\u5373\u6e05\u7406\u6240\u6709\u8d85\u671f\u7684\u5df2\u5f52\u6863\u4f1a\u8bdd\uff1f\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002", cleanupRunning: "\u6b63\u5728\u6e05\u7406\u2026", cleanupLast: "\u4e0a\u6b21\u6e05\u7406", cleanupNever: "\u5c1a\u672a\u8fd0\u884c", cleanupDone: "\u6e05\u7406\u5b8c\u6210", cleanupDeletedLabel: "\u5df2\u5220\u9664", cleanupScannedLabel: "\u626b\u63cf", cleanupBlockedLabel: "\u8df3\u8fc7", cleanupErrorsLabel: "\u5931\u8d25", cleanupDaysInvalid: "\u4fdd\u7559\u5929\u6570\u9700\u4e3a 1 \u5230 3650 \u7684\u6574\u6570\u3002", cleanupOff: "\u81ea\u52a8\u6e05\u7406\u5df2\u5173\u95ed" })
     Object.assign(en, { cleanupTitle: 'Automatic cleanup', cleanupHint: 'Archived sessions whose last activity is older than the threshold are permanently deleted automatically, together with their hidden sub-agents. Sessions still held or referenced by the host are skipped.', cleanupEnabled: 'Enable automatic cleanup', cleanupDays: 'Keep days', cleanupSave: 'Save settings', cleanupSaved: 'Automatic cleanup settings saved.', cleanupNow: 'Clean up now', cleanupConfirm: 'Permanently clean up every expired archived session now? This cannot be undone.', cleanupRunning: 'Cleaning up\u2026', cleanupLast: 'Last cleanup', cleanupNever: 'Not run yet', cleanupDone: 'Cleanup finished', cleanupDeletedLabel: 'deleted', cleanupScannedLabel: 'scanned', cleanupBlockedLabel: 'skipped', cleanupErrorsLabel: 'failed', cleanupDaysInvalid: 'Keep days must be an integer from 1 to 3650.', cleanupOff: 'Automatic cleanup is off' })
-    Object.assign(zh, { sortNewest: '\u6700\u65b0', sortOldest: '\u6700\u65e9', sortTitle: '\u6309\u6807\u9898', groupByFolder: '\u6309\u76ee\u5f55', ungrouped: '\u672a\u5206\u7ec4', justNow: '\u521a\u521a', minutesAgo: '\u5206\u949f\u524d', hoursAgo: '\u5c0f\u65f6\u524d', yesterday: '\u6628\u5929', daysAgo: '\u5929\u524d', copyId: '\u590d\u5236 ID', copied: '\u5df2\u590d\u5236', copyFailed: '\u590d\u5236\u5931\u8d25', expiring: '\u5373\u5c06\u6e05\u7406', overdue: '\u5df2\u8d85\u671f', showExpiring: '\u53ea\u770b\u5373\u5c06\u6e05\u7406', showOverdue: '\u53ea\u770b\u5df2\u8d85\u671f', showAll: '\u5168\u90e8', progress: '\u8fdb\u5ea6', daysUnit: '\u5929', cleanupSettings: '\u6e05\u7406\u8bbe\u7f6e', hiddenSelected: '\u7b5b\u9009\u5916\u5df2\u9009' })
-    Object.assign(en, { sortNewest: 'Newest', sortOldest: 'Oldest', sortTitle: 'Title', groupByFolder: 'By folder', ungrouped: 'Ungrouped', justNow: 'Just now', minutesAgo: 'min ago', hoursAgo: 'h ago', yesterday: 'Yesterday', daysAgo: 'd ago', copyId: 'Copy ID', copied: 'Copied', copyFailed: 'Copy failed', expiring: 'Expiring', overdue: 'Overdue', showExpiring: 'Expiring only', showOverdue: 'Overdue only', showAll: 'All', progress: 'Progress', daysUnit: 'days', cleanupSettings: 'Cleanup settings', hiddenSelected: 'Selected outside this filter' })
+    Object.assign(zh, { sortNewest: '\u6700\u65b0', sortOldest: '\u6700\u65e9', sortTitle: '\u6309\u6807\u9898', groupByFolder: '\u6309\u76ee\u5f55', justNow: '\u521a\u521a', minutesAgo: '\u5206\u949f\u524d', hoursAgo: '\u5c0f\u65f6\u524d', yesterday: '\u6628\u5929', daysAgo: '\u5929\u524d', copyId: '\u590d\u5236 ID', copied: '\u5df2\u590d\u5236', copyFailed: '\u590d\u5236\u5931\u8d25', expiring: '\u5373\u5c06\u6e05\u7406', overdue: '\u5df2\u8d85\u671f', showExpiring: '\u53ea\u770b\u5373\u5c06\u6e05\u7406', showOverdue: '\u53ea\u770b\u5df2\u8d85\u671f', progress: '\u8fdb\u5ea6', daysUnit: '\u5929', cleanupSettings: '\u6e05\u7406\u8bbe\u7f6e', hiddenSelected: '\u7b5b\u9009\u5916\u5df2\u9009' })
+    Object.assign(en, { sortNewest: 'Newest', sortOldest: 'Oldest', sortTitle: 'Title', groupByFolder: 'By folder', justNow: 'Just now', minutesAgo: 'min ago', hoursAgo: 'h ago', yesterday: 'Yesterday', daysAgo: 'd ago', copyId: 'Copy ID', copied: 'Copied', copyFailed: 'Copy failed', expiring: 'Expiring', overdue: 'Overdue', showExpiring: 'Expiring only', showOverdue: 'Overdue only', progress: 'Progress', daysUnit: 'days', cleanupSettings: 'Cleanup settings', hiddenSelected: 'Selected outside this filter' })
+    Object.assign(zh, { directoryFilter: '\u5de5\u4f5c\u76ee\u5f55', allDirectories: '\u6240\u6709\u76ee\u5f55', noDirectory: '\u65e0\u5de5\u4f5c\u76ee\u5f55', noMatches: '\u6ca1\u6709\u5339\u914d\u7684\u4f1a\u8bdd', clearFilters: '\u6e05\u9664\u7b5b\u9009' })
+    Object.assign(en, { directoryFilter: 'Working directory', allDirectories: 'All directories', noDirectory: 'No working directory', noMatches: 'No matching sessions', clearFilters: 'Clear filters' })
+    Object.assign(zh, { staleInspection: '\u5f52\u6863\u5217\u8868\u5df2\u66f4\u65b0\uff0c\u8bf7\u5237\u65b0\u5217\u8868\u540e\u91cd\u8bd5\u3002', retryInspection: '\u91cd\u65b0\u68c0\u67e5', partialPreview: '\u6e05\u7406\u9884\u89c8\u4ec5\u663e\u793a\u90e8\u5206\u7ed3\u679c\u3002' })
+    Object.assign(en, { staleInspection: 'The archive list changed. Refresh it and try again.', retryInspection: 'Check again', partialPreview: 'The cleanup preview shows a subset of results.' })
     const button = { border: '1px solid var(--dsw-alias-border-primary, #8884)', background: 'transparent', color: 'inherit', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }
     const danger = 'var(--dsw-alias-status-error, #d9534f)'
-    const inspectTargets = async ids => {
+    const inspectTargets = async (ids, t) => {
       const res = await fetch('/archived-sessions/manage', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-archived-sessions-action': 'manage' }, body: JSON.stringify({ action: 'inspect', sessionIds: ids }) })
       const result = await res.json()
       if (!res.ok || !result.ok) throw Error(result.error ?? 'inspect failed')
-      const items = result.items ?? []
+      const items = result.items
+      if (!Array.isArray(items) || items.length !== ids.length || items.some((item, index) => item?.id !== ids[index] || item.archived !== true)) {
+        throw Error(t('staleInspection'))
+      }
       return { ids, items, children: items.flatMap(item => item.children ?? []), ghosts: items.filter(item => item.archived && !item.hasLog).map(item => item.id), blocked: items.flatMap(item => item.blocked ?? []), stuck: items.filter(item => (item.blocked ?? []).length > 0).map(item => item.id) }
     }
     const orphans = async body => {
@@ -38,6 +45,7 @@ window.__ModuleLoader__.load({
       const [cleanup, setCleanup] = React.useState(null), [cleanupForm, setCleanupForm] = React.useState({ enabled: true, days: 5 }), [cleanupPending, setCleanupPending] = React.useState(false), [cleanupConfirm, setCleanupConfirm] = React.useState(false)
       // New hooks stay after the original ones: tests index useState by call order.
       const [sortKey, setSortKey] = React.useState('newest'), [grouped, setGrouped] = React.useState(false), [onlyExpiring, setOnlyExpiring] = React.useState(false), [preview, setPreview] = React.useState(null), [progress, setProgress] = React.useState(null), [copied, setCopied] = React.useState(null), [cleanupOpen, setCleanupOpen] = React.useState(false)
+      const [directoryFilter, setDirectoryFilter] = React.useState(null)
       const lock = React.useRef(false), alive = React.useRef(true)
       const loadPreview = () => orphans({ action: 'previewCleanup' }).then(result => { if (alive.current) setPreview(result.preview ?? null) }).catch(() => {})
       // Orphans are invisible everywhere else, so surface them on open instead of behind a click.
@@ -54,10 +62,8 @@ window.__ModuleLoader__.load({
       }, [])
       const ids = ws.archivedSessionIds ?? []
       const stampOf = row => row.updatedAt ?? row.createdAt ?? 0
-      const folderOf = cwd => {
-        const parts = String(cwd ?? '').split(/[\\/]/).filter(Boolean)
-        return parts.length ? parts[parts.length - 1] : ''
-      }
+      const directoryOf = row => typeof row.cwd === 'string' ? row.cwd : ''
+      const directoryLabel = directory => directory || t('noDirectory')
       const labelOf = id => {
         const row = list.byId?.[id]
         const title = typeof row?.title === 'string' && row.title.trim() ? row.title.trim() : ''
@@ -80,30 +86,52 @@ window.__ModuleLoader__.load({
       const autoOn = !!cleanup && cleanup.enabled !== false
       const dueLabel = autoOn ? 'expiring' : 'overdue'
       const dueFilterLabel = autoOn ? 'showExpiring' : 'showOverdue'
-      let rows = ids.map(id => list.byId[id] ?? { id }).filter(row => `${row.title ?? ''} ${row.id} ${row.cwd ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-      if (onlyExpiring) rows = rows.filter(row => dueIds.has(row.id))
-      rows = rows.slice().sort((a, b) => {
+      const archivedRows = ids.map(id => list.byId[id] ?? { id })
+      const directoryCounts = new Map()
+      for (const row of archivedRows) {
+        const directory = directoryOf(row)
+        directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1)
+      }
+      // Keep a selected directory available if its last session disappears.
+      if (directoryFilter !== null && !directoryCounts.has(directoryFilter)) directoryCounts.set(directoryFilter, 0)
+      const directories = [...directoryCounts.keys()].sort((a, b) => directoryLabel(a).localeCompare(directoryLabel(b)))
+      const search = query.trim().toLocaleLowerCase()
+      const matchingRows = archivedRows.filter(row => (
+        (directoryFilter === null || directoryOf(row) === directoryFilter)
+        && `${row.title ?? ''} ${row.id} ${directoryOf(row)}`.toLocaleLowerCase().includes(search)
+      ))
+      const matchingDueRows = matchingRows.filter(row => dueIds.has(row.id))
+      const rows = onlyExpiring ? matchingDueRows : matchingRows
+      rows.sort((a, b) => {
         if (sortKey === 'title') return labelOf(a.id).localeCompare(labelOf(b.id), undefined, { sensitivity: 'base' }) || String(a.id).localeCompare(String(b.id))
         const diff = stampOf(a) - stampOf(b)
         return (sortKey === 'oldest' ? diff : -diff) || String(a.id).localeCompare(String(b.id))
       })
-      const groups = []
+      let groups = [{ directory: null, items: rows }]
       if (grouped) {
         const buckets = new Map()
         for (const row of rows) {
-          const name = folderOf(row.cwd) || t('ungrouped')
-          if (!buckets.has(name)) buckets.set(name, [])
-          buckets.get(name).push(row)
+          const directory = directoryOf(row)
+          if (!buckets.has(directory)) buckets.set(directory, [])
+          buckets.get(directory).push(row)
         }
-        for (const [name, items] of [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))) groups.push({ name, items })
-      } else groups.push({ name: '', items: rows })
+        groups = directories.filter(directory => buckets.has(directory)).map(directory => ({ directory, items: buckets.get(directory) }))
+      }
       const refresh = async () => { try { await sessions.refresh() } catch { if (alive.current) setNotice({ error: true, text: t('loadFailed') }) } }
       const selected = selection.filter(id => ids.includes(id))
+      const visibleIds = new Set(rows.map(row => row.id))
+      const visibleSelected = selected.filter(id => visibleIds.has(id)).length
+      const hiddenSelected = selected.length - visibleSelected
       const toggle = id => { setBatchConfirm(null); setPlan(null); setSelection(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]) }
       const check = async targets => {
-        setPlan({ ids: targets, loading: true })
-        try { const next = await inspectTargets(targets); if (alive.current) setPlan(next) }
-        catch (error) { if (alive.current) { setPlan(null); setNotice({ error: true, text: error.message ?? t('failed') }) } }
+        const request = { ids: targets, loading: true }
+        setPlan(request)
+        try {
+          const next = await inspectTargets(targets, t)
+          if (alive.current) setPlan(current => current === request ? next : current)
+        } catch (error) {
+          if (alive.current) setPlan(current => current === request ? { ids: targets, error: error.message ?? t('failed') } : current)
+        }
       }
       const perform = async (id, action, options = {}) => {
         if (action === 'restore') { await workspaces.unarchiveSession(id); return { ok: true } }
@@ -200,24 +228,29 @@ window.__ModuleLoader__.load({
         } catch (error) { if (alive.current) setNotice({ error: true, text: error.message ?? t('failed') }) }
         finally { if (alive.current) setCleanupPending(false) }
       }
-      const planBlocked = plan?.blocked?.length > 0
-      const detail = plan && !plan.loading ? plan : null
       const nameList = (items, limit) => {
         const shown = items.slice(0, limit)
         const rest = items.length - shown.length
         return h('ul', { style: { margin: '6px 0 0', paddingLeft: 20, fontSize: 12 } }, shown.map(item => h('li', { key: item.id, style: { overflowWrap: 'anywhere' } }, item.reason ? `${item.label}: ${item.reason}` : item.label)), rest > 0 && h('li', { key: 'more' }, `+${rest}`))
       }
-      const confirmBox = (targets, batchDelete) => h('div', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-interactive-bg-hover, #8881)' } },
-        h('p', { style: { margin: '0 0 8px', lineHeight: 1.6 } }, batchDelete ? `${t('batchWarning')} (${targets.length})` : t('warning')),
-        batchDelete && h('ul', { style: { margin: '0 0 8px', paddingLeft: 20, fontSize: 12 } }, targets.slice(0, 8).map(id => h('li', { key: id, style: { overflowWrap: 'anywhere' } }, labelOf(id))), targets.length > 8 && h('li', { key: 'more' }, `+${targets.length - 8}`)),
-        plan?.loading && h('p', { role: 'status', style: { margin: '0 0 8px', opacity: .75 } }, t('checking')),
-        detail && h('div', { style: { margin: '0 0 12px', fontSize: 13, lineHeight: 1.6 } },
-          detail.children.length > 0 && h('div', null, `${t('withChildren')} (${detail.children.length}):`, nameList(detail.children.map(id => ({ id, label: labelOf(id) })), 8)),
-          detail.ghosts.length > 0 && h('div', null, h('strong', null, t('ghost')), nameList(detail.ghosts.map(id => ({ id, label: labelOf(id) })), 8)),
-          detail.blocked.length > 0 && h('div', { role: 'alert', style: { color: danger } }, h('strong', null, t('blocked')), nameList(detail.blocked.map(item => ({ id: item.id, label: labelOf(item.id), reason: item.reason })), 8))),
-        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending || !!plan?.loading || planBlocked, onClick: () => batchDelete ? batch(targets.filter(id => ids.includes(id)), 'delete') : act(targets[0], 'delete') }, pending ? t('busy') : (detail?.children?.length ? t('cleanup') : t('confirm'))),
-          h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => { setConfirm(null); setBatchConfirm(null); setPlan(null) } }, t('cancel'))))
+      const confirmBox = (targets, batchDelete) => {
+        const currentPlan = plan?.ids?.length === targets.length && targets.every((id, index) => plan.ids[index] === id) ? plan : null
+        const detail = currentPlan?.items ? currentPlan : null
+        const canDelete = !pending && detail && detail.blocked.length === 0 && targets.every(id => ids.includes(id))
+        return h('div', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-interactive-bg-hover, #8881)' } },
+          h('p', { style: { margin: '0 0 8px', lineHeight: 1.6 } }, batchDelete ? `${t('batchWarning')} (${targets.length})` : t('warning')),
+          batchDelete && h('ul', { style: { margin: '0 0 8px', paddingLeft: 20, fontSize: 12 } }, targets.slice(0, 8).map(id => h('li', { key: id, style: { overflowWrap: 'anywhere' } }, labelOf(id))), targets.length > 8 && h('li', { key: 'more' }, `+${targets.length - 8}`)),
+          currentPlan?.loading && h('p', { role: 'status', style: { margin: '0 0 8px', opacity: .75 } }, t('checking')),
+          currentPlan?.error && h('p', { role: 'alert', style: { color: danger, overflowWrap: 'anywhere' } }, currentPlan.error),
+          detail && h('div', { style: { margin: '0 0 12px', fontSize: 13, lineHeight: 1.6 } },
+            detail.children.length > 0 && h('div', null, `${t('withChildren')} (${detail.children.length}):`, nameList(detail.children.map(id => ({ id, label: labelOf(id) })), 8)),
+            detail.ghosts.length > 0 && h('div', null, h('strong', null, t('ghost')), nameList(detail.ghosts.map(id => ({ id, label: labelOf(id) })), 8)),
+            detail.blocked.length > 0 && h('div', { role: 'alert', style: { color: danger } }, h('strong', null, t('blocked')), nameList(detail.blocked.map(item => ({ id: item.id, label: labelOf(item.id), reason: item.reason })), 8))),
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h('button', { type: 'button', style: { ...button, color: danger }, disabled: !canDelete, onClick: () => { if (canDelete) return batchDelete ? batch(targets, 'delete') : act(targets[0], 'delete') } }, pending ? t('busy') : (detail?.children?.length ? t('cleanup') : t('confirm'))),
+            currentPlan?.error && h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => check(targets) }, t('retryInspection')),
+            h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => { setConfirm(null); setBatchConfirm(null); setPlan(null) } }, t('cancel'))))
+      }
       const orphanPanel = h('div', { style: { marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-primary, #8883)' } },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
           h('h3', { style: { fontSize: 15, margin: 0 } }, t('orphanTitle')),
@@ -271,21 +304,35 @@ window.__ModuleLoader__.load({
         h('p', { style: { color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } }, t('hint')),
         h('div', { style: { display: 'flex', gap: 8, margin: '16px 0', flexWrap: 'wrap' } }, h('input', { type: 'search', 'aria-label': t('search'), placeholder: t('search'), value: query, onChange: e => setQuery(e.target.value), style: { ...button, cursor: 'text', flex: 1, minWidth: 0 } }), h('button', { type: 'button', style: button, disabled: !!pending, onClick: refresh }, t('retry'))),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 } },
+          (directories.length > 1 || directoryFilter !== null) && h('select', {
+            'aria-label': t('directoryFilter'),
+            style: { ...button, maxWidth: '100%', background: 'var(--dsw-alias-bg-base)', borderColor: 'var(--dsw-alias-border-l2)' },
+            disabled: !!pending,
+            value: directoryFilter === null ? '' : `:${directoryFilter}`,
+            onChange: e => setDirectoryFilter(e.target.value === '' ? null : e.target.value.slice(1))
+          }, h('option', { value: '' }, t('allDirectories')), directories.map(directory => h('option', { key: directory, value: `:${directory}` }, `${directoryLabel(directory)} (${directoryCounts.get(directory)})`))),
           [['newest', 'sortNewest'], ['oldest', 'sortOldest'], ['title', 'sortTitle']].map(([key, label]) => h('button', { key, type: 'button', 'aria-pressed': sortKey === key, style: { ...button, fontWeight: sortKey === key ? 700 : 400 }, disabled: !!pending, onClick: () => setSortKey(key) }, t(label))),
           h('button', { type: 'button', 'aria-pressed': grouped, style: { ...button, fontWeight: grouped ? 700 : 400 }, disabled: !!pending, onClick: () => setGrouped(value => !value) }, t('groupByFolder')),
-          preview && h('button', { type: 'button', 'aria-pressed': onlyExpiring, style: { ...button, fontWeight: onlyExpiring ? 700 : 400 }, disabled: !!pending, onClick: () => setOnlyExpiring(value => !value) }, `${onlyExpiring ? t('showAll') : t(dueFilterLabel)} (${preview.eligible ?? 0})`)),
+          preview && h('button', { type: 'button', 'aria-pressed': onlyExpiring, style: { ...button, fontWeight: onlyExpiring ? 700 : 400 }, disabled: !!pending, onClick: () => setOnlyExpiring(value => !value) }, `${t(dueFilterLabel)} (${matchingDueRows.length})`)),
+        onlyExpiring && preview?.eligible > dueIds.size && h('p', { role: 'status', style: { color: 'var(--dsw-alias-label-secondary)' } }, t('partialPreview')),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 } },
-          h('label', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('input', { type: 'checkbox', disabled: !!pending || !rows.length, checked: !!rows.length && rows.every(row => selected.includes(row.id)), onChange: e => { setBatchConfirm(null); setPlan(null); setSelection(current => e.target.checked ? [...new Set([...current, ...rows.map(row => row.id)])] : current.filter(id => !rows.some(row => row.id === id))) } }), t('selectAll')),
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('input', {
+            type: 'checkbox', disabled: !!pending || !rows.length, checked: !!rows.length && visibleSelected === rows.length,
+            ref: input => { if (input) input.indeterminate = visibleSelected > 0 && visibleSelected < rows.length },
+            onChange: e => { setBatchConfirm(null); setPlan(null); setSelection(current => e.target.checked ? [...new Set([...current, ...visibleIds])] : current.filter(id => !visibleIds.has(id))) }
+          }), t('selectAll')),
           h('span', null, `${t('selected')}: ${selected.length}`),
-          selected.length > rows.filter(row => selected.includes(row.id)).length && h('span', { style: { fontSize: 12, opacity: .7 } }, `${t('hiddenSelected')}: ${selected.length - rows.filter(row => selected.includes(row.id)).length}`),
+          hiddenSelected > 0 && h('span', { style: { fontSize: 12, opacity: .7 } }, `${t('hiddenSelected')}: ${hiddenSelected}`),
           h('button', { type: 'button', style: button, disabled: !!pending || !selected.length, onClick: () => { setSelection([]); setBatchConfirm(null); setPlan(null) } }, t('clear')),
-          h('button', { type: 'button', style: button, disabled: !!pending || !selected.length, onClick: () => batch([...selected], 'restore') }, t('restoreSelected')),
-          h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending || !selected.length, onClick: () => { setConfirm(null); setBatchConfirm([...selected]); return check([...selected]) } }, t('deleteSelected'))),
+          h('button', { type: 'button', style: button, disabled: !!pending || !selected.length, onClick: () => batch([...selected], 'restore') }, t('restoreSelected'), selected.length > 0 ? ` (${selected.length})` : ''),
+          h('button', { type: 'button', style: { ...button, color: danger }, disabled: !!pending || !selected.length, onClick: () => { setConfirm(null); setBatchConfirm([...selected]); return check([...selected]) } }, t('deleteSelected'), selected.length > 0 ? ` (${selected.length})` : '')),
         batchConfirm && confirmBox(batchConfirm, true),
         progress && h('p', { role: 'status', style: { margin: '0 0 8px', fontSize: 13 } }, `${t('progress')}: ${progress.done} / ${progress.total}`),
         notice && h('p', { role: notice.error ? 'alert' : 'status', style: { lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: notice.error ? danger : 'inherit' } }, notice.text),
-        loading ? h('p', { role: 'status' }, t('loading')) : (list.phase === 'error' || ws.phase === 'error') ? h('p', { role: 'alert' }, t('loadFailed')) : !rows.length ? h('p', { style: { textAlign: 'center', padding: '40px 0', opacity: .65 } }, t('empty')) : h('div', null, groups.map(group => h('div', { key: group.name || 'all' },
-          group.name && h('h3', { style: { fontSize: 13, margin: '14px 0 0', opacity: .75 } }, `${group.name} (${group.items.length})`),
+        loading ? h('p', { role: 'status' }, t('loading')) : (list.phase === 'error' || ws.phase === 'error') ? h('p', { role: 'alert' }, t('loadFailed')) : !rows.length ? h('div', { style: { textAlign: 'center', padding: '24px 0' } },
+          h('p', { role: 'status', style: { color: 'var(--dsw-alias-label-secondary)' } }, t(ids.length ? 'noMatches' : 'empty')),
+          ids.length > 0 && h('button', { type: 'button', style: button, disabled: !!pending, onClick: () => { setQuery(''); setDirectoryFilter(null); setOnlyExpiring(false) } }, t('clearFilters'))) : h('div', null, groups.map(group => h('div', { key: group.directory === null ? '' : `:${group.directory}` },
+          group.directory !== null && h('h3', { style: { fontSize: 13, margin: '14px 0 0', opacity: .75, overflowWrap: 'anywhere' } }, `${directoryLabel(group.directory)} (${group.items.length})`),
           h('ul', { style: { listStyle: 'none', margin: 0, padding: 0 } }, group.items.map(row => {
             const when = ago(stampOf(row))
             return h('li', { key: row.id, style: { borderBottom: '1px solid var(--dsw-alias-border-primary, #8883)', padding: '14px 0' } },

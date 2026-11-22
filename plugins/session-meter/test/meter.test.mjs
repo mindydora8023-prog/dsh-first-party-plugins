@@ -889,6 +889,48 @@ test('the rendered tooltip marks a catalog price and explains the asterisk', () 
 	});
 });
 
+test('mixed pricing is labeled as a subtotal until the missing rate arrives', () => {
+	const startedAt = beijing('2026-10-22', 10, 0);
+	const unknownModel = 'fixture/unlisted-model';
+	const requests = [
+		{ requestId: 'a', startedAt, providerMetadata: { model: 'deepseek-flash' }, usage: { inputTokens: 1000000 } },
+		{ requestId: 'b', startedAt: startedAt + 90_000, providerMetadata: { model: unknownModel }, usage: { inputTokens: 500000 } },
+	];
+	const now = startedAt + 120_000;
+	const usage = { uncachedInputTokens: 1500000 };
+	withCatalog({}, () => {
+		const incomplete = renderAt(now, { requests, usage: { uncachedInputTokens: 1750000 } });
+		assert.ok(titlesOf(incomplete)[0].includes(I.zh.estimatedHistory + ' ' + I.fmtTokens(250000)));
+		const tree = renderAt(now, { requests, usage });
+		assert.ok(textOf(tree).includes(I.zh.pricedSubtotal + ' \u00a52.00'));
+		assert.ok(titlesOf(tree)[0].includes(I.zh.unpricedUsage + ' ' + I.fmtTokens(500000)));
+		assert.ok(tree.props['data-breakdown'].includes(I.zh.noPrice));
+		assert.equal(tree.props['data-burn'], undefined);
+	});
+	withCatalog({ [unknownModel]: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }, () => {
+		const tree = renderAt(now, { requests, usage });
+		assert.ok(textOf(tree).includes(I.zh.spend + ' \u00a52.00'));
+		assert.ok(titlesOf(tree)[0].includes(I.zh.estimateCatalog));
+		assert.ok(!titlesOf(tree)[0].includes(I.zh.unpricedUsage));
+	});
+});
+
+test('completely unpriced usage has a quantity and no zero-cost estimate', () => {
+	const startedAt = beijing('2026-10-22', 10, 0);
+	const model = 'fixture/unlisted-model';
+	withCatalog({}, () => {
+		const tree = renderAt(startedAt, {
+			requests: [{ startedAt, providerMetadata: { model }, usage: { inputTokens: 500000 } }],
+			usage: { uncachedInputTokens: 500000 },
+			selection: { next: { model } },
+		});
+		assert.ok(textOf(tree).includes(I.zh.spend + ' ' + I.zh.noPrice));
+		assert.ok(!textOf(tree).includes('\u00a50.00'));
+		assert.ok(titlesOf(tree)[0].includes(I.zh.unpricedUsage + ' ' + I.fmtTokens(500000)));
+		assert.ok(!titlesOf(tree)[0].includes(I.zh.estimateCatalog));
+	});
+});
+
 test('client-side name candidates mirror the host expansion', () => {
 	const candidates = I.nameCandidates('codex/gpt-6.1-sol');
 	assert.equal(candidates.includes('gpt-6-sol'), true);

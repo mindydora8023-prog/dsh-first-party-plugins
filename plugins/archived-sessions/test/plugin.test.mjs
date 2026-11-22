@@ -155,11 +155,70 @@ test('bulk restore handles partial failure and retains failed selection', async 
   assert.deepEqual(Array.from(state[5]), ['b'])
   assert.ok(flatten(page()).some(node => node.type === 'button' && node.children.includes('confirm')))
 })
-test('batch confirm is disabled while any preflight item is blocked', async () => {
+test('directory filters distinguish same-name folders and keep visible selection scoped', async () => {
+  let plugin, render, cursor = 0
+  const state = []
+  const React = {
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useMemo: fn => fn(), useRef: value => ({ current: value }), useEffect: () => {},
+    useState: initial => {
+      const index = cursor++
+      if (!(index in state)) state[index] = initial
+      return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }]
+    },
+    useSyncExternalStore: (subscribe, snapshot) => snapshot()
+  }
+  vm.runInNewContext(await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plugin = value.factory(() => React) } } } })
+  const byId = {
+    a: { id: 'a', title: 'Alpha', cwd: 'E:/team-a/app' },
+    b: { id: 'b', title: 'Beta', cwd: 'E:/team-b/app' },
+    c: { id: 'c', title: 'Standalone' }
+  }
+  let archivedSessionIds = ['a', 'b', 'c']
+  plugin.apply({
+    sessions: { list: { getSnapshot: () => ({ phase: 'ready', byId }) } },
+    workspaces: { list: { getSnapshot: () => ({ archivedSessionIds }) } },
+    effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key },
+    slots: { inject: (slot, fn) => fn(), register: (meta, component) => { render = component; return () => {} } }
+  })
+  const flatten = node => !node || typeof node !== 'object' ? [] : [node, ...(node.children ?? []).flat(Infinity).flatMap(flatten)]
+  const nodes = () => { cursor = 0; const element = render(); return flatten(element.type(element.props)) }
+  const control = (type, label) => nodes().find(node => node.type === type && node.props['aria-label'] === label)
+  const button = label => nodes().find(node => node.type === 'button' && node.children.includes(label))
+  const options = () => Array.from(control('select', 'directoryFilter').children.flat(), option => option.children[0])
+  const visible = () => nodes().filter(node => node.type === 'input' && node.props['aria-label']?.startsWith('select:')).map(node => node.props['aria-label']).sort()
+  const filter = value => control('select', 'directoryFilter').props.onChange({ target: { value } })
+
+  assert.deepEqual(options(), ['allDirectories', 'E:/team-a/app (1)', 'E:/team-b/app (1)', 'noDirectory (1)'])
+  button('groupByFolder').props.onClick()
+  const headings = nodes().filter(node => node.type === 'h3').map(node => node.children[0])
+  for (const label of options().slice(1)) assert.ok(headings.includes(label))
+  control('input', 'select: Beta').props.onChange()
+  const selectAll = () => nodes().find(node => node.type === 'input' && node.props.type === 'checkbox' && !node.props['aria-label'])
+  const checkbox = { indeterminate: false }
+  selectAll().props.ref(checkbox)
+  assert.equal(checkbox.indeterminate, true)
+  filter(':E:/team-a/app')
+  assert.deepEqual(visible(), ['select: Alpha'])
+  selectAll().props.onChange({ target: { checked: true } })
+  assert.ok(nodes().some(node => node.children?.includes('hiddenSelected: 1')))
+  control('input', 'search').props.onChange({ target: { value: '  ALPHA  ' } })
+  assert.deepEqual(visible(), ['select: Alpha'])
+  archivedSessionIds = ['b', 'c']
+  assert.ok(options().includes('E:/team-a/app (0)'))
+  assert.ok(nodes().some(node => node.props?.role === 'status' && node.children.includes('noMatches')))
+  button('clearFilters').props.onClick()
+  assert.deepEqual(visible(), ['select: Beta', 'select: Standalone'])
+  filter(':')
+  assert.deepEqual(visible(), ['select: Standalone'])
+})
+test('delete confirmation requires current, successful preflight', async () => {
   let plugin, render, cursor = 0, blocked = [{ id: 'child', reason: 'held' }]
+  const success = () => ({ ok: true, json: async () => ({ ok: true, items: [{ id: 'a', archived: true, hasLog: true, children: [], blocked }] }) })
+  let inspect = async () => success()
   const state = []
   const React = { createElement: (type, props, ...children) => ({ type, props, children }), useMemo: fn => fn(), useRef: value => ({ current: value }), useEffect: () => {}, useState: initial => { const i = cursor++; if (!(i in state)) state[i] = initial; return [state[i], value => { state[i] = typeof value === 'function' ? value(state[i]) : value }] }, useSyncExternalStore: (subscribe, snapshot) => snapshot() }
-  const fetch = async () => ({ ok: true, json: async () => ({ ok: true, items: [{ id: 'a', archived: true, hasLog: true, children: [], blocked }] }) })
+  const fetch = () => inspect()
   vm.runInNewContext(await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'), { fetch, window: { __ModuleLoader__: { load: value => { plugin = value.factory(() => React) } } } })
   const ctx = { sessions: { list: { getSnapshot: () => ({ phase: 'ready', byId: { a: { id: 'a', title: 'Alpha' } } }) }, refresh: async () => {} }, workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: ['a'] }) } }, effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key }, slots: { inject: (slot, fn) => fn(), register: (meta, component) => { render = component; return () => {} } } }
   plugin.apply(ctx)
@@ -178,6 +237,20 @@ test('batch confirm is disabled while any preflight item is blocked', async () =
   await opened
   confirm = confirmOf()
   assert.equal(confirm.props.disabled, false)
+
+  let releaseOld
+  inspect = () => new Promise(resolve => { releaseOld = resolve })
+  const oldRequest = flatten(page()).find(node => node.type === 'button' && node.children.includes('delete')).props.onClick()
+  inspect = async () => { throw Error('fixture inspection failure') }
+  await flatten(page()).find(node => node.type === 'button' && node.children.includes('delete')).props.onClick()
+  assert.equal(confirmOf().props.disabled, true)
+  assert.ok(flatten(page()).some(node => node.props?.role === 'alert' && node.children.includes('fixture inspection failure')))
+  releaseOld(success())
+  await oldRequest
+  assert.equal(confirmOf().props.disabled, true)
+  inspect = async () => success()
+  await flatten(page()).find(node => node.type === 'button' && node.children.includes('retryInspection')).props.onClick()
+  assert.equal(confirmOf().props.disabled, false)
 })
 test('host rejects unauthenticated requests before reading body', async () => {
   let handler, status, output
