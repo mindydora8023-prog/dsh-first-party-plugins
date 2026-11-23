@@ -69,7 +69,7 @@ function createReact() {
   return { react, effects, runEffects, cleanUp };
 }
 
-test('an idle empty composer issues POST /next-say/predict', async () => {
+test('an idle empty composer requests an inherited-model prediction on mount', async () => {
   const realFetch = globalThis.fetch;
   const calls = [];
   const captured = loadBundle((url, options) => {
@@ -85,14 +85,7 @@ test('an idle empty composer issues POST /next-say/predict', async () => {
   const { react, runEffects, cleanUp } = createReact();
   const mod = captured.factory((name) => (name === 'react' ? react : {}));
 
-  // Settings must name a route. An empty provider and model means do not predict.
-  mod.__internals.settingsStore.set({
-    ...mod.__internals.DEFAULT_SETTINGS,
-    mode: 'auto',
-    enabled: true,
-    provider: 'p',
-    model: 'm',
-  });
+  mod.__internals.settingsStore.set({ ...mod.__internals.DEFAULT_SETTINGS, mode: 'auto', enabled: true });
 
   const props = {
     t: (key) => key,
@@ -123,12 +116,16 @@ test('an idle empty composer issues POST /next-say/predict', async () => {
   globalThis.fetch = realFetch;
 });
 
-test('an empty prediction route does not poll or predict', async () => {
+test('a completed turn triggers prediction without a model override', async () => {
   const realFetch = globalThis.fetch;
   const calls = [];
-  const captured = loadBundle((url) => {
-    calls.push(String(url));
-    return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: false, reason: 'no-route' }) });
+  const captured = loadBundle((url, options) => {
+    const path = String(url);
+    if (path.startsWith('/next-say/predict')) calls.push(JSON.parse(options.body));
+    const body = path.startsWith('/next-say/turn')
+      ? { ok: true, turn: 3, predicted: null }
+      : { ok: false, reason: 'stub' };
+    return Promise.resolve({ ok: true, status: 200, json: async () => body });
   });
   const { react, runEffects, cleanUp } = createReact();
   const mod = captured.factory((name) => (name === 'react' ? react : {}));
@@ -145,7 +142,7 @@ test('an empty prediction route does not poll or predict', async () => {
   await new Promise((resolve) => setTimeout(resolve, 1600));
   cleanUp();
   globalThis.fetch = realFetch;
-  assert.deepEqual(calls.filter((url) => url.includes('/next-say/predict') || url.includes('/next-say/turn')), []);
+  assert.ok(calls.some(({ turn, manual }) => turn === 3 && manual === false));
 });
 
 test('a composer with a draft does not predict', async () => {

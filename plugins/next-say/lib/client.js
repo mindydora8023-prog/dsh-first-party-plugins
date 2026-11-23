@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
       "manualRunning": "\u7b49\u5f85\u5f53\u524d\u56de\u5408\u7ed3\u675f\u540e\u518d\u9884\u6d4b\u3002",
       "manualDraft": "\u6e05\u7a7a\u8349\u7a3f\u540e\u53ef\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u8f93\u5165\u65f6\u4f7f\u7528\u5386\u53f2\u8865\u5168\u3002",
       "manualNoResult": "\u8fd9\u6b21\u6ca1\u6709\u751f\u6210\u65b0\u7684\u5efa\u8bae\uff0c\u53ef\u4ee5\u518d\u6b21\u9884\u6d4b\u3002",
-      "manualNoRoute": "\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u6a21\u578b\u8def\u7531\uff0c\u8bf7\u5728\u8bbe\u7f6e\u4e2d\u68c0\u67e5\u670d\u52a1\u5546\u548c\u6a21\u578b\u3002",
+      "manualNoRoute": "\u5148\u5728\u4f1a\u8bdd\u91cc\u5b8c\u6210\u4e00\u8f6e\uff0c\u6216\u5728\u8bbe\u7f6e\u4e2d\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\u3002",
       "manualDisabled": "\u4e0b\u4e00\u53e5\u5efa\u8bae\u5df2\u5173\u95ed\u3002",
       "noHistory": "\u8fd8\u6ca1\u6709\u53ef\u53c2\u8003\u7684\u5bf9\u8bdd\uff0c\u8bf7\u5148\u53d1\u9001\u4e00\u6761\u6d88\u606f\u3002",
       "timeout": "\u9884\u6d4b\u8d85\u65f6\uff0c\u53ef\u4ee5\u624b\u52a8\u91cd\u8bd5\u3002",
@@ -74,13 +74,13 @@ window.__ModuleLoader__.load({
       "settingsHistoryMinChars": "\u6700\u5c11\u8f93\u5165\u5b57\u6570",
       "settingsHistoryMinCharsHint": "\u8f93\u5165\u5230\u8fd9\u4e48\u591a\u4e2a\u5b57\u624d\u5f00\u59cb\u8865\u5168\u3002",
       "settingsProvider": "\u9884\u6d4b\u670d\u52a1\u5546",
-      "settingsProviderHint": "\u586b\u5199\u670d\u52a1\u5546 ID\uff0c\u4e0e\u4e0b\u65b9\u6a21\u578b\u4e00\u8d77\u4fdd\u5b58\uff1b\u4e24\u9879\u7559\u7a7a\u5219\u4e0d\u53d1\u8d77\u9884\u6d4b\u3002",
+      "settingsProviderHint": "\u9ed8\u8ba4\u4f7f\u7528\u5f53\u524d\u4f1a\u8bdd\u4e0a\u6b21\u8c03\u7528\u7684\u6a21\u578b\u3002\u8981\u5355\u72ec\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\uff0c\u8bf7\u586b\u5199\u670d\u52a1\u5546 ID \u548c\u6a21\u578b ID\u3002",
       "settingsSaveRoute": "\u4fdd\u5b58\u9884\u6d4b\u6a21\u578b",
-      "settingsRouteHint": "\u670d\u52a1\u5546\u548c\u6a21\u578b\u7f16\u8f91\u5b8c\u6210\u540e\uff0c\u70b9\u6b64\u4e00\u8d77\u4fdd\u5b58\u3002",
-      "settingsRouteIncomplete": "\u8bf7\u586b\u5199\u670d\u52a1\u5546\u548c\u6a21\u578b\uff0c\u6216\u540c\u65f6\u6e05\u7a7a\u4e24\u9879\u4ee5\u5173\u6389\u9884\u6d4b\u3002",
-      "settingsInherit": "\u4e0d\u9884\u6d4b",
-      "settingsModel": "\u6a21\u578b",
-      "settingsModelHint": "\u53ea\u5728\u9700\u8981\u6362\u5230\u66f4\u4fbf\u5b9c\u7684\u6a21\u578b\u65f6\u8bbe\u7f6e\u3002",
+      "settingsRouteHint": "\u4e24\u9879\u540c\u65f6\u7559\u7a7a\u5e76\u4fdd\u5b58\uff0c\u5373\u53ef\u6062\u590d\u8ddf\u968f\u4f1a\u8bdd\u3002",
+      "settingsRouteIncomplete": "\u8bf7\u540c\u65f6\u586b\u5199\u6216\u6e05\u7a7a\u670d\u52a1\u5546\u548c\u6a21\u578b\u3002",
+      "settingsInherit": "\u8ddf\u968f\u4f1a\u8bdd",
+      "settingsModel": "\u9884\u6d4b\u6a21\u578b",
+      "settingsModelHint": "\u586b\u5199\u8981\u5355\u72ec\u7528\u4e8e\u9884\u6d4b\u7684\u6a21\u578b ID\u3002",
       "settingsPause": "\u6682\u505c\u5341\u5206\u949f",
       "settingsPauseHint": "\u6682\u505c\u671f\u95f4\u4e0d\u53d1\u8d77\u4efb\u4f55\u9884\u6d4b\u8c03\u7528\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
       "settingsResume": "\u6062\u590d\u9884\u6d4b",
@@ -118,7 +118,7 @@ window.__ModuleLoader__.load({
       "manualRunning": "Wait for the current turn to finish before predicting.",
       "manualDraft": "Clear the draft to predict. Typing uses history completion.",
       "manualNoResult": "No new suggestion this time. You can predict again.",
-      "manualNoRoute": "No model route is available. Check the provider and model in settings.",
+      "manualNoRoute": "Finish a turn in this session or choose a prediction model in settings.",
       "manualDisabled": "Next-say suggestions are disabled.",
       "noHistory": "No conversation to reference yet. Send a message first.",
       "timeout": "The prediction timed out. You can retry manually.",
@@ -151,13 +151,13 @@ window.__ModuleLoader__.load({
       "settingsHistoryMinChars": "Minimum draft length",
       "settingsHistoryMinCharsHint": "How many characters to type before completion starts.",
       "settingsProvider": "Prediction provider",
-      "settingsProviderHint": "Enter the provider ID and save it with the model below. Leave both empty to skip prediction.",
+      "settingsProviderHint": "Predictions use the model last called in this session. Enter both IDs to choose a separate model.",
       "settingsSaveRoute": "Save prediction model",
-      "settingsRouteHint": "Finish editing the provider and model, then save them together.",
-      "settingsRouteIncomplete": "Fill in both provider and model, or clear both to turn prediction off.",
-      "settingsInherit": "No prediction",
-      "settingsModel": "Model",
-      "settingsModelHint": "Set this only to move predictions to a cheaper model.",
+      "settingsRouteHint": "Clear both fields and save to follow the session model again.",
+      "settingsRouteIncomplete": "Fill in both fields or clear them both.",
+      "settingsInherit": "Follow session",
+      "settingsModel": "Prediction model",
+      "settingsModelHint": "Enter the ID of the model to use for predictions.",
       "settingsPause": "Pause for ten minutes",
       "settingsPauseHint": "No prediction call is made while paused; it resumes automatically.",
       "settingsResume": "Resume predictions",
@@ -1189,8 +1189,6 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
         if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
-        // An empty route means "do not predict". Asking anyway only learns no-route.
-        if (typeof settings.provider !== 'string' || settings.provider.trim() === '' || typeof settings.model !== 'string' || settings.model.trim() === '') return undefined;
         if (running || !blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;
         if (triedOnMount.current) return undefined;
@@ -1211,7 +1209,6 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
         if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
-        if (typeof settings.provider !== 'string' || settings.provider.trim() === '' || typeof settings.model !== 'string' || settings.model.trim() === '') return undefined;
         if (running) return undefined;
         if (!blankDraft) return undefined;
         if (suggestion !== '' || busy) return undefined;

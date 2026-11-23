@@ -20,7 +20,7 @@ export const DEFAULTS = Object.freeze({
   enabled: true,
   /** 'auto' (one prediction per finished turn) or 'manual'. */
   mode: 'auto',
-  /** Blank means "do not call a model". Prediction stays off until both are set. */
+  /** Blank uses the model from the session's last request. */
   provider: '',
   model: '',
   /** Character limit for the suggested message itself; also sets the token net. */
@@ -98,8 +98,7 @@ export function normalizeSettings(raw) {
   next.historyEnabled = source.historyEnabled === undefined
     ? DEFAULTS.historyEnabled
     : source.historyEnabled === true;
-  // A provider without a model (or the reverse) is an unusable half-route: it
-  // would make every call fail. Treat it as "do not predict".
+  // A prediction override needs both fields. An incomplete pair inherits the session route.
   if (next.provider === '' || next.model === '') {
     next.provider = '';
     next.model = '';

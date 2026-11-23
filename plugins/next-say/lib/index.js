@@ -29,6 +29,7 @@ import {
   normalizeSuggestion,
   recentMessages,
   recentUserHistory,
+  resolveRoute,
 } from './predict.js';
 import {
   DEFAULTS,
@@ -288,27 +289,12 @@ function service(ctx, name) {
   }
 }
 
-/**
- * Which provider/model the auxiliary call runs on.
- *
- * Order: an explicitly pinned route from the settings page, and nothing else.
- *
- * An empty route used to fall through to the session model. That billed every
- * finished turn at the main model's price, which is the opposite of what an
- * optional suggestion should cost. Leaving both fields empty now means "do not
- * predict". A half-filled route is already normalised back to empty.
- *
- * The settings page has offered `provider` / `model` since the first version,
- * but this function ignored them -- the fields were decorative and picking a
- * model there changed nothing. A complete pair is honoured.
- */
-function routeFor(_ctx, _session, settings) {
-  const pinnedProvider = typeof settings?.provider === 'string' ? settings.provider.trim() : '';
-  const pinnedModel = typeof settings?.model === 'string' ? settings.model.trim() : '';
-  if (pinnedProvider !== '' && pinnedModel !== '') {
-    return { provider: pinnedProvider, model: pinnedModel };
-  }
-  return undefined;
+/** A complete settings override wins. Otherwise use the session's last request. */
+function routeFor(session, settings) {
+  const provider = settings.provider?.trim();
+  const model = settings.model?.trim();
+  if (provider && model) return { provider, model };
+  return resolveRoute(session);
 }
 
 /**
@@ -339,7 +325,7 @@ function historyOf(session, settings) {
 async function generate(ctx, session, settings, options = {}) {
   // Order matters: each refusal names the FIRST thing that is missing, so the
   // reason a prediction did not happen is never misreported.
-  const route = options.route ?? routeFor(ctx, session, settings);
+  const route = options.route ?? routeFor(session, settings);
   if (route === undefined) {
     return { ok: false, reason: 'no-route' };
   }

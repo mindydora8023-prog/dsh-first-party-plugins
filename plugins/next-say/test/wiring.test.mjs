@@ -222,7 +222,7 @@ async function hit(host, options) {
   return { status: response.status, body: response.payload === '' ? undefined : JSON.parse(response.payload) };
 }
 
-/** Prediction no longer inherits the session model. Tests that spend a call pin one. */
+/** Save an explicit prediction model override. */
 function pinRoute(host) {
   return hit(host, { method: 'POST', url: '/next-say/settings', body: { provider: 'p', model: 'm' } });
 }
@@ -554,36 +554,41 @@ test('predict reports no-history rather than inventing a suggestion', async () =
   });
 });
 
-test('predict reports no-route when settings do not pin one, even if the session has a model', async () => {
-  const session = {
-    id: 's1',
-    requestHeader: () => ({ config: { provider: 'session-provider', model: 'session-model' } }),
-    deriveMessages: () => [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+test('prediction inherits the latest session request and honors a saved override', async () => {
+  const session = fakeSession('s1', [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }], [1]);
+  let header;
+  session.requestHeader = () => header;
+  const calls = [];
+  const llm = {
+    async prepareCall({ provider, model }) {
+      calls.push({ provider, model });
+      return { async *stream() { yield { type: 'text-delta', text: 'Show me an example.' }; } };
+    },
   };
-  const previous = process.env.DSH_HOME;
-  const dir = mkdtempSync(join(tmpdir(), 'next-say-wiring-'));
-  process.env.DSH_HOME = dir;
-  try {
-    const host = createFakeHost({ sessions: { s1: session }, llm: { prepareCall: async () => ({ stream: async function* () {} }) } });
-    // An empty prediction route wins over the session model and over a missing
-    // llm adapter. Inheriting the session would bill the suggestion at the main
-    // model's price.
-    host.services.agentDefaultModel = { currentSelection: () => ({ provider: 'default-provider', model: 'default-model' }) };
-    host.services.llm = undefined;
-    apply(host.ctx);
-    const result = await hit(host, {
-      method: 'POST',
-      url: '/next-say/predict',
-      body: { sessionId: 's1', manual: true },
+
+  await withHost({ sessions: { s1: session }, llm }, async (host) => {
+    const predict = (manual) => hit(host, {
+      method: 'POST', url: '/next-say/predict', body: { sessionId: 's1', manual },
     });
-    assert.equal(result.body.ok, false);
-    assert.equal(result.body.reason, 'no-route');
-    host.dispose();
-  } finally {
-    if (previous === undefined) delete process.env.DSH_HOME;
-    else process.env.DSH_HOME = previous;
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.equal((await predict(true)).body.reason, 'no-route');
+    assert.deepEqual(calls, []);
+
+    header = { config: { provider: 'session-provider', model: 'first-model' } };
+    assert.equal((await predict(false)).body.ok, true);
+    header = { config: { provider: 'session-provider', model: 'second-model' } };
+    assert.equal((await predict(true)).body.ok, true);
+
+    await pinRoute(host);
+    assert.equal((await predict(true)).body.ok, true);
+    await hit(host, { method: 'POST', url: '/next-say/settings', body: { provider: '', model: '' } });
+    assert.equal((await predict(true)).body.ok, true);
+    assert.deepEqual(calls, [
+      { provider: 'session-provider', model: 'first-model' },
+      { provider: 'session-provider', model: 'second-model' },
+      { provider: 'p', model: 'm' },
+      { provider: 'session-provider', model: 'second-model' },
+    ]);
+  });
 });
 
 test('an unknown path is a 404, not a hang', async () => {

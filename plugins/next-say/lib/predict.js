@@ -454,7 +454,8 @@ export function resolveRoute(session, fallbackSelection) {
   try {
     const header = typeof session?.requestHeader === 'function' ? session.requestHeader() : undefined;
     const config = header?.config;
-    if (config && typeof config.provider === 'string' && typeof config.model === 'string') {
+    if (typeof config?.provider === 'string' && config.provider.trim() !== ''
+      && typeof config.model === 'string' && config.model.trim() !== '') {
       return { provider: config.provider, model: config.model };
     }
   } catch {
