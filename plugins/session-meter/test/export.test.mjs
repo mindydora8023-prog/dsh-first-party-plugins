@@ -173,3 +173,15 @@ test('dayTotal ignores the undated lifetime sums in legacy storage', () => {
   const ledger = I.updateDayLedger(legacy, 'a', new Map([['2026-11-23', new Map([['x', 1]])]]))
   assert.equal(I.dayTotal(ledger, '2026-11-23'), 1)
 })
+
+test('updateDayLedger caps per-session stored request keys while keeping dayTotal exact', () => {
+  const day = '2026-11-23'
+  const entries = new Map()
+  for (let i = 0; i < 650; i += 1) {
+    entries.set(`req-${i}`, 0.01)
+  }
+  const ledger = I.updateDayLedger(undefined, 'long-session', new Map([[day, entries]]))
+  const storedKeys = Object.keys(ledger.days[day]['long-session'])
+  assert.ok(storedKeys.length <= 500, `stored keys must be bounded (got ${storedKeys.length})`)
+  assert.ok(Math.abs(I.dayTotal(ledger, day) - 6.5) < 1e-9, 'dayTotal remains exact across rolled overflow')
+})

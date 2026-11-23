@@ -4,8 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 // Exercise event handlers and async state transitions, not a visual renderer.
-const source = readFileSync(new URL('../client/client.template.js', import.meta.url), 'utf8')
-  .replace('/*__LOCALES__*/', 'const zh = {}, en = {};');
+const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
 const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 function harness(initial = {}, mount = true) {
   const hooks = [], requests = [], timers = new Map();
@@ -293,4 +292,22 @@ test('reset discards local fields and stays ordered after pending saves', async 
   assert.deepEqual(payload(h.requests[1]), { reset: true });
   h.saved(1, {}); await h.flush();
   assert.equal(h.field('settingsMaxChars').props.value, '120'); h.unmount();
+});
+
+test('writeUncertain disables all editable controls while keeping reload enabled', async () => {
+  const h = harness();
+  h.field('settingsEnabled').props.onChange({ target: { checked: false } }); await h.flush();
+  h.expire(); await h.flush();
+  assert.equal(h.api.settingsStore.writeUncertain, true);
+  for (const label of [
+    'settingsEnabled', 'settingsMode', 'settingsMaxChars', 'settingsContextMessages',
+    'settingsContextChars', 'settingsTimeout', 'settingsHistory', 'settingsHistoryMinChars',
+    'settingsProvider', 'settingsModel',
+  ]) {
+    assert.equal(h.field(label).props.disabled, true, `${label} must be disabled when writeUncertain`);
+  }
+  assert.equal(h.button('settingsPause').props.disabled, true);
+  assert.equal(h.button('settingsReset').props.disabled, true);
+  assert.equal(h.button('settingsReload').props.disabled, false);
+  h.unmount();
 });

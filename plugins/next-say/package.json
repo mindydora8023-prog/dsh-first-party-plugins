@@ -43,10 +43,10 @@
     }
   },
   "scripts": {
-    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/predict.js && node --check lib/match.js && node --check lib/ghost.js && node --check lib/config.js",
+    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/predict.js && node --check lib/match.js && node --check lib/ghost.js && node --check lib/config.js && node --check lib/config-schema.js && node --check lib/turn.js && node --check lib/routes.js && node --check lib/locales.js && node --check lib/http-utils.js && node --check lib/json-store.js",
     "build:client": "node tools/client-build.mjs",
     "check:locales": "node tools/client-build.mjs --check --locales-only",
-    "check:client": "node tools/check-client.mjs",
+    "check:client": "node tools/client-build.mjs --check",
     "test": "node --test --test-timeout=20000 test/*.test.mjs"
   },
   "engines": {

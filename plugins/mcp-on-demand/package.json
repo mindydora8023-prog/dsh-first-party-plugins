@@ -37,7 +37,8 @@
     }
   },
   "scripts": {
-    "test": "node --test --test-timeout=20000 test/*.test.mjs"
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/catalog.js && node --check lib/limit.js && node --check lib/lifecycle.js && node --check lib/tools.js && node --check lib/routes.js && node --check lib/client.js && node --check lib/define.js && node --check lib/state-dir.js && node --check lib/json-store.js",
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22",

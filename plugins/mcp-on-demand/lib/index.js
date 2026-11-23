@@ -1,9 +1,10 @@
 /**
  * mcp-on-demand host side.
  *
- * Registers five tools that let the MODEL decide when an MCP server exists:
- * mcpod_list / mcpod_find / mcpod_probe / mcpod_enable / mcpod_disable.
- * See lib/tools.js for behaviour and lib/config.js for the definition format.
+ * Registers six tools that let the MODEL decide when an MCP server exists:
+ * mcpod_list / mcpod_find / mcpod_probe / mcpod_enable / mcpod_disable / mcpod_health.
+ * See lib/tools.js and lib/lifecycle.js for behaviour and lib/config.js for the
+ * definition format.
  *
  * Why a plugin and not a config toggle: `ctx.mcpManager.register()` returns a
  * disposer, so a tool call can mount a server mid-session and another can take
@@ -12,10 +13,10 @@
  *
  * NOTE on services: `tools` is the required inject. `systemPrompt` is taken
  * with a separate `ctx.inject`, so a profile without it still gets the tools.
- * Declaring `mcpManager` in the inject list
- * moved the registered tools into a scope whose results the host expects as
- * content parts, which failed with "content.some is not a function". The
- * manager is therefore resolved lazily through `ctx.get()` at call time.
+ * Declaring `mcpManager` in the inject list moved the registered tools into a
+ * scope whose results the host expects as content parts, which failed with
+ * "content.some is not a function". The manager is therefore resolved lazily
+ * through `ctx.get()` at call time.
  *
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
@@ -61,9 +62,11 @@ export function apply(ctx, rawConfig) {
 
   ctx.inject(['tools'], (inner) => {
     const config = readConfig(rawConfig)
-    /** @type {Map<string, {dispose: Function, timer: any, since: number, ttlMs: number, busy: number}>} */
+    /** @type {Map<string, {dispose: Function, timer: any, since: number, ttlMs: number, busy: number, inFlight: boolean, expiresAt: number}>} */
     const live = new Map()
     const catalog = readCatalog(config.catalogFile)
+    let disposed = false
+    const unloadController = new AbortController()
 
     /** Resolve the manager lazily: it may mount after this plugin does. */
     const manager = () => {
@@ -78,6 +81,8 @@ export function apply(ctx, rawConfig) {
       catalog,
       limit: createLimiter(config.maxConcurrent),
       lock: createNameLock(),
+      isDisposed: () => disposed,
+      signal: unloadController.signal,
       saveCatalog: () => {
         try {
           writeCatalog(config.catalogFile, catalog)
@@ -89,18 +94,15 @@ export function apply(ctx, rawConfig) {
     const byName = Object.fromEntries(authored.map((definition) => [definition.name, definition]))
     const definitions = authored.map((definition) => defineTool(definition))
 
-    // A mounted server's tools cost prompt tokens on every later request.
-    // Restart its release from the last real mcp__<server>__* call, so an
-    // analysis that is still running is not torn down mid-way, and one that
-    // stopped does not sit until the original deadline.
+    // Hold the server's idle timer while a real mcp__<server>__* tool call is
+    // in flight, and restart its idle TTL when the call finishes.
     const offActivity = typeof inner.on === 'function'
       ? inner.on('tools/pre-execute', (exec, next) => {
         let release
         try {
-          authored.noteActivity(exec?.name)
           release = authored.hold(exec?.name)
         } catch (error) {
-          inner.logger.warn('mcp-on-demand: activity note failed: %s', error?.message ?? String(error))
+          inner.logger.warn('mcp-on-demand: activity hold failed: %s', error?.message ?? String(error))
         }
         const finish = () => {
           if (typeof release === 'function') release()
@@ -130,23 +132,34 @@ export function apply(ctx, rawConfig) {
       if (!connection?.fetch || typeof connection.fetch.register !== 'function') return
       scoped.effect(() => {
         const fetch = async (request) => {
-          const url = new URL(request.url)
-          let bodyText = ''
-          if (request.method === 'POST' && request.body) bodyText = await request.text()
-          const result = await handleServersRequest({
-            method: request.method,
-            path: url.pathname,
-            bodyText,
-            tools: byName,
-          })
-          const payload = request.method === 'HEAD' ? null : JSON.stringify(result.value)
-          return new Response(payload, {
-            status: result.status,
-            headers: {
-              'content-type': 'application/json; charset=utf-8',
-              'cache-control': 'no-store',
-            },
-          })
+          try {
+            const url = new URL(request.url)
+            let bodyText = ''
+            if (request.method === 'POST' && request.body) bodyText = await request.text()
+            const result = await handleServersRequest({
+              method: request.method,
+              path: url.pathname,
+              bodyText,
+              tools: byName,
+            })
+            const payload = request.method === 'HEAD' ? null : JSON.stringify(result.value)
+            return new Response(payload, {
+              status: result.status,
+              headers: {
+                'content-type': 'application/json; charset=utf-8',
+                'cache-control': 'no-store',
+              },
+            })
+          } catch (error) {
+            inner.logger.warn('mcp-on-demand: panel route error: %s', error?.message ?? String(error))
+            return new Response(JSON.stringify({ error: 'internal-error' }), {
+              status: 500,
+              headers: {
+                'content-type': 'application/json; charset=utf-8',
+                'cache-control': 'no-store',
+              },
+            })
+          }
         }
         let dispose
         try {
@@ -172,6 +185,8 @@ export function apply(ctx, rawConfig) {
     })
 
     inner.effect(() => () => {
+      disposed = true
+      unloadController.abort()
       prompt = () => ''
       if (typeof offActivity === 'function') {
         try {

@@ -19,9 +19,9 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE",
     "locale",
-    "icon.svg"
+    "icon.svg",
+    "LICENSE"
   ],
   "icon": "./icon.svg",
   "dsh": {
@@ -39,7 +39,9 @@
     }
   },
   "scripts": {
-    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/prices.js",
+    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/prices.js && node --check lib/model-names.js && node --check lib/catalog-store.js && node --check lib/routes.js && node --check lib/locales.js && node --check lib/state-dir.js && node --check lib/json-store.js && node --check lib/http-utils.js",
+    "build:client": "node ../tools/build-client.mjs session-meter",
+    "check:client": "node ../tools/build-client.mjs session-meter --check",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {

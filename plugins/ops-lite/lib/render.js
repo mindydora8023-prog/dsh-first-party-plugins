@@ -76,7 +76,8 @@ function diagnosticFile(item) {
   }
   if (item.truncatedInLine === true) {
     output.push(`[Notice: Line ${field(item.truncatedInLineAt ?? '?')} in ${label(shown)} is incomplete; `
-      + `${facts(item, ['bytesTotal', 'bytesOmitted'])}. Use a smaller range or binary view; the next line offset `
+      + `${facts(item, ['charactersTotal', 'charactersOmitted', 'bytesTotal', 'bytesOmitted'])}. `
+      + 'Use a smaller range or binary view; the next line offset '
       + 'does not recover its missing suffix.]')
   }
   if (!Array.isArray(item.items) || item.items.length === 0) {

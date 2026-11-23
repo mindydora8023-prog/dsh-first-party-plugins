@@ -30,7 +30,7 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/auth.js && node --check lib/api.js && node --check lib/tools.js && node --check lib/define.js",
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/auth.js && node --check lib/api.js && node --check lib/tools.js && node --check lib/define.js && node --check lib/state-dir.js && node --check lib/tools/shared.js && node --check lib/tools/status.js && node --check lib/tools/search.js && node --check lib/tools/repo.js && node --check lib/tools/issues.js && node --check lib/tools/pulls.js && node --check lib/tools/actions.js && node --check lib/tools/writes.js",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {

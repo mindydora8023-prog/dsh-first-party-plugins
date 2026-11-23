@@ -1,0 +1,20 @@
+{
+  "template": "client/template.js",
+  "output": "lib/client.js",
+  "indent": "    ",
+  "locales": {
+    "source": "client/locales.json",
+    "output": "lib/locales.js",
+    "exportName": "LOCALES"
+  },
+  "blocks": [
+    { "marker": "/*__LOCALES__*/", "source": "lib/locales.js" },
+    { "marker": "/*__CONFIG__*/", "source": "lib/config-schema.js" },
+    { "marker": "/*__MATCH__*/", "source": "lib/match.js" },
+    { "marker": "/*__GHOST__*/", "source": "lib/ghost.js" },
+    { "marker": "/*__HTTP__*/", "source": "client/http.js" },
+    { "marker": "/*__HOOKS__*/", "source": "client/hooks.js" },
+    { "marker": "/*__GHOST_PAINTER__*/", "source": "client/ghost-painter.js" },
+    { "marker": "/*__SETTINGS_PAGE__*/", "source": "client/settings-page.js" }
+  ]
+}

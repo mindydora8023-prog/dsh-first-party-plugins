@@ -14,9 +14,8 @@
  *
  *   - `archived-sessions/tools/build-reasons.py` holds the Chinese reason dictionary.
  *   - `next-say/tools/make-locales.py` holds the Chinese locale dictionary.
- *   - `gmail/gmail_cli.py` holds the Chinese help and error text of a real CLI.
  *
- * In those three files Chinese is the PAYLOAD, not an accident: they are the readable
+ * In those files Chinese is the PAYLOAD, not an accident: they are the readable
  * authority, and `\uXXXX` escaping happens in the GENERATED JavaScript (`lib/reasons.js`),
  * which this guard still requires to be ASCII. Forcing the sources to ASCII would mean
  * hand-writing escapes, which is exactly the failure mode the dictionary design removes.
@@ -26,8 +25,8 @@
  * non-ASCII fails (stale entry), and any unlisted file with non-ASCII fails (new leak).
  *
  * Scope: `lib/`, `test/`, `tools/`, `mcp/`, `bin/`, the plugin root, and `cordis.patch.yml`.
- * The plugin root is included because `gmail/gmail_cli.py` lives there - a guard that only
- * walked the five directories could not see the one file outside them.
+ * The plugin root is included so a standalone entry point next to package.json is not
+ * invisible to a guard that only walked the five directories.
  *
  * A missing file is a failure, not a skip: silently losing the guard would be worse than
  * the guard complaining.
@@ -53,14 +52,6 @@ const TEXT_CARRIERS = new Map([
   [
     'build-reasons.py',
     'Chinese reason dictionary; tools/build-reasons.py emits lib/reasons.js as \\uXXXX',
-  ],
-  [
-    'make-locales.py',
-    'locale dictionary for next-say; the generated lib/*.js files are escaped',
-  ],
-  [
-    'gmail_cli.py',
-    'help and error text of the gmail command-line client, shown to the operator',
   ],
 ])
 
@@ -96,18 +87,27 @@ function hasNonAscii(text) {
  * windows-desktop already encodes that distinction in its own `scripts/check.mjs`, so this
  * shared guard covers the JS/Python surface and leaves those formats to that check.
  */
+function walkDir(dir, extensions, out) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walkDir(full, extensions, out)
+    } else if (entry.isFile() && extensions.some((ext) => entry.name.endsWith(ext))) {
+      out.push(full)
+    }
+  }
+}
+
 function shippedSources() {
-  const roots = ['lib', 'test', 'tools', 'mcp', 'bin']
+  const roots = ['lib', 'client', 'test', 'tools', 'mcp', 'bin']
   const extensions = ['.js', '.mjs', '.cjs', '.py']
   const files = []
   for (const root of roots) {
     const dir = join(pluginDir, root)
     if (!existsSync(dir)) continue
-    for (const name of readdirSync(dir)) {
-      if (extensions.some((ext) => name.endsWith(ext))) files.push(join(dir, name))
-    }
+    walkDir(dir, extensions, files)
   }
-  // The plugin root holds standalone entry points (e.g. gmail/gmail_cli.py).
+  // The plugin root holds standalone entry points next to package.json.
   for (const name of readdirSync(pluginDir)) {
     if (extensions.some((ext) => name.endsWith(ext))) files.push(join(pluginDir, name))
   }

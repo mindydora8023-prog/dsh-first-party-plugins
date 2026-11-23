@@ -12,8 +12,7 @@
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readJsonFileBoundedSync, writeJsonAtomicSync } from './json-store.js'
 
 /** How many tools one server keeps. The rest are counted, not stored. */
 export const CATALOG_TOOL_CAP = 80
@@ -23,6 +22,9 @@ export const CATALOG_DESC_CAP = 160
 
 /** A week. After that, mcpod_find ignores the entry until a new probe. */
 export const CATALOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+/** Bounded ceiling for reading the catalog JSON file (1 MiB). */
+const CATALOG_MAX_BYTES = 1024 * 1024
 
 /** @returns {{ servers: Record<string, object> }} */
 export function emptyCatalog() {
@@ -35,29 +37,21 @@ export function emptyCatalog() {
  */
 export function readCatalog(file) {
   if (typeof file !== 'string' || file === '') return emptyCatalog()
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return emptyCatalog()
-    if (!parsed.servers || typeof parsed.servers !== 'object' || Array.isArray(parsed.servers)) return emptyCatalog()
-    return { servers: parsed.servers }
-  } catch {
-    return emptyCatalog()
-  }
+  const parsed = readJsonFileBoundedSync(file, { maxBytes: CATALOG_MAX_BYTES, fallback: null })
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return emptyCatalog()
+  if (!parsed.servers || typeof parsed.servers !== 'object' || Array.isArray(parsed.servers)) return emptyCatalog()
+  return { servers: parsed.servers }
 }
 
 /**
- * Atomic replace. A crash mid-write must not leave a half catalog that the
- * next start treats as authoritative.
+ * Atomic replace via unique temp file and Windows-safe swap fallback.
  *
  * @param {string | false | undefined} file
  * @param {{ servers: Record<string, object> }} catalog
  */
 export function writeCatalog(file, catalog) {
   if (typeof file !== 'string' || file === '') return
-  mkdirSync(dirname(file), { recursive: true })
-  const temp = `${file}.tmp`
-  writeFileSync(temp, JSON.stringify(catalog), 'utf8')
-  renameSync(temp, file)
+  writeJsonAtomicSync(file, catalog, { spaces: 0 })
 }
 
 /** Collapse whitespace so a tool description cannot break the prompt layout. */
@@ -123,6 +117,31 @@ export function remember(catalog, server, probe) {
 }
 
 /**
+ * Record a failed probe. If an existing `ok: true` entry with tools is already
+ * cached, preserve those known tools and record `lastError` instead of wiping
+ * a valid catalog.
+ *
+ * @param {{ servers: Record<string, object> }} catalog
+ * @param {string} server
+ * @param {string} error
+ * @param {number} [now]
+ */
+export function rememberFailure(catalog, server, error, now = Date.now()) {
+  const message = oneLine(error, 200)
+  const existing = catalog?.servers?.[server]
+  if (existing && typeof existing === 'object' && existing.ok === true && Array.isArray(existing.tools) && existing.tools.length > 0) {
+    const updated = {
+      ...existing,
+      lastError: message,
+      lastErrorAt: now,
+    }
+    catalog.servers[server] = updated
+    return updated
+  }
+  return remember(catalog, server, { ok: false, error: message, tools: [], toolCount: 0 })
+}
+
+/**
  * @param {object | undefined} record
  * @param {number} [now]
  */
@@ -130,6 +149,9 @@ export function summaryOf(record, now = Date.now()) {
   if (!record || typeof record !== 'object') return undefined
   const at = typeof record.at === 'number' ? record.at : 0
   const tools = Array.isArray(record.tools) ? record.tools : []
+  const error = typeof record.error === 'string' && record.error !== ''
+    ? record.error
+    : (typeof record.lastError === 'string' ? record.lastError : '')
   return {
     at,
     stale: !(at > 0 && now - at < CATALOG_MAX_AGE_MS),
@@ -137,29 +159,48 @@ export function summaryOf(record, now = Date.now()) {
     toolCount: Number.isFinite(record.toolCount) ? record.toolCount : tools.length,
     truncated: record.truncated === true,
     tools,
-    error: typeof record.error === 'string' ? record.error : '',
+    error,
+    lastError: typeof record.lastError === 'string' ? record.lastError : '',
   }
+}
+
+function tokenizeQuery(query) {
+  const raw = String(query ?? '').trim().toLowerCase()
+  if (raw === '') return []
+  // Split on whitespace and ASCII punctuation so CJK / non-ASCII queries and
+  // 1-character queries remain intact instead of collapsing into [].
+  return raw.split(/[\s,.;:!?/\\|()[\]{}<>"'`~@#$%^&*+=]+/).filter((term) => term.length > 0)
+}
+
+function isServerAllowed(server, allowed) {
+  if (allowed === undefined || allowed === null) return true
+  if (allowed instanceof Set) return allowed.has(server)
+  if (Array.isArray(allowed)) return allowed.includes(server)
+  if (typeof allowed === 'object') return Object.prototype.hasOwnProperty.call(allowed, server)
+  return true
 }
 
 /**
  * @param {{ servers: Record<string, object> }} catalog
  * @param {string} query
- * @param {{ limit?: number, now?: number }} [options]
+ * @param {{ limit?: number, now?: number, allowedServers?: Set<string> | string[] | Record<string, unknown>, aboutOf?: Function, keywordsOf?: Function }} [options]
  */
 export function searchCatalog(catalog, query, options = {}) {
   const limit = Number.isInteger(options.limit) && options.limit > 0 ? Math.min(options.limit, 20) : 12
   const now = options.now ?? Date.now()
-  const terms = String(query ?? '').toLowerCase().split(/[^a-z0-9_-]+/).filter((term) => term.length >= 2)
+  const terms = tokenizeQuery(query)
+  if (terms.length === 0) return []
   /** @type {{ server: string, tool: string, call: string, description: string }[]} */
   const hits = []
   const servers = catalog && catalog.servers && typeof catalog.servers === 'object' ? catalog.servers : {}
   for (const [server, record] of Object.entries(servers)) {
+    if (!isServerAllowed(server, options.allowedServers)) continue
     const summary = summaryOf(record, now)
     if (!summary || summary.stale || !summary.ok) continue
     const keywords = Array.isArray(options.keywordsOf?.(server)) ? options.keywordsOf(server).join(' ') : ''
     const about = typeof options.aboutOf?.(server) === 'string' ? options.aboutOf(server) : ''
     const serverHay = `${server} ${about} ${keywords}`.toLowerCase()
-    if (terms.length > 0 && terms.every((term) => serverHay.includes(term)) && summary.tools.length === 0) {
+    if (terms.every((term) => serverHay.includes(term)) && summary.tools.length === 0) {
       hits.push({ server, tool: '', call: '', description: about })
       if (hits.length >= limit) return hits
       continue
@@ -167,7 +208,7 @@ export function searchCatalog(catalog, query, options = {}) {
     for (const tool of summary.tools) {
       if (!tool || typeof tool.name !== 'string') continue
       const hay = `${serverHay} ${tool.name} ${tool.description || ''}`.toLowerCase()
-      if (terms.length > 0 && !terms.every((term) => hay.includes(term))) continue
+      if (!terms.every((term) => hay.includes(term))) continue
       hits.push({
         server,
         tool: tool.name,

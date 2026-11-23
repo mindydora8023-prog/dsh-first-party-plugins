@@ -22,7 +22,10 @@ import test from 'node:test';
 
 import { GHOST_ATTR, clearGhost, findEditor, ghostState, paintGhost } from '../lib/ghost.js';
 
-const TEMPLATE = new URL('../client/client.template.js', import.meta.url);
+const BUNDLE = new URL('../lib/client.js', import.meta.url);
+const GHOST_PAINTER = new URL('../client/ghost-painter.js', import.meta.url);
+const HOOKS = new URL('../client/hooks.js', import.meta.url);
+const TEMPLATE = new URL('../client/template.js', import.meta.url);
 
 /* --------------------------------------------------------------- fake DOM */
 
@@ -298,7 +301,7 @@ test('the stylesheet is injected once, not per paint', () => {
 /* ------------------------------------------------ behaviours fixed after bug */
 
 test('a completion passes the draft as an invisible prefix, not as visible text', () => {
-  const source = readFileSync(TEMPLATE, 'utf8');
+  const source = readFileSync(GHOST_PAINTER, 'utf8');
   assert.match(source, /const ghostText = modelText !== '' \? modelText : localSuffix;/);
   // A matching draft (prediction prefix OR history completion) reserves itself
   // invisibly. An empty composer has nothing to reserve, so its prediction
@@ -310,7 +313,7 @@ test('a completion passes the draft as an invisible prefix, not as visible text'
 });
 
 test('the completion memo is invalidated when the history pool arrives', () => {
-  const source = readFileSync(TEMPLATE, 'utf8');
+  const source = `${readFileSync(GHOST_PAINTER, 'utf8')}\n${readFileSync(HOOKS, 'utf8')}`;
   assert.match(source, /const \[historyEpoch, setHistoryEpoch\]/, 'a version state is required');
   assert.match(
     source,
@@ -324,44 +327,27 @@ test('the completion memo is invalidated when the history pool arrives', () => {
 });
 
 test('the ghost component never returns before all of its hooks', () => {
-  const source = readFileSync(TEMPLATE, 'utf8');
+  const source = readFileSync(GHOST_PAINTER, 'utf8');
   const start = source.indexOf('function GhostPainter(props) {');
   assert.notEqual(start, -1, 'GhostPainter must exist');
-  // Bound the slice to this component: the settings page that follows also has
-  // body-level returns, and counting those would defeat the assertion.
-  const end = source.indexOf('/* ----------------------------------------------------------- settings */', start);
-  assert.notEqual(end, -1, 'the settings section marker must follow the component');
-  const body = source.slice(start, end);
+  const body = source.slice(start);
 
-  // The exact bug that made the composer show nothing: `if (!enabled) return
-  // null;` sat BETWEEN hook calls. `enabled` flips false -> true when the
-  // settings arrive, so the next render declared more hooks than the previous
-  // one and React threw. The slot renderer swallows that, leaving an empty
-  // composer and no visible error anywhere.
   assert.ok(
     !/^\s*if \(!enabled\) return null;/m.test(body),
     'no conditional return may sit between hooks; handle it inside the effect',
   );
 
-  // A body-level early return is indented six spaces inside the factory. There
-  // may be exactly one, and it must be the final statement.
   const bodyLevel = body
     .split('\n')
-    .filter((line) => /^ {6}return\b/.test(line))
+    .filter((line) => /^ {2}return\b/.test(line))
     .map((line) => line.trim());
   assert.deepEqual(bodyLevel, ['return null;'], `body-level returns: ${JSON.stringify(bodyLevel)}`);
 });
 
 test('every ref the ghost component reads is declared', () => {
-  // A rewrite once dropped `const draftRef = React.useRef(...)` while leaving two
-  // `draftRef.current` reads. `predict()` threw a ReferenceError before reaching
-  // the network and its own try/catch swallowed it, so /predict never fired and
-  // nothing was logged anywhere. This pins the whole class: any `<name>.current`
-  // read must have a matching declaration in the same component.
-  const source = readFileSync(TEMPLATE, 'utf8');
+  const source = readFileSync(GHOST_PAINTER, 'utf8');
   const start = source.indexOf('function GhostPainter(props) {');
-  const end = source.indexOf('/* ----------------------------------------------------------- settings */', start);
-  const body = source.slice(start, end);
+  const body = source.slice(start);
 
   const declared = new Set(
     [...body.matchAll(/const\s+(\w+)\s*=\s*React\.useRef\(/g)].map((m) => m[1]),
@@ -373,16 +359,8 @@ test('every ref the ghost component reads is declared', () => {
 });
 
 test('typing hides a prediction; only a running turn discards it', () => {
-  // Two different lifetimes, and conflating them caused both reported bugs:
-  //   - discarding on typing    -> after clearing the box the prediction was gone
-  //                                and never came back;
-  //   - discarding only on accept-> after sending, the stale sentence sat in the
-  //                                empty composer while the agent worked.
-  const source = readFileSync(TEMPLATE, 'utf8');
+  const source = readFileSync(GHOST_PAINTER, 'utf8');
 
-  // The prediction stays live on an idle composer. Typing hides it only when
-  // the draft stops being a prefix (suggestionRemainder returns null); an empty
-  // composer still paints the whole message.
   assert.match(
     source,
     /const modelLive = suggestion !== ''[^;]*&& !running/,
@@ -391,9 +369,8 @@ test('typing hides a prediction; only a running turn discards it', () => {
   assert.match(source, /suggestionRemainder\(suggestion, draft\)/);
   assert.match(source, /blankDraft \? suggestion/);
 
-  // Discarding it is gated on the turn starting, NOT on the draft.
   const discard = source.slice(
-    source.indexOf('React.useEffect(() => {', source.indexOf('a turn   -> DISCARD')),
+    source.indexOf('React.useEffect(() => {', source.indexOf('only a running turn discards it')),
     source.indexOf('}, [suggestion, running]'),
   );
   assert.match(discard, /if \(suggestion === ''\) return;/);
@@ -411,11 +388,11 @@ test('the entry mounts into the composer overlay, not the dock above it', () => 
     !source.includes("slots.inject('conversation.input.dock'"),
     'the row above the composer is no longer used',
   );
+  assert.ok(readFileSync(BUNDLE, 'utf8').includes("slots.inject('conversation.input.overlay'"));
 });
 
 test('accept still goes through the composer CAS, not a draft write', () => {
-  const source = readFileSync(TEMPLATE, 'utf8');
-  // captureInsertion + insertText is what prevents overwriting typed text.
+  const source = readFileSync(GHOST_PAINTER, 'utf8');
   assert.match(source, /inputActions\.captureInsertion\(\)/);
   assert.match(source, /inputActions\.insertText\(text, span\)/);
 });

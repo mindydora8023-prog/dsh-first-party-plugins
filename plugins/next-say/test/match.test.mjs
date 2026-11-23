@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder } from '../lib/match.js';
+import { historyCompletion, nextWordLength, normalizeCacheSize, normalizeForMatch, suggestionRemainder } from '../lib/match.js';
 
 /** Message helper: keeps the test cases about content, not shape. */
 const user = (text) => ({ role: 'user', text });
@@ -198,4 +198,16 @@ test('a draft that already ends with a space does not ghost that space again', (
   assert.equal(suggestionRemainder('fix the failing test', 'fix'), ' the failing test');
   const history = historyCompletion([user('fix the failing test')], 'fix ', { minChars: 2 });
   assert.equal(history.suffix, 'the failing test');
+});
+
+test('NORMALIZE_CACHE bypasses short strings and per-character walks do not thrash it', () => {
+  const before = normalizeCacheSize();
+  for (let code = 0x4e00; code < 0x4e80; code += 1) {
+    normalizeForMatch(String.fromCharCode(code));
+  }
+  assert.equal(normalizeCacheSize(), before, 'single-char inputs must not enter NORMALIZE_CACHE');
+  const longText = 'unique-cache-stability-probe-sentence-for-prefix-walk';
+  assert.equal(suggestionRemainder(longText, 'unique-cache-stability'), '-probe-sentence-for-prefix-walk');
+  const afterWalk = normalizeCacheSize();
+  assert.ok(afterWalk - before <= 2, `per-character walk must not insert character keys (delta=${afterWalk - before})`);
 });

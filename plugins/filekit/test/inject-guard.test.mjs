@@ -40,11 +40,21 @@ const KNOWN_SERVICES = [
   'ptcRuntime',
 ]
 
+function walkJs(dir, out) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) walkJs(full, out)
+    else if (entry.isFile() && entry.name.endsWith('.js')) out.push(full)
+  }
+}
+
 /** Every `ctx.<service>` / `runtimeCtx.<service>` read in the executable sources. */
 function usedServices() {
   const used = new Set()
-  for (const file of readdirSync(libDir).filter((name) => name.endsWith('.js'))) {
-    const source = readFileSync(join(libDir, file), 'utf8')
+  const files = []
+  walkJs(libDir, files)
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
     for (const service of KNOWN_SERVICES) {
       // Match `ctx.tools`, `runtimeCtx.tools`, `c.fs`, etc. - any identifier
       // ending in "ctx"/"Ctx" followed by the service name.

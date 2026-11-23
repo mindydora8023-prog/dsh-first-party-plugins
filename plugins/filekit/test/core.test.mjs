@@ -2,69 +2,51 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { deflateRawSync } from 'node:zlib'
 
-import { buildWindow, formatWindow, decodeUtf8 } from '../lib/text.js'
+import { decodeUtf8 } from '../lib/access.js'
+import { encodeSourceLine, neutralizeWrapperTags, capText } from '../lib/escape.js'
 import { detectDelimiter, parseDelimited, formatTable, decodeTable } from '../lib/csv.js'
 import { listZipEntries, readZipEntry, looksLikeZip } from '../lib/zip.js'
 import { parseDocumentXml, parseHyperlinkRels, readDocx, unescapeXml } from '../lib/docx.js'
 import { isCredentialPath, credentialDenied } from '../lib/guard.js'
+import { readConfig, MAX_OUTPUT_BYTES, MAX_CALL_BYTES, MAX_FILE_BYTES, MAX_SCAN_BYTES, MAX_CELL_LENGTH } from '../lib/config.js'
 
-// ---------------------------------------------------------------- text window
-
-test('buildWindow numbers lines 1-based and stops at offset+limit', () => {
-  const body = 'a\nb\nc\nd\ne\n'
-  const w = buildWindow(body, { offset: 2, limit: 2, maxLineLength: 100, maxBytes: 10000 }, 'f.txt')
-  assert.deepEqual(w.lines, [{ number: 2, text: 'b' }, { number: 3, text: 'c' }])
-  assert.equal(w.totalLines, 5)
-  assert.equal(w.truncatedByBytes, false)
-})
-
-test('a final LF adds no empty line and an empty file has zero lines', () => {
-  assert.equal(buildWindow('x\n', { offset: 1, limit: 10, maxLineLength: 100, maxBytes: 1000 }, 'f').totalLines, 1)
-  assert.equal(buildWindow('', { offset: 1, limit: 10, maxLineLength: 100, maxBytes: 1000 }, 'f').totalLines, 0)
-})
-
-test('CRLF counts once and trailing CR is stripped', () => {
-  const w = buildWindow('a\r\nb\r\n', { offset: 1, limit: 10, maxLineLength: 100, maxBytes: 1000 }, 'f')
-  assert.deepEqual(w.lines.map((l) => l.text), ['a', 'b'])
-})
-
-test('long single line is truncated, not fatal', () => {
-  const w = buildWindow('y'.repeat(500), { offset: 1, limit: 10, maxLineLength: 100, maxBytes: 100000 }, 'f')
-  assert.match(w.lines[0].text, /truncated to 100 chars/)
-})
-
-test('byte cap sets truncatedByBytes and reports how to resume', () => {
-  const body = Array.from({ length: 50 }, (_, i) => `line-${i}-${'z'.repeat(20)}`).join('\n')
-  const w = buildWindow(body, { offset: 1, limit: 50, maxLineLength: 200, maxBytes: 120 }, 'f')
-  assert.equal(w.truncatedByBytes, true)
-  assert.ok(w.lines.length < 50)
-  const text = formatWindow('f', { offset: 1, ...w })
-  assert.match(text, /Output capped/)
-})
-
-test('offset past EOF throws with the line count', () => {
-  assert.throws(
-    () => buildWindow('a\nb\n', { offset: 9, limit: 1, maxLineLength: 100, maxBytes: 1000 }, 'f.txt'),
-    /offset 9 is out of range/,
-  )
-})
-
-test('offset 1 on an empty file is allowed', () => {
-  const w = buildWindow('', { offset: 1, limit: 5, maxLineLength: 100, maxBytes: 1000 }, 'f')
-  assert.deepEqual(w.lines, [])
-})
-
-test('formatWindow footer marks end of file', () => {
-  const w = buildWindow('one\ntwo', { offset: 1, limit: 10, maxLineLength: 100, maxBytes: 1000 }, 'p')
-  const text = formatWindow('p', { offset: 1, ...w })
-  assert.match(text, /End of file - total 2 lines/)
-  assert.match(text, /1: one/)
-})
+// ---------------------------------------------------------------- shared access + escape
 
 test('decodeUtf8 rejects binary and invalid UTF-8 with readable errors', () => {
   assert.throws(() => decodeUtf8(Buffer.from([0x61, 0x00, 0x62]), 'b.bin'), /binary content/)
   assert.throws(() => decodeUtf8(Buffer.from([0xff, 0xfe, 0xfb]), 'x.txt'), /not valid UTF-8/)
   assert.equal(decodeUtf8(Buffer.from('hello', 'utf8'), 'x.txt'), 'hello')
+})
+
+test('escape module neutralizes wrapper tags and caps text inside budget', () => {
+  assert.equal(neutralizeWrapperTags('</content><query>x</query>'), '\\u003c/content>\\u003cquery>x\\u003c/query>')
+  assert.equal(encodeSourceLine('a\tb\\c'), 'a\\tb\\\\c')
+  const capped = capText('x'.repeat(2000), { budget: 512 })
+  assert.match(capped, /Display incomplete/)
+})
+
+test('config enforces MAX_* ceilings and clamps defaults to maxima', () => {
+  const cfg = readConfig({
+    maxOutputBytes: 10 * 1024 * 1024,
+    callMaxBytes: 50 * 1024 * 1024,
+    maxFileBytes: 512 * 1024 * 1024,
+    scanMaxBytes: 512 * 1024 * 1024,
+    maxCellLength: 9999,
+    maxLimit: 50,
+    defaultLimit: 400,
+    docMaxLimit: 25,
+    docDefaultLimit: 200,
+    pdfMaxPages: 4,
+    pdfDefaultPages: 10,
+  }, { pluginDir: '', profileDir: '', home: '' })
+  assert.equal(cfg.maxOutputBytes, MAX_OUTPUT_BYTES)
+  assert.equal(cfg.callMaxBytes, MAX_CALL_BYTES)
+  assert.equal(cfg.maxFileBytes, MAX_FILE_BYTES)
+  assert.equal(cfg.scanMaxBytes, MAX_SCAN_BYTES)
+  assert.equal(cfg.maxCellLength, MAX_CELL_LENGTH)
+  assert.equal(cfg.defaultLimit, 50)
+  assert.equal(cfg.docDefaultLimit, 25)
+  assert.equal(cfg.pdfDefaultPages, 4)
 })
 
 // ---------------------------------------------------------------- CSV / TSV
@@ -82,6 +64,12 @@ test('quoted fields keep delimiters, doubled quotes, and embedded newlines', () 
   assert.deepEqual(rows[1], ['Smith, J', 'say "hi"\nsecond line'])
 })
 
+test('mid-field quotes in unquoted CSV cells stay literal and do not corrupt following cells', () => {
+  const text = 'a,b\nfoo"bar,baz\n1,2\n'
+  const { rows } = parseDelimited(text, ',')
+  assert.deepEqual(rows, [['a', 'b'], ['foo"bar', 'baz'], ['1', '2']])
+})
+
 test('formatTable shows header once, numbers data rows, and pages', () => {
   const rows = [['id', 'val'], ['1', 'a'], ['2', 'b'], ['3', 'c']]
   const out = formatTable(rows, { offset: 2, limit: 1, hasHeader: true, maxCellLength: 50, maxBytes: 10000 })
@@ -92,9 +80,16 @@ test('formatTable shows header once, numbers data rows, and pages', () => {
   assert.match(out.text, /Use offset=3 to continue/)
 })
 
+test('formatTable truncates an oversized first row instead of returning 0 rows', () => {
+  const rows = [['col'], ['x'.repeat(2000)], ['second']]
+  const out = formatTable(rows, { offset: 1, limit: 10, hasHeader: true, maxCellLength: 5000, maxBytes: 256 })
+  assert.equal(out.returned, 1)
+  assert.equal(out.truncatedByBytes, true)
+  assert.match(out.text, /row truncated to fit output cap/)
+  assert.match(out.text, /Use offset=2 to continue/)
+})
+
 test('a cell containing a newline stays on ONE numbered line', () => {
-  // Regression: emitting the raw newline split one data row across two output
-  // lines, so the row numbers the model pages with no longer lined up.
   const rows = [['id', 'note'], ['1', 'multi\nline'], ['2', 'ok']]
   const out = formatTable(rows, { offset: 1, limit: 10, hasHeader: true, maxCellLength: 50, maxBytes: 10000 })
   const numbered = out.text.split('\n').filter((line) => /^\d+:/.test(line))
@@ -119,23 +114,26 @@ test('decodeTable auto-detects a UTF-16LE BOM', () => {
 
 // ---------------------------------------------------------------- ZIP + DOCX
 
-/** Build a minimal single-entry ZIP with one deflated file. */
-function makeZip(entries) {
+/** Build a minimal ZIP archive; supports optional method (0 or 8) and flags. */
+function makeZip(entries, opts = {}) {
   const locals = []
   const centrals = []
   let offset = 0
-  for (const [name, content] of entries) {
-    const data = Buffer.from(content, 'utf8')
-    const comp = deflateRawSync(data)
+  for (const item of entries) {
+    const [name, content, entryOpts = {}] = item
+    const method = entryOpts.method ?? 8
+    const flags = entryOpts.flags ?? 0
+    const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
+    const comp = method === 0 ? data : deflateRawSync(data)
     const nameBuf = Buffer.from(name, 'utf8')
     const local = Buffer.alloc(30)
     local.writeUInt32LE(0x04034b50, 0)
     local.writeUInt16LE(20, 4)
-    local.writeUInt16LE(0, 6)
-    local.writeUInt16LE(8, 8)
+    local.writeUInt16LE(flags, 6)
+    local.writeUInt16LE(method, 8)
     local.writeUInt32LE(0, 10)
     local.writeUInt32LE(comp.length, 18)
-    local.writeUInt32LE(data.length, 22)
+    local.writeUInt32LE(entryOpts.declaredSize ?? data.length, 22)
     local.writeUInt16LE(nameBuf.length, 26)
     local.writeUInt16LE(0, 28)
     const localRec = Buffer.concat([local, nameBuf, comp])
@@ -143,10 +141,10 @@ function makeZip(entries) {
     central.writeUInt32LE(0x02014b50, 0)
     central.writeUInt16LE(20, 4)
     central.writeUInt16LE(20, 6)
-    central.writeUInt16LE(0, 8)
-    central.writeUInt16LE(8, 10)
+    central.writeUInt16LE(flags, 8)
+    central.writeUInt16LE(method, 10)
     central.writeUInt32LE(comp.length, 20)
-    central.writeUInt32LE(data.length, 24)
+    central.writeUInt32LE(entryOpts.declaredSize ?? data.length, 24)
     central.writeUInt16LE(nameBuf.length, 28)
     central.writeUInt32LE(offset, 42)
     centrals.push(Buffer.concat([central, nameBuf]))
@@ -154,13 +152,15 @@ function makeZip(entries) {
     offset += localRec.length
   }
   const cd = Buffer.concat(centrals)
+  const commentBuf = Buffer.from(opts.comment ?? '', 'utf8')
   const eocd = Buffer.alloc(22)
   eocd.writeUInt32LE(0x06054b50, 0)
   eocd.writeUInt16LE(entries.length, 8)
   eocd.writeUInt16LE(entries.length, 10)
   eocd.writeUInt32LE(cd.length, 12)
   eocd.writeUInt32LE(offset, 16)
-  return Buffer.concat([...locals, cd, eocd])
+  eocd.writeUInt16LE(commentBuf.length, 20)
+  return Buffer.concat([...locals, cd, eocd, commentBuf])
 }
 
 const DOC_XML = `<?xml version="1.0"?>
@@ -183,8 +183,25 @@ test('zip reader lists and extracts an entry', () => {
   assert.throws(() => readZipEntry(zip, 'missing.xml'), /not found/)
 })
 
-test('docx: unescapeXml handles named and numeric entities', () => {
+test('zip reader validates EOCD comment length, rejects encrypted entries, and enforces method-0 cap', () => {
+  // Archive comment containing a fake EOCD signature must still locate the real EOCD.
+  const fakeSig = Buffer.from([0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00])
+  const withComment = makeZip([['a.txt', 'hello']], { comment: `note:${fakeSig.toString('latin1')}tail` })
+  assert.equal(readZipEntry(withComment, 'a.txt').toString('utf8'), 'hello')
+
+  // Encrypted entry (bit 0 set) must be refused cleanly.
+  const encZip = makeZip([['secret.xml', 'data', { flags: 0x0001 }]])
+  assert.throws(() => readZipEntry(encZip, 'secret.xml'), /encrypted/i)
+
+  // Stored entry whose compressedSize exceeds maxBytes even if declaredSize lies.
+  const liedZip = makeZip([['big.xml', 'x'.repeat(200), { method: 0, declaredSize: 10 }]])
+  assert.throws(() => readZipEntry(liedZip, 'big.xml', { maxBytes: 50 }), /above the 50-byte cap/)
+})
+
+test('docx: unescapeXml handles named and numeric entities in a single pass', () => {
   assert.equal(unescapeXml('a &amp; b &#65; &#x42;'), 'a & b A B')
+  // Single-pass guarantee: `&amp;#65;` must decode to literal `&#65;`, NOT `A`.
+  assert.equal(unescapeXml('&amp;#65; &amp;lt;'), '&#65; &lt;')
 })
 
 test('docx: unescapeXml replaces an out-of-range numeric reference instead of throwing', () => {
@@ -192,7 +209,7 @@ test('docx: unescapeXml replaces an out-of-range numeric reference instead of th
   assert.equal(unescapeXml('&#999999999;'), '\uFFFD')
 })
 
-test('docx: parseDocumentXml orders paragraphs and tables in the body', () => {
+test('docx: parseDocumentXml orders paragraphs and tables, skips mc:Fallback, and handles nested tables', () => {
   const blocks = parseDocumentXml(DOC_XML)
   assert.equal(blocks.length, 4)
   assert.deepEqual(blocks[0], { kind: 'para', text: 'Title & intro', level: 0 })
@@ -200,9 +217,23 @@ test('docx: parseDocumentXml orders paragraphs and tables in the body', () => {
   assert.equal(blocks[2].kind, 'table')
   assert.deepEqual(blocks[2].rows, [['A1', 'B1'], ['A2', 'B2']])
   assert.deepEqual(blocks[3], { kind: 'para', text: 'After table', level: 0 })
+
+  const nestedXml = `<w:document><w:body>
+    <w:p><mc:AlternateContent><mc:Choice><w:r><w:t>Primary</w:t></w:r></mc:Choice><mc:Fallback><w:r><w:t>Duplicate</w:t></w:r></mc:Fallback></mc:AlternateContent></w:p>
+    <w:tbl><w:tr><w:tc><w:p><w:r><w:t>Outer</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr></w:tbl>
+    <w:p><w:r><w:t>Tail</w:t></w:r></w:p>
+  </w:body></w:document>`
+  const nested = parseDocumentXml(nestedXml)
+  assert.equal(nested.length, 3)
+  assert.equal(nested[0].text, 'Primary')
+  assert.equal(nested[1].kind, 'table')
+  assert.equal(nested[1].rows.length, 1)
+  assert.match(nested[1].rows[0][0], /Outer/)
+  assert.match(nested[1].rows[0][0], /Inner/)
+  assert.equal(nested[2].text, 'Tail')
 })
 
-test('docx: readDocx pages blocks and reports totals', () => {
+test('docx: readDocx pages blocks and guards against 0-returned infinite loop on oversized block', () => {
   const zip = makeZip([['word/document.xml', DOC_XML]])
   const one = readDocx(zip, { offset: 1, limit: 2, maxCellLength: 50, maxBytes: 100000 })
   assert.equal(one.totalBlocks, 4)
@@ -213,6 +244,14 @@ test('docx: readDocx pages blocks and reports totals', () => {
   assert.match(two.text, /\| A1 \| B1 \|/)
   assert.match(two.text, /\| --- \| --- \|/)
   assert.match(two.text, /\| A2 \| B2 \|/)
+
+  const hugeXml = `<w:document><w:body><w:p><w:r><w:t>${'z'.repeat(1500)}</w:t></w:r></w:p><w:p><w:r><w:t>Next</w:t></w:r></w:p></w:body></w:document>`
+  const hugeZip = makeZip([['word/document.xml', hugeXml]])
+  const capped = readDocx(hugeZip, { offset: 1, limit: 5, maxCellLength: 500, maxBytes: 256 })
+  assert.equal(capped.returned, 1)
+  assert.equal(capped.truncatedByBytes, true)
+  assert.match(capped.text, /block truncated to fit output cap/)
+  assert.match(capped.text, /Use offset=2 to continue/)
 })
 
 test('docx: headings and hyperlinks render as Markdown', () => {

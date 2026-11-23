@@ -70,3 +70,34 @@ test('mcpod_health rejects an unknown server', async () => {
   assert.equal(out.ok, false)
   assert.match(out.text, /No server called nope/)
 })
+
+test('mcpod_health propagates ok:false when probe fails or throws, and surfaces cached error', async () => {
+  const failedProbe = harness({
+    probe: async () => ({ ok: false, message: 'connection refused' }),
+  })
+  const outFail = await failedProbe.h.mcpod_health.execute({ name: 'REA', probe: true })
+  assert.equal(outFail.ok, false)
+  assert.match(outFail.text, /probe: failed: connection refused/)
+
+  const throwingProbe = harness({
+    probe: async () => { throw new Error('spawn ENOENT') },
+  })
+  const outThrow = await throwingProbe.h.mcpod_health.execute({ name: 'REA', probe: true })
+  assert.equal(outThrow.ok, false)
+  assert.match(outThrow.text, /probe: failed: spawn ENOENT/)
+
+  const withCachedError = harness({
+    catalog: { servers: { REA: { ok: false, toolCount: 0, at: 9000, error: 'prior timeout', tools: [] } } },
+  })
+  const outCached = await withCachedError.h.mcpod_health.execute({ name: 'REA' })
+  assert.match(outCached.text, /prior timeout/)
+})
+
+test('mcpod_health shows active (in-flight) instead of stale ttl=0s while a call is running', async () => {
+  const { h, live } = harness()
+  // Even though expiresAt is already in the past, busy > 0 means a call is running.
+  live.set('REA', { ttlMs: 30000, expiresAt: 5_000, busy: 1, inFlight: true, dispose() {} })
+  const out = await h.mcpod_health.execute({ name: 'REA' })
+  assert.match(out.text, /active \(in-flight\)/)
+  assert.doesNotMatch(out.text, /ttl=0s/)
+})

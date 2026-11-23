@@ -61,12 +61,12 @@ function verifiedRange(input, value) {
   if (typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision)) return
   if (!Array.isArray(value.items)) return
 
-  // The window actually used is taken from the per-file record when the caller
-  // omitted it, because the record holds the value the read really applied.
+  // Prefer the window actually applied by the worker (handling clamped limits
+  // and literal-derived offsets) before falling back to raw caller input.
   // Neither field is defaulted from thin air: a window nobody can name is not a
   // window this renderer may certify as whole.
-  const offset = input.offset === undefined ? value.requestedOffset : input.offset
-  const limit = input.limit === undefined ? value.requestedLimit : input.limit
+  const offset = value.requestedOffset !== undefined ? value.requestedOffset : input.offset
+  const limit = value.requestedLimit !== undefined ? value.requestedLimit : input.limit
   if (!integer(offset) || offset < 1) return
   if (!integer(limit) || limit < 1) return
 

@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder } from '../lib/match.js';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const BUILDER = existsSync(resolve(ROOT, '..', 'tools', 'build-client.mjs'))
+  ? resolve(ROOT, '..', 'tools', 'build-client.mjs')
+  : resolve(ROOT, '..', '..', 'tools', 'build-client.mjs');
+const { stripModuleSyntax } = await import(pathToFileURL(BUILDER).href);
 
 // The parent owns a hard deadline, including synchronous VM or fake-hook bugs.
 if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
@@ -19,8 +26,16 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 } else {
-  const source = readFileSync(new URL('../client/client.template.js', import.meta.url), 'utf8')
-    .replace('/*__LOCALES__*/', 'const zh = {}, en = {};');
+  const inlineFile = (rel) => stripModuleSyntax(readFileSync(new URL(rel, import.meta.url), 'utf8'), rel);
+  const source = readFileSync(new URL('../client/template.js', import.meta.url), 'utf8')
+    .replace('/*__LOCALES__*/', () => 'const LOCALES = { zh: {}, en: {} };')
+    .replace('/*__CONFIG__*/', () => inlineFile('../lib/config-schema.js'))
+    .replace('/*__MATCH__*/', () => '')
+    .replace('/*__GHOST__*/', () => '')
+    .replace('/*__HTTP__*/', () => inlineFile('../client/http.js'))
+    .replace('/*__HOOKS__*/', () => inlineFile('../client/hooks.js'))
+    .replace('/*__GHOST_PAINTER__*/', () => inlineFile('../client/ghost-painter.js'))
+    .replace('/*__SETTINGS_PAGE__*/', () => inlineFile('../client/settings-page.js'));
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 
   function harness(options = {}) {
@@ -77,7 +92,7 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     const context = vm.createContext({
       window: { __ModuleLoader__: { load(module) { api = module.factory(() => React).__internals; } } },
       document: doc, AbortController, historyCompletion, nextWordLength, normalizeForMatch, suggestionRemainder,
-      paintGhost: (...args) => paints.push(args.slice(1)), clearGhost: () => paints.push(['clear']),
+      paintGhost: (...args) => paints.push(args.slice(1)), clearGhost: (...args) => paints.push(['clear', ...args.slice(1)]),
       setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
       clearTimeout(id) { timers.delete(id); }, Date: { now: () => clock.now },
       fetch(url, init) {
@@ -177,7 +192,7 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     const second = h.predict();
     const fresh = h.requests.at(-1);
     old.resolve({ ok: true, suggestion: 'stale' }); await first; await h.settle();
-    assert.equal(h.hooks[3].value, true, 'new request remains busy');
+    assert.equal(h.hooks[2].value, true, 'new request remains busy');
     assert.equal(h.hooks[1].value, '');
     fresh.resolve({ ok: true, suggestion: 'fresh' }); await second; await h.settle();
     assert.equal(h.hooks[1].value, 'fresh');
@@ -190,9 +205,9 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     const second = h.predict(); await second; await h.settle();
     assert.equal(request.init.signal.aborted, false);
     assert.equal(h.requests.filter((r) => r.url.endsWith('/predict')).length, 1);
-    assert.equal(h.hooks[3].value, true);
+    assert.equal(h.hooks[2].value, true);
     request.resolve({ ok: true, suggestion: 'result' }); await first; await h.settle();
-    assert.equal(h.hooks[3].value, false);
+    assert.equal(h.hooks[2].value, false);
     h.unmount();
   });
 
@@ -482,6 +497,71 @@ if (process.env.NEXT_SAY_LIFECYCLE_CHILD !== '1') {
     assert.ok([...h.listeners.values()].every((set) => set.size === 0));
     turn.resolve({ ok: true, turn: 3 }); await h.settle();
     assert.equal(h.requests.filter((r) => r.url.endsWith('/predict')).length, 0);
+    h.unmount();
+  });
+
+  test('budget refusal stops the 900ms auto-polling loop and /turn paused/manual stops polling', async () => {
+    const h = harness({ mode: 'auto', dailyCallBudget: 1 });
+    h.requests[0].resolve({ items: [] }); await h.settle();
+    h.fire(900);
+    h.requests.at(-1).resolve({ ok: true, turn: 5, predicted: null, enabled: true, paused: false, mode: 'auto' });
+    await h.settle();
+    const predictReq = h.requests.at(-1);
+    assert.ok(predictReq.url.endsWith('/predict'));
+    predictReq.resolve({ ok: false, reason: 'budget' });
+    await h.settle();
+    assert.ok(![...h.timers.values()].some((timer) => [900, 1200, 2000].includes(timer.ms)),
+      'budget refusal must stop auto polling timers');
+    h.unmount();
+
+    // /turn returning paused: true or mode: 'manual' must also stop polling.
+    for (const turnBody of [
+      { ok: true, turn: 5, predicted: null, enabled: true, paused: true, mode: 'auto' },
+      { ok: true, turn: 5, predicted: null, enabled: true, paused: false, mode: 'manual' },
+    ]) {
+      const h2 = harness({ mode: 'auto' });
+      h2.requests[0].resolve({ items: [] }); await h2.settle();
+      h2.fire(900);
+      h2.requests.at(-1).resolve(turnBody);
+      await h2.settle();
+      assert.equal(h2.requests.filter((r) => r.url.endsWith('/predict')).length, 0);
+      assert.ok(![...h2.timers.values()].some((timer) => timer.ms === 2000));
+      h2.unmount();
+    }
+  });
+
+  test('switching sessionId clears the previous session ghost layer', async () => {
+    const h = harness();
+    h.requests[0].resolve({ items: [] }); await h.settle();
+    const before = h.paints.length;
+    h.props.sessionId = 'b'; h.render();
+    const cleared = h.paints.slice(before).filter((entry) => entry[0] === 'clear' && entry[1] === 'a');
+    assert.ok(cleared.length >= 1, `expected clearGhost for previous session "a", saw ${JSON.stringify(h.paints.slice(before))}`);
+    h.unmount();
+  });
+
+  test('typing does not abort an in-flight history retry fetch', async () => {
+    const h = harness();
+    h.requests[0].resolve({ items: [] }); await h.settle();
+    h.clock.now += 5000;
+    h.state.draft = 'he'; h.render();
+    const retry = h.requests.at(-1);
+    assert.ok(retry.url.includes('/history?'));
+    h.state.draft = 'hel'; h.render();
+    h.state.draft = 'hell'; h.render();
+    assert.equal(retry.init.signal.aborted, false, 'typing more characters must not abort /history retry');
+    retry.resolve({ items: [{ text: 'hello world' }] }); await h.settle();
+    assert.equal(h.key().prevented, true);
+    assert.deepEqual(h.inserted, ['o world']);
+    h.unmount();
+  });
+
+  test('manual budget refusal displays localized manualBudget key', async () => {
+    const h = harness();
+    const work = h.control().children[0].props.onClick({ currentTarget: {} });
+    h.requests.at(-1).resolve({ ok: false, reason: 'budget' });
+    await work; await h.settle();
+    assert.equal(h.control().children[1].children[0], 'manualBudget');
     h.unmount();
   });
 }

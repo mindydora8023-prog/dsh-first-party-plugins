@@ -3,37 +3,40 @@
  *
  * DOCX/XLSX/PPTX are ZIP containers. Node ships zlib but not a ZIP reader, so
  * this module implements just what office documents need:
- *   - locate the End Of Central Directory record (EOCD), including the
- *     trailing-comment case;
- *   - walk the central directory;
- *   - inflate one entry by name, with hard bounds.
+ *   - locate the End Of Central Directory record (EOCD), verifying comment length;
+ *   - walk the central directory with full bounds checks;
+ *   - inflate one entry by name, rejecting encrypted entries and enforcing caps.
  *
  * Deliberately unsupported: ZIP64, multi-disk archives, encrypted entries.
  * Each of those throws a readable error instead of guessing.
+ *
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
+import { Buffer } from 'node:buffer'
 import { inflateRawSync } from 'node:zlib'
 
 const EOCD_SIG = 0x06054b50
 const CEN_SIG = 0x02014b50
 const LOC_SIG = 0x04034b50
 
-/**
- * Parsed central directories, keyed by the ZIP Buffer object.
- *
- * Reading one XLSX walks the central directory once per entry it needs
- * (workbook, rels, sheet, sharedStrings, styles = 5 times) even though the
- * directory never changes for a given buffer. A WeakMap makes the repeat walks
- * O(1) without changing any call site, and the key dies with the buffer.
- */
+/** Parsed central directories, keyed by the ZIP Buffer object. */
 const CENTRAL_DIRECTORY = new WeakMap()
 
-/** Find the EOCD record, scanning backwards over a possible archive comment. */
+/**
+ * Find the EOCD record, scanning backwards over a possible archive comment
+ * and verifying that its declared comment length matches the trailing bytes.
+ */
 function findEocd(buf) {
+  if (buf.length < 22) {
+    throw new Error('not a ZIP container (too short); this file is not an Office document')
+  }
   const maxComment = 65535
   const start = Math.max(0, buf.length - (22 + maxComment))
   for (let i = buf.length - 22; i >= start; i -= 1) {
-    if (buf.readUInt32LE(i) === EOCD_SIG) return i
+    if (buf.readUInt32LE(i) !== EOCD_SIG) continue
+    const commentLen = buf.readUInt16LE(i + 20)
+    if (commentLen === buf.length - (i + 22)) return i
   }
   throw new Error('not a ZIP container (no end-of-central-directory record); this file is not an Office document')
 }
@@ -41,7 +44,7 @@ function findEocd(buf) {
 /**
  * List the entries in a ZIP buffer.
  * @param {Buffer} buf
- * @returns {Array<{name:string, method:number, compressedSize:number, size:number, localOffset:number}>}
+ * @returns {Array<{name:string, flags:number, method:number, compressedSize:number, size:number, localOffset:number}>}
  */
 export function listZipEntries(buf) {
   const cached = CENTRAL_DIRECTORY.get(buf)
@@ -58,6 +61,7 @@ export function listZipEntries(buf) {
     if (p + 46 > buf.length || buf.readUInt32LE(p) !== CEN_SIG) {
       throw new Error('corrupt ZIP central directory')
     }
+    const flags = buf.readUInt16LE(p + 8)
     const method = buf.readUInt16LE(p + 10)
     const compressedSize = buf.readUInt32LE(p + 20)
     const size = buf.readUInt32LE(p + 24)
@@ -65,9 +69,13 @@ export function listZipEntries(buf) {
     const extraLen = buf.readUInt16LE(p + 30)
     const commentLen = buf.readUInt16LE(p + 32)
     const localOffset = buf.readUInt32LE(p + 42)
+    const recordEnd = p + 46 + nameLen + extraLen + commentLen
+    if (recordEnd > buf.length) {
+      throw new Error('corrupt ZIP central directory (truncated entry record)')
+    }
     const name = buf.toString('utf8', p + 46, p + 46 + nameLen)
-    entries.push({ name, method, compressedSize, size, localOffset })
-    p += 46 + nameLen + extraLen + commentLen
+    entries.push({ name, flags, method, compressedSize, size, localOffset })
+    p = recordEnd
   }
   CENTRAL_DIRECTORY.set(buf, entries)
   return entries
@@ -85,23 +93,35 @@ export function readZipEntry(buf, name, opts = {}) {
   const entries = listZipEntries(buf)
   const entry = entries.find((e) => e.name === name)
   if (entry === undefined) throw new Error(`ZIP entry not found: ${name}`)
+  if ((entry.flags & 0x0001) !== 0) {
+    throw new Error(`ZIP entry "${name}" is encrypted; encrypted Office documents are not supported`)
+  }
   if (entry.size > maxBytes) {
     throw new Error(`ZIP entry "${name}" is ${entry.size} bytes, above the ${maxBytes}-byte cap`)
   }
   const p = entry.localOffset
-  if (p + 30 > buf.length || buf.readUInt32LE(p) !== LOC_SIG) {
+  if (p < 0 || p + 30 > buf.length || buf.readUInt32LE(p) !== LOC_SIG) {
     throw new Error(`corrupt ZIP local header for "${name}"`)
+  }
+  const localFlags = buf.readUInt16LE(p + 6)
+  if ((localFlags & 0x0001) !== 0) {
+    throw new Error(`ZIP entry "${name}" is encrypted; encrypted Office documents are not supported`)
   }
   const nameLen = buf.readUInt16LE(p + 26)
   const extraLen = buf.readUInt16LE(p + 28)
   const dataStart = p + 30 + nameLen + extraLen
+  if (dataStart > buf.length) throw new Error(`corrupt ZIP local header bounds for "${name}"`)
   const dataEnd = dataStart + entry.compressedSize
   if (dataEnd > buf.length) throw new Error(`truncated ZIP entry "${name}"`)
   const raw = buf.subarray(dataStart, dataEnd)
-  if (entry.method === 0) return Buffer.from(raw)
+  if (entry.method === 0) {
+    if (entry.compressedSize > maxBytes) {
+      throw new Error(`ZIP entry "${name}" is ${entry.compressedSize} bytes, above the ${maxBytes}-byte cap`)
+    }
+    return Buffer.from(raw)
+  }
   if (entry.method === 8) {
-    const out = inflateRawSync(raw, { maxOutputLength: maxBytes })
-    return out
+    return inflateRawSync(raw, { maxOutputLength: maxBytes })
   }
   throw new Error(`ZIP compression method ${entry.method} is not supported for "${name}"`)
 }

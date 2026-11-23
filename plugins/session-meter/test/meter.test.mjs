@@ -1178,13 +1178,12 @@ test('a failed lookup stays askable instead of silencing the model for good', as
 	);
 });
 
-test('a context-window tag is priced from the bare catalog id the host already has', async () => {
+test('a context-window tag sends the raw model name and resolves host or bare catalog keys', async () => {
 	await withLiveFetch(
 		async (url) => {
 			const asked = decodeURIComponent(String(url).split('m=')[1] || '');
-			assert.equal(asked.split(',').includes('grok-4.7'), true, 'the bare id is asked, so an old host can answer: ' + asked);
-			// What the running host returns today: the bare key, not the routed name.
-			return { ok: true, json: async () => ({ ok: true, models: { 'grok-4.7': { input: 13.37, output: 40.11, cacheRead: 3.34, cacheWrite: 13.37 } } }) };
+			assert.deepEqual(asked.split(','), ['cursor/grok-4.7@500k'], 'client sends raw model names; host expands candidates');
+			return { ok: true, json: async () => ({ ok: true, models: { 'cursor/grok-4.7@500k': { input: 13.37, output: 40.11, cacheRead: 3.34, cacheWrite: 13.37 } } }) };
 		},
 		async () => {
 			I.requestLivePrices(['cursor/grok-4.7@500k']);
@@ -1195,6 +1194,42 @@ test('a context-window tag is priced from the bare catalog id the host already h
 			assert.equal(priced.rate.output, 40.11);
 		},
 	);
+	// liveRateFor also still resolves when only the bare catalog key is stored.
+	await withLiveFetch(
+		async () => ({ ok: true, json: async () => ({ ok: true, models: { 'grok-4.7': { input: 13.37, output: 40.11, cacheRead: 3.34, cacheWrite: 13.37 } } }) }),
+		async () => {
+			I.requestLivePrices(['grok-4.7']);
+			await settle();
+			const priced = I.rateAt('cursor/grok-4.7@500k', beijing('2026-10-22', 22, 0));
+			assert.equal(priced.reference, true);
+			assert.equal(priced.rate.input, 13.37);
+		},
+	);
+});
+
+test('liveNotify fires only when rates or error state actually changed', async () => {
+	let notifications = 0;
+	const stop = I.liveSubscribe(() => { notifications += 1; });
+	try {
+		await withLiveFetch(
+			async () => ({ ok: true, json: async () => ({ ok: true, fetchedAt: 1000, models: {} }) }),
+			async () => {
+				I.requestLivePrices(['relay/absent-model']);
+				await settle();
+				assert.equal(notifications, 0, 'settling an absent model with no error change must not trigger repaint');
+			},
+		);
+		await withLiveFetch(
+			async () => ({ ok: false, status: 503, json: async () => ({}) }),
+			async () => {
+				I.requestLivePrices(['relay/err-model']);
+				await settle();
+				assert.equal(notifications, 1, 'a new error must notify listeners');
+			},
+		);
+	} finally {
+		stop();
+	}
 });
 
 test('a price query stops before the encoded url outgrows the budget', () => {
@@ -1632,6 +1667,28 @@ test('the pill prints the cache saving next to the cost', () => {
 	// 1M reads at 0.02 instead of 1.0.
 	assert.equal(tree.props['data-cache-saved'], '\u00a50.980', 'off-peak saving: ' + tree.props['data-cache-saved']);
 	assert.equal(text.includes('\u00a50.980'), true);
+});
+
+test('pinned-rate cacheSaved does not double-jump when the clock crosses into a peak window', () => {
+	const offPeakAt = beijing('2026-10-22', 22, 0);
+	const peakNow = beijing('2026-10-23', 10, 0);
+	const requests = [{
+		turn: 1,
+		step: 1,
+		startedAt: offPeakAt,
+		providerMetadata: { provider: 'deepseek-account', model: 'deepseek-flash' },
+		usage: { inputTokens: 1000000, cacheReadTokens: 1000000, outputTokens: 0 },
+	}];
+	const usage = { uncachedInputTokens: 1000000, cacheReadTokens: 1000000, cacheWriteTokens: 0, outputTokens: 0 };
+	const bd = I.costBreakdown({ requests, totals: usage, now: peakNow });
+	assert.ok(Math.abs(bd.cacheSaved - 0.98) < 1e-9, 'breakdown.cacheSaved stays pinned at off-peak 0.98: ' + bd.cacheSaved);
+	const tree = renderAt(peakNow, { requests, usage });
+	assert.equal(tree.props['data-cache-saved'], '\u00a50.980', 'pill cache saving must not jump to peak rate at 10:00');
+});
+
+test('SessionMeter tolerates a missing useProjection prop without throwing', () => {
+	const tree = I.SessionMeter({ t: (k) => k });
+	assert.equal(tree, null);
 });
 
 test('context fill uses the next-prompt figure and bands it like a status line', () => {

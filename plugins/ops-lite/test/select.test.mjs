@@ -104,3 +104,46 @@ test('lineOfLiteral counts physical LF and ignores a missing needle', () => {
   assert.equal(lineOfLiteral('abc', 'zzz'), undefined)
   assert.equal(lineOfLiteral('abc', ''), undefined)
 })
+
+test('splitPattern preserves POSIX absolute, UNC, and Windows drive roots', () => {
+  assert.deepEqual(splitPattern('/etc/nginx/*.conf'), { base: '/etc/nginx', segments: ['*.conf'] })
+  assert.deepEqual(splitPattern('/*.conf'), { base: '/', segments: ['*.conf'] })
+  const unc = splitPattern('\\\\server\\share\\dir\\*.js')
+  assert.equal(unc.base, `${join('\\\\server\\share', 'dir')}`)
+  assert.deepEqual(unc.segments, ['*.js'])
+  const driveRoot = splitPattern('C:\\*.js')
+  assert.equal(driveRoot.base, `C:${process.platform === 'win32' ? '\\' : '/'}`)
+  assert.deepEqual(driveRoot.segments, ['*.js'])
+})
+
+test('credentials are dropped before hitting cap and ** does not double-list directories', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ops-select-cap-'))
+  try {
+    mkdirSync(join(root, 'src', '.ssh'), { recursive: true })
+    writeFileSync(join(root, 'src', '.env'), 'SECRET=1\n', 'utf8')
+    writeFileSync(join(root, 'src', '.env.local'), 'SECRET=2\n', 'utf8')
+    writeFileSync(join(root, 'src', '.ssh', 'id_rsa'), 'KEY\n', 'utf8')
+    writeFileSync(join(root, 'src', 'z.js'), 'ok\n', 'utf8')
+    const listCounts = new Map()
+    const baseFs = host(root)
+    const ctx = {
+      fs: {
+        ...baseFs,
+        async listDir(target) {
+          const k = target.targetKey.toLowerCase()
+          listCounts.set(k, (listCounts.get(k) ?? 0) + 1)
+          return baseFs.listDir(target)
+        },
+      },
+    }
+    const exec = { agent: { session: { header: { cwd: root } } } }
+    const result = await expandEntry(ctx, exec, { path: 'src/**/*' }, 1)
+    assert.equal(result.entries.length, 1)
+    assert.equal(result.entries[0].path.split(/[\\/]/).at(-1), 'z.js')
+    for (const [dir, count] of listCounts.entries()) {
+      assert.equal(count, 1, `directory ${dir} was listed ${count} times instead of once`)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

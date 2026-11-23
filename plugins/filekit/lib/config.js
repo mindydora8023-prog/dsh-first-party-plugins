@@ -3,7 +3,9 @@
  *
  * Every bound here exists so one tool call cannot flood the model context.
  * A profile may tighten them; raising them past the documented maxima is
- * ignored rather than trusted.
+ * clamped rather than trusted.
+ *
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
 import { statePath } from './state-dir.js'
@@ -23,11 +25,13 @@ function text(value, fallback) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback
 }
 
+/** Clamp a finite integer into [min, max], falling back when unusable. */
 function int(value, fallback, min, max) {
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
   const i = Math.trunc(n)
-  if (i < min || i > max) return fallback
+  if (i < min) return min
+  if (i > max) return max
   return i
 }
 
@@ -41,20 +45,23 @@ function bool(value, fallback) {
  */
 export function readConfig(raw, dirs) {
   const src = raw !== null && typeof raw === 'object' ? raw : {}
+  const maxLimit = int(src.maxLimit, MAX_LIMIT, 1, MAX_LIMIT)
+  const docMaxLimit = int(src.docMaxLimit, DOC_MAX_LIMIT, 1, DOC_MAX_LIMIT)
+  const pdfMaxPages = int(src.pdfMaxPages, MAX_PDF_PAGES, 1, MAX_PDF_PAGES)
   return {
     maxFiles: int(src.maxFiles, MAX_FILES, 1, MAX_FILES),
-    defaultLimit: int(src.defaultLimit, 400, 1, MAX_LIMIT),
-    maxLimit: int(src.maxLimit, MAX_LIMIT, 1, MAX_LIMIT),
+    defaultLimit: int(src.defaultLimit, Math.min(400, maxLimit), 1, maxLimit),
+    maxLimit,
     maxLineLength: int(src.maxLineLength, MAX_LINE_LENGTH, 80, MAX_LINE_LENGTH),
-    maxOutputBytes: int(src.maxOutputBytes, MAX_OUTPUT_BYTES, 4096, 4 * 1024 * 1024),
-    callMaxBytes: int(src.callMaxBytes, MAX_CALL_BYTES, 8192, 16 * 1024 * 1024),
-    maxFileBytes: int(src.maxFileBytes, MAX_FILE_BYTES, 64 * 1024, 256 * 1024 * 1024),
-    scanMaxBytes: int(src.scanMaxBytes, MAX_SCAN_BYTES, 1024 * 1024, 512 * 1024 * 1024),
-    docDefaultLimit: int(src.docDefaultLimit, 200, 1, DOC_MAX_LIMIT),
-    docMaxLimit: int(src.docMaxLimit, DOC_MAX_LIMIT, 1, DOC_MAX_LIMIT),
-    maxCellLength: int(src.maxCellLength, MAX_CELL_LENGTH, 40, 4000),
-    pdfDefaultPages: int(src.pdfDefaultPages, 10, 1, MAX_PDF_PAGES),
-    pdfMaxPages: int(src.pdfMaxPages, MAX_PDF_PAGES, 1, MAX_PDF_PAGES),
+    maxOutputBytes: int(src.maxOutputBytes, MAX_OUTPUT_BYTES, 4096, MAX_OUTPUT_BYTES),
+    callMaxBytes: int(src.callMaxBytes, MAX_CALL_BYTES, 8192, MAX_CALL_BYTES),
+    maxFileBytes: int(src.maxFileBytes, MAX_FILE_BYTES, 64 * 1024, MAX_FILE_BYTES),
+    scanMaxBytes: int(src.scanMaxBytes, MAX_SCAN_BYTES, 1024 * 1024, MAX_SCAN_BYTES),
+    docDefaultLimit: int(src.docDefaultLimit, Math.min(200, docMaxLimit), 1, docMaxLimit),
+    docMaxLimit,
+    maxCellLength: int(src.maxCellLength, MAX_CELL_LENGTH, 40, MAX_CELL_LENGTH),
+    pdfDefaultPages: int(src.pdfDefaultPages, Math.min(10, pdfMaxPages), 1, pdfMaxPages),
+    pdfMaxPages,
     denyCredentialReads: bool(src.denyCredentialReads, true),
     // Default goes to the per-user state directory, NOT the plugin's source tree:
     // that tree is mirrored to git and may be read-only (see lib/state-dir.js).

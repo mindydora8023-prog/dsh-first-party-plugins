@@ -183,7 +183,7 @@ export function detectConversationLanguage(history, sample = 5) {
   }
 
   if (best === 'Chinese') {
-    const combined = pool.map((item) => item.text).join('\n');
+    const combined = pool.map((item) => proseOf(item.text)).join('\n');
     return traditionalScore(combined) >= 4 ? 'Traditional Chinese' : 'Simplified Chinese';
   }
   return SCRIPT_TO_LANGUAGE[best] ?? 'English';
@@ -495,6 +495,9 @@ export function createSuggestionMemory(limit = 100) {
     },
     delete(sessionId) {
       entries.delete(sessionId);
+    },
+    clear() {
+      entries.clear();
     },
     size() {
       return entries.size;

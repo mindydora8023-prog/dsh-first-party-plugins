@@ -59,17 +59,22 @@ export function readConfig(raw) {
     if (!known.has(key)) throw new Error(`ops-lite: unknown configuration key "${key}"`)
   }
 
+  const maxLimit = int(source.maxLimit, LIMITS.maxLimit, 1, LIMITS.maxLimit)
+  const defaultLimit = int(source.defaultLimit, Math.min(400, maxLimit), 1, maxLimit)
+  const treeMaxDepth = int(source.treeMaxDepth, LIMITS.treeMaxDepth, 0, LIMITS.treeMaxDepth)
+  const treeDefaultDepth = int(source.treeDefaultDepth, Math.min(2, treeMaxDepth), 0, treeMaxDepth)
+
   return {
     maxFiles: int(source.maxFiles, LIMITS.maxFiles, 1, LIMITS.maxFiles),
-    defaultLimit: int(source.defaultLimit, 400, 1, LIMITS.maxLimit),
-    maxLimit: int(source.maxLimit, LIMITS.maxLimit, 1, LIMITS.maxLimit),
+    defaultLimit,
+    maxLimit,
     maxLineLength: int(source.maxLineLength, LIMITS.maxLineLength, 80, LIMITS.maxLineLength),
-    maxOutputBytes: int(source.maxOutputBytes, LIMITS.maxOutputBytes, 4096, 4 * 1024 * 1024),
-    callMaxBytes: int(source.callMaxBytes, LIMITS.callMaxBytes, 8192, 16 * 1024 * 1024),
-    maxFileBytes: int(source.maxFileBytes, LIMITS.maxFileBytes, 64 * 1024, 256 * 1024 * 1024),
-    textBudget: int(source.textBudget, LIMITS.textBudget, 4096, 1024 * 1024),
-    treeDefaultDepth: int(source.treeDefaultDepth, 2, 0, LIMITS.treeMaxDepth),
-    treeMaxDepth: int(source.treeMaxDepth, LIMITS.treeMaxDepth, 0, LIMITS.treeMaxDepth),
+    maxOutputBytes: int(source.maxOutputBytes, LIMITS.maxOutputBytes, 4096, LIMITS.maxOutputBytes),
+    callMaxBytes: int(source.callMaxBytes, LIMITS.callMaxBytes, 8192, LIMITS.callMaxBytes),
+    maxFileBytes: int(source.maxFileBytes, LIMITS.maxFileBytes, 64 * 1024, LIMITS.maxFileBytes),
+    textBudget: int(source.textBudget, LIMITS.textBudget, 4096, LIMITS.textBudget),
+    treeDefaultDepth,
+    treeMaxDepth,
     treeMaxEntries: int(source.treeMaxEntries, LIMITS.treeMaxEntries, 1, LIMITS.treeMaxEntries),
     denyCredentialReads: bool(source.denyCredentialReads, true),
     promptGuidance: bool(source.promptGuidance, true),

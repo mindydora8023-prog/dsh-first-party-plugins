@@ -221,3 +221,23 @@ test('the classifier tolerates a missing or malformed request list', () => {
 	});
 });
 
+test('verifiedFallback stays O(1) on a 12,000-model catalog', () => {
+	const providers = {};
+	for (let p = 0; p < 12; p += 1) {
+		const models = {};
+		for (let i = 0; i < 1000; i += 1) {
+			models[`vendor${p}-model-${i}-1.0`] = { cost: { input: 1, output: 2 } };
+		}
+		providers[`prov${p}`] = { models };
+	}
+	providers.meta = { models: { 'muse-wonder-1-0': { cost: { input: 3, output: 9 } } } };
+	const catalog = buildCatalog(providers, FX);
+	const queries = Array.from({ length: 100 }, (_, i) => `relay/unknown-family-${i}-variant`);
+	queries.push('relay/muse-wonder-1-0-contributor');
+	const started = performance.now();
+	const hits = selectModels(catalog, queries);
+	const elapsedMs = performance.now() - started;
+	assert.equal(hits['relay/muse-wonder-1-0-contributor'].input, 21.6);
+	assert.ok(elapsedMs < 200, `100 fallback misses + 1 hit must stay fast via O(1) index (took ${elapsedMs.toFixed(1)}ms)`);
+});
+

@@ -30,7 +30,7 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/outline.js && node --check lib/search.js && node --check lib/text.js && node --check lib/csv.js && node --check lib/zip.js && node --check lib/md.js && node --check lib/docx.js && node --check lib/xlsx.js && node --check lib/pptx.js && node --check lib/pdf.js && node --check lib/guard.js && node --check lib/access.js && node --check lib/define.js",
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/outline.js && node --check lib/search.js && node --check lib/ooxml.js && node --check lib/csv.js && node --check lib/zip.js && node --check lib/md.js && node --check lib/docx.js && node --check lib/xlsx.js && node --check lib/pptx.js && node --check lib/pdf.js && node --check lib/pdf/lexer.js && node --check lib/pdf/xref.js && node --check lib/pdf/filters.js && node --check lib/pdf/cmap.js && node --check lib/pdf/content.js && node --check lib/guard.js && node --check lib/access.js && node --check lib/credential-guard.js && node --check lib/fs-access.js && node --check lib/escape.js && node --check lib/state-dir.js && node --check lib/define.js",
     "test": "node --test test/*.test.mjs",
     "fixture:pdf": "node test/make-pdf-fixture.mjs test/fixtures/sample.pdf"
   },

@@ -1,5 +1,5 @@
 /**
- * The ops_read_files tool.
+ * The ops_read_files and ops_tree tools.
  *
  * One call reads 1..N files, each with its own offset and limit. The point is
  * to replace a burst of single-file reads with one call whose output is compact
@@ -17,16 +17,20 @@
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { decodeUtf8, isCredentialPath, readBytes, resolvePath, statTarget } from './access.js'
+import { capText } from './escape.js'
 import { buildWindow, lineOfLiteral } from './text.js'
 import { failure, fromThrown } from './outcome.js'
-import { renderReadFiles } from './render.js'
-import { expandEntry } from './select.js'
+import { renderFailure, renderReadFiles } from './render.js'
+import { expandEntry, hasGlob } from './select.js'
 
 /** How many file bodies may be in flight at once. dsh-ops uses the same bound. */
 const READ_CONCURRENCY = 2
+
+const TREE_RECOVERY = 'Narrow the path, lower depth, or lower max_entries.'
 
 /**
  * A stable content revision for the read-before-write guard.
@@ -63,9 +67,6 @@ function boundedInt(value, fallback, min, max) {
  * been read and recorded in the host observation table, which would tell the
  * model it had seen content it never received.
  *
- * The estimate is deliberately an upper bound: escaping can at most double a
- * character, and each row adds a line-number prefix.
- *
  * @param {number} size - the file's byte size, when known.
  * @returns {number} an upper-bound byte estimate.
  */
@@ -75,30 +76,51 @@ function estimatedCost(size) {
 }
 
 /**
- * Upper bound on the bytes a WINDOWED read can render, so reading the top of a
- * large log at a small `limit` is not charged as if the whole file were copied.
- * Falls back to the whole-file estimate when the window is unknown.
+ * Upper bound on the bytes a WINDOWED read can render, capped by the per-file
+ * `maxOutputBytes` limit so large files are not over-charged relative to what
+ * `buildWindow` can actually emit.
  */
-function estimatedReadCost(size, limit, maxLineLength) {
-  const whole = estimatedCost(size)
+function estimatedReadCost(size, limit, maxLineLength, maxOutputBytes) {
+  let cost = estimatedCost(size)
   if (Number.isFinite(limit) && limit > 0 && Number.isFinite(maxLineLength) && maxLineLength > 0) {
     const window = limit * (maxLineLength * 3 + 16) + 4096
-    return Math.min(whole, window)
+    cost = Math.min(cost, window)
   }
-  return whole
+  if (Number.isFinite(maxOutputBytes) && maxOutputBytes > 0) {
+    cost = Math.min(cost, maxOutputBytes)
+  }
+  return cost
 }
 
 /**
- * Actual rendered byte cost of a per-file record: every row's escaped text plus
- * its line-number prefix, plus the shared header/footer. This is what a call
- * should subtract from its budget, so `spent` tracks real output rather than the
- * whole file size.
+ * Actual rendered byte cost of a completed per-file record, subtracted from the
+ * call budget between waves so subsequent waves account for real output rather
+ * than worst-case estimates.
  */
 function renderedCost(record) {
   if (record === null || typeof record !== 'object' || !Array.isArray(record.items)) return 512
   let total = 512
   for (const item of record.items) total += Buffer.byteLength(String(item?.text ?? ''), 'utf8') + 12
   return total
+}
+
+/**
+ * Validate a pre-fetched `ctx.fs.stat` result with the exact same semantics as
+ * `statTarget` (emitting `absent` only once the entry is actually admitted).
+ */
+function validatePrefetchedStat(ctx, exec, resolved, info) {
+  if (info === undefined) {
+    ctx.emit('fs/observed', resolved.target, { kind: 'absent' }, exec)
+    const error = new Error(`cannot read "${resolved.displayPath}": not found`)
+    error.code = 'FS_NOT_FOUND'
+    throw error
+  }
+  if (info.type !== 'file') {
+    const error = new Error(`cannot read "${resolved.displayPath}": not a regular file (${info.type})`)
+    error.code = 'FS_NOT_REGULAR_FILE'
+    throw error
+  }
+  return info
 }
 
 /**
@@ -113,14 +135,12 @@ function renderedCost(record) {
  * @param {object} config - resolved plugin config.
  * @param {object} entry - `{path, offset?, limit?}`.
  * @param {object} [overrides] - per-call overrides such as `maxLineLength`.
- * @param {number} [overrides.remainingBytes] - budget left in this call; when the
- *   file's estimated cost exceeds it the entry is left unread.
- * @returns {Promise<object>} the per-file record, or `{skipped: true}` when the
- *   entry does not fit and must stay pending.
+ * @param {object} [prefetched] - cached `{ resolved, hasInfo, info }` from wave admission.
+ * @returns {Promise<object>} the per-file record.
  */
-async function readOne(ctx, exec, config, entry, overrides = {}) {
+async function readOne(ctx, exec, config, entry, overrides = {}, prefetched = undefined) {
   try {
-    const resolved = await resolvePath(ctx, exec, entry.path)
+    const resolved = prefetched?.resolved ?? await resolvePath(ctx, exec, entry.path)
     if (config.denyCredentialReads && isCredentialPath(resolved.displayPath)) {
       return {
         path: entry.path,
@@ -131,19 +151,22 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
         }),
       }
     }
-    const info = await statTarget(ctx, exec, resolved)
-    // Resolve the window BEFORE the budget check so a windowed read of a large
-    // file is charged for the window, not for the whole file.
+    const info = prefetched?.hasInfo
+      ? validatePrefetchedStat(ctx, exec, resolved, prefetched.info)
+      : await statTarget(ctx, exec, resolved)
     let offset = boundedInt(entry.offset, 1, 1, Number.MAX_SAFE_INTEGER)
     const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
     const literal = typeof entry.literal === 'string' ? entry.literal : ''
-    // Budget check happens here, before the bytes are read: an entry that does
-    // not fit stays pending and must not appear in the observation table.
-    if (overrides.remainingBytes !== undefined
-      && estimatedReadCost(info.size, limit, overrides.maxLineLength ?? config.maxLineLength) > overrides.remainingBytes) {
-      return { skipped: true }
-    }
-    const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
+
+    // Defer `fs/observed` until decode, literal, and offset validation all succeed.
+    const { buffer, markObserved } = await readBytes(
+      ctx,
+      exec,
+      resolved,
+      info,
+      config.maxFileBytes,
+      { deferObserve: true },
+    )
     const body = decodeUtf8(buffer, resolved.displayPath)
 
     // A literal is a location, not a filter: the window opens on the first hit
@@ -172,9 +195,7 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
     })
 
     // Compare against the window's PHYSICAL line count (1-based; a trailing LF
-    // adds no phantom line) instead of `body.split('\n').length`, which counted a
-    // trailing empty slot and made the out-of-range boundary drift with whether
-    // the file ended in a newline.
+    // adds no phantom line) instead of `body.split('\n').length`.
     if (offset !== 1 && body.length > 0 && offset > window.lineCount) {
       return {
         path: resolved.displayPath,
@@ -184,6 +205,9 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
         }),
       }
     }
+
+    // All validation passed; record the read in the host observation table now.
+    markObserved()
 
     const record = {
       // `status` is what the compact renderer checks before trusting any of the
@@ -200,15 +224,17 @@ async function readOne(ctx, exec, config, entry, overrides = {}) {
       nextOffset: window.nextOffset,
       truncated: window.truncatedByBytes,
       // The window that was actually applied. The compact renderer uses these
-      // instead of re-deriving them from possibly-omitted call arguments.
+      // instead of re-deriving them from possibly-omitted or clamped call arguments.
       requestedOffset: offset,
       requestedLimit: limit,
     }
     if (window.truncatedByBytes) record.truncatedBy = 'output-budget'
     if (window.truncatedInLine !== undefined) {
       record.truncatedInLine = true
-      record.bytesTotal = window.truncatedInLine.charactersTotal
-      record.bytesOmitted = window.truncatedInLine.charactersOmitted
+      record.charactersTotal = window.truncatedInLine.charactersTotal
+      record.charactersOmitted = window.truncatedInLine.charactersOmitted
+      record.bytesTotal = window.truncatedInLine.bytesTotal
+      record.bytesOmitted = window.truncatedInLine.bytesOmitted
       record.truncatedInLineAt = window.truncatedInLine.line
     }
     return record
@@ -224,76 +250,89 @@ function fileKey(filePath, cwd) {
 }
 
 /**
- * Expand globs and directories, then drop duplicate paths.
+ * Expand globs and directories, deduplicate paths, and track any entries
+ * dropped by `config.maxFiles` so batch completeness stays truthful.
  *
- * @returns {Promise<{concrete: object[], notes: string[]}>}
+ * @returns {Promise<{concrete: object[], notes: string[], dropped: number}>}
  */
 async function expandFiles(ctx, exec, config, list) {
   const notes = []
   const concrete = []
   const seen = new Set()
   const cwd = exec?.agent?.session?.header?.cwd
-  for (const entry of list) {
+  let dropped = 0
+  let hitCap = false
+
+  for (let idx = 0; idx < list.length; idx += 1) {
+    const entry = list[idx]
     if (concrete.length >= config.maxFiles) {
-      notes.push(`stopped at ${config.maxFiles} files; resend what is missing`)
-      break
+      if (!hitCap) {
+        notes.push(`stopped at ${config.maxFiles} files; resend what is missing`)
+        hitCap = true
+      }
+      const requested = typeof entry?.path === 'string' ? entry.path : ''
+      if (requested === '') continue
+      if (hasGlob(requested)) {
+        dropped += 1
+      } else {
+        const key = fileKey(requested, cwd)
+        if (!seen.has(key)) {
+          seen.add(key)
+          dropped += 1
+        }
+      }
+      continue
     }
-    const expanded = await expandEntry(ctx, exec, entry, config.maxFiles - concrete.length)
+    const expanded = await expandEntry(ctx, exec, entry, config.maxFiles - concrete.length, {
+      denyCredentialReads: config.denyCredentialReads,
+    })
     for (const note of expanded.notes) notes.push(note)
+    dropped += expanded.dropped ?? 0
     for (const file of expanded.entries) {
-      if (concrete.length >= config.maxFiles) break
       const key = fileKey(file.path, cwd)
       if (seen.has(key)) {
         notes.push(`duplicate skipped: ${path.basename(file.path)}`)
+        continue
+      }
+      if (concrete.length >= config.maxFiles) {
+        seen.add(key)
+        dropped += 1
         continue
       }
       seen.add(key)
       concrete.push(file)
     }
   }
-  return { concrete, notes }
+  return { concrete, notes, dropped }
 }
 
 /**
- * Upper bound on one file's rendered cost, from a stat only.
+ * Peek one entry's estimated cost from `resolvePath` + `ctx.fs.stat` only,
+ * caching both so `readOne` never repeats those IPC calls.
  *
- * This must not emit `fs/observed`: a file rejected by the budget has not been
- * read, and the host table must not say otherwise.
+ * Must NOT emit `fs/observed`: a file rejected by the budget has not been read.
  */
-async function peekCost(ctx, exec, config, entry, overrides) {
+async function peekEntry(ctx, exec, config, entry, overrides) {
   try {
     const resolved = await resolvePath(ctx, exec, entry.path)
-    const info = await ctx.fs.stat(resolved.target, exec?.signal)
-    if (info === undefined || info.type !== 'file') return 4096
-    const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
-    return estimatedReadCost(info.size, limit, overrides.maxLineLength ?? config.maxLineLength)
-  } catch {
-    return 4096
-  }
-}
-
-/**
- * Run `fn` over `entries` with at most `limit` calls in flight, preserving order.
- *
- * @param {object[]} entries
- * @param {number} limit
- * @param {(entry: object) => Promise<object>} fn
- * @returns {Promise<object[]>}
- */
-async function mapPool(entries, limit, fn) {
-  const results = new Array(entries.length)
-  let cursor = 0
-  const workers = Math.max(1, Math.min(limit, entries.length))
-  async function worker() {
-    for (;;) {
-      const index = cursor
-      cursor += 1
-      if (index >= entries.length) return
-      results[index] = await fn(entries[index])
+    if (config.denyCredentialReads && isCredentialPath(resolved.displayPath)) {
+      return { estimate: 512, resolved, hasInfo: false, info: undefined }
     }
+    const info = await ctx.fs.stat(resolved.target, exec?.signal)
+    if (info === undefined || info.type !== 'file') {
+      return { estimate: 4096, resolved, hasInfo: true, info }
+    }
+    const limit = boundedInt(entry.limit, config.defaultLimit, 1, config.maxLimit)
+    const estimate = estimatedReadCost(
+      info.size,
+      limit,
+      overrides.maxLineLength ?? config.maxLineLength,
+      config.maxOutputBytes,
+    )
+    return { estimate, resolved, hasInfo: true, info }
+  } catch {
+    return { estimate: 4096, resolved: undefined, hasInfo: false, info: undefined }
   }
-  await Promise.all(Array.from({ length: workers }, () => worker()))
-  return results
 }
 
 /**
@@ -358,8 +397,8 @@ export function buildReadFilesTool(ctx, config) {
         required: ['text', 'total', 'pending', 'nextIndex', 'failed', 'complete'],
         properties: {
           text: { type: 'string', description: 'The rendered model-facing body.' },
-          total: { type: 'integer', description: 'Number of input file entries.' },
-          pending: { type: 'integer', description: 'Entries not processed because the call budget was spent.' },
+          total: { type: 'integer', description: 'Number of concrete file entries (including any capped beyond maxFiles).' },
+          pending: { type: 'integer', description: 'Entries not processed because of maxFiles or call byte budget.' },
           nextIndex: { type: 'integer', description: 'Index of the first unprocessed entry.' },
           failed: { type: 'integer', description: 'Entries that produced a structured failure.' },
           complete: { type: 'boolean', description: 'True only when every entry is fully read and none failed.' },
@@ -384,33 +423,71 @@ export function buildReadFilesTool(ctx, config) {
       const overrides = {
         maxLineLength: boundedInt(args?.max_line_length, config.maxLineLength, 80, config.maxLineLength),
       }
-      const { concrete, notes } = await expandFiles(ctx, exec, config, list)
-      // Admit a prefix whose estimated cost fits, then read that prefix two at a
-      // time. Anything past the prefix stays unread, so it cannot land in the
-      // host observation table. The first file is always admitted.
+      const { concrete, notes, dropped } = await expandFiles(ctx, exec, config, list)
+
       const admitted = []
-      let reserved = 0
-      for (const entry of concrete) {
-        const estimate = admitted.length === 0
-          ? 0
-          : await peekCost(ctx, exec, config, entry, overrides)
-        if (admitted.length > 0 && reserved + estimate > config.callMaxBytes) break
-        admitted.push(entry)
-        reserved += admitted.length === 1 ? await peekCost(ctx, exec, config, entry, overrides) : estimate
+      const records = []
+
+      if (concrete.length === 1) {
+        // Single-file call: always admitted; skip pre-check IPC completely.
+        admitted.push(concrete[0])
+        records.push(await readOne(ctx, exec, config, concrete[0], overrides))
+      } else if (concrete.length > 1) {
+        // Admit and read in waves of up to READ_CONCURRENCY. Pre-check caches
+        // resolve+stat so readOne never repeats them; between waves, `spent`
+        // tracks real rendered bytes rather than worst-case estimates.
+        let spent = 0
+        let cursor = 0
+        const peekCache = new Map()
+        while (cursor < concrete.length) {
+          const wave = []
+          let waveReserved = 0
+          while (cursor < concrete.length && wave.length < READ_CONCURRENCY) {
+            const entry = concrete[cursor]
+            let peek = peekCache.get(cursor)
+            if (peek === undefined) {
+              peek = await peekEntry(ctx, exec, config, entry, overrides)
+            }
+            if (admitted.length === 0 && wave.length === 0) {
+              wave.push({ entry, peek })
+              waveReserved += peek.estimate
+              cursor += 1
+              continue
+            }
+            if (spent + waveReserved + peek.estimate > config.callMaxBytes) {
+              peekCache.set(cursor, peek)
+              break
+            }
+            wave.push({ entry, peek })
+            waveReserved += peek.estimate
+            cursor += 1
+          }
+          if (wave.length === 0) break
+          const waveRecords = await Promise.all(
+            wave.map(({ entry, peek }) => readOne(ctx, exec, config, entry, overrides, peek)),
+          )
+          for (let i = 0; i < wave.length; i += 1) {
+            admitted.push(wave[i].entry)
+            records.push(waveRecords[i])
+            spent += renderedCost(waveRecords[i])
+          }
+        }
       }
-      const records = await mapPool(admitted, READ_CONCURRENCY, (entry) => readOne(ctx, exec, config, entry, overrides))
+
       const items = []
       let failed = 0
       for (const record of records) {
-        if (record === undefined || record.skipped === true) continue
+        if (record === undefined) continue
         if (record.error !== undefined) failed += 1
         items.push(record)
       }
+      const totalConcreteCount = concrete.length + dropped
       const processed = admitted.length
-      const pending = concrete.length - processed
+      const budgetPending = concrete.length - processed
+      const pending = dropped + budgetPending
       const aggregate = {
         items,
-        total: concrete.length,
+        total: totalConcreteCount,
         pending,
         nextIndex: processed,
         failed,
@@ -420,11 +497,14 @@ export function buildReadFilesTool(ctx, config) {
       const text = renderReadFiles({ ...args, files: admitted }, aggregate, { budget: config.textBudget })
       return {
         text,
-        total: concrete.length,
+        total: totalConcreteCount,
         pending,
         nextIndex: processed,
         failed,
-        complete: concrete.length > 0 && pending === 0 && failed === 0 && items.every((item) => item.complete === true),
+        complete: totalConcreteCount > 0
+          && pending === 0
+          && failed === 0
+          && items.every((item) => item.complete === true),
       }
     },
   }
@@ -460,7 +540,35 @@ export function buildTreeTool(ctx, config) {
       },
     },
     output: {
-      schema: { type: 'object', additionalProperties: true },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['status', 'text', 'entries', 'truncated'],
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['completed', 'error', 'rejected', 'conflict', 'unknown'],
+            description: 'Structured call status.',
+          },
+          text: { type: 'string', description: 'The rendered directory tree or structured failure message.' },
+          entries: { type: 'integer', description: 'Number of listed entries.' },
+          truncated: { type: 'boolean', description: 'True when entry count or output budget truncated the tree.' },
+          error: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['code', 'effectState', 'retry', 'message'],
+            properties: {
+              code: { type: 'string' },
+              effectState: { type: 'string' },
+              retry: { type: 'string' },
+              message: { type: 'string' },
+              phase: { type: 'string' },
+              reason: { type: 'string' },
+              nextAction: { type: 'string' },
+            },
+          },
+        },
+      },
       render: (_args, value) => [{ type: 'text', text: typeof value?.text === 'string' ? value.text : '' }],
     },
     isConcurrencySafe: () => true,
@@ -471,13 +579,39 @@ export function buildTreeTool(ctx, config) {
       const maxEntries = boundedInt(args?.max_entries, config.treeMaxEntries, 1, config.treeMaxEntries)
       const { buildTree } = await import('./tree.js')
       try {
-        const result = await buildTree(ctx, exec, { depth, maxDepth: config.treeMaxDepth, maxEntries }, requested)
-        return { text: result.text, entries: result.entries, truncated: result.truncated }
-      } catch (error) {
+        const result = await buildTree(
+          ctx,
+          exec,
+          {
+            depth,
+            maxDepth: config.treeMaxDepth,
+            maxEntries,
+            denyCredentialReads: config.denyCredentialReads,
+            textBudget: config.textBudget,
+          },
+          requested,
+        )
         return {
-          text: `cannot list ${JSON.stringify(requested)}: ${error?.message ?? String(error)}`,
+          status: 'completed',
+          text: result.text,
+          entries: result.entries,
+          truncated: result.truncated,
+        }
+      } catch (error) {
+        const nextAction = error?.code === 'CREDENTIAL_DENIED'
+          ? 'Do not retry this path. Ask the operator to open it explicitly if it is genuinely needed.'
+          : 'Check the path or list its parent directory.'
+        const failed = fromThrown(error, { phase: 'tree', nextAction })
+        return {
+          status: failed.status,
+          text: capText(renderFailure(failed), {
+            budget: config.textBudget,
+            reason: 'result-budget',
+            recovery: TREE_RECOVERY,
+          }),
           entries: 0,
           truncated: false,
+          error: failed.error,
         }
       }
     },

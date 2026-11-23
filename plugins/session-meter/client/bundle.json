@@ -1,0 +1,20 @@
+{
+  "template": "client/template.js",
+  "output": "lib/client.js",
+  "indent": "\t\t",
+  "locales": {
+    "source": "client/locales.json",
+    "output": "lib/locales.js",
+    "exportName": "LOCALES"
+  },
+  "blocks": [
+    { "marker": "/*__LOCALES__*/", "source": "lib/locales.js" },
+    { "marker": "/*__MODEL_NAMES__*/", "source": "lib/model-names.js" },
+    { "marker": "/*__PRICING__*/", "source": "client/pricing.js" },
+    { "marker": "/*__LIVE_PRICES__*/", "source": "client/live-prices.js" },
+    { "marker": "/*__COST__*/", "source": "client/cost.js" },
+    { "marker": "/*__LEDGER__*/", "source": "client/ledger.js" },
+    { "marker": "/*__EXPORT__*/", "source": "client/export.js" },
+    { "marker": "/*__UI__*/", "source": "client/ui.js" }
+  ]
+}

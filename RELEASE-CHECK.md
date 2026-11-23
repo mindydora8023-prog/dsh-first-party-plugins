@@ -1,6 +1,18 @@
 # 发布检查记录
 
-最近核对于 2026-11-22。
+最近核对于 2026-11-23。
+
+## 2026-11-23：全量优化、安全加固与模块化重构
+
+- **共享底座与纯 Node 前端构建**：`plugins/shared/` 新增 `credential-guard.js`、`fs-access.js`、`escape.js`、`json-store.js`、`http-utils.js`；引入零依赖纯 Node 构建器 `tools/build-client.mjs`（支持 `client/locales.json` 转 `\uXXXX` ASCII、模块内联、纯 LF/ASCII 与 `vm.Script` 语法校验），CI 不再依赖 Python，`next-say`、`session-meter`、`task-radar` 全部拆分模块化前端并接入 `--check`。
+- **filekit**：删除零引用死模块 `lib/text.js`，7 个活跃工具全接入包装标签中和；抽出 `lib/ooxml.js` 并将 `lib/pdf.js` 拆分为 `lib/pdf/{lexer,xref,filters,cmap,content}.js`；新增零依赖 `/ToUnicode` CMap 与 `/Encoding /Differences` 解码及循环/深层嵌套防栈溢出守卫；修复 XLSX `has_header: false` 丢行、主表 `maxBytes` 预算、货币格式误判日期、DOCX/CSV/PDF 首项超限死循环及 PDF 检索截断告警。
+- **ops-lite**：修复 `cordis-real.test.mjs` 状态污染；`ops_tree` 拦截凭据目录并接入 `textBudget` 与结构化失败；`ops_read_files` 估算按 `maxOutputBytes` 封顶、消除重复 IPC、修复超 `maxFiles` 完整性不变量与延迟 `fs/observed`；修复 `select.js` 绝对/UNC 路径拆分。
+- **github**：将 `lib/tools.js` 拆分为 8 个领域模块 `lib/tools/*.js`；修复 `tunnelledFetch` 跨主机 302 剥离 `Authorization`、`204/205/304` 空体响应、流式 8 MiB 截断与 CONNECT 信号；修复 429 分类、GHE 凭据隔离、`invalidateToken` 恢复、启动不阻塞同步认证与二进制正文检测；全套件测试耗时由 ~11s 降至 <1s。
+- **mcp-on-demand**：抽出 `lib/lifecycle.js`；修复未挂载服务 `probeServer`（加锁 + 限流 + 有界临时注册/释放闭环）、`mcpod_health` 报错透传、`mcpod_disable` 锁序列化、卸载中止守卫、`in-flight` 展示与中文目录检索。
+- **next-say**：去除 Python 构建脚本，拆分模块化 `client/` 与服务端 `turn.js`/`routes.js`；修复每日预算耗尽后的 900ms 无限轮询死循环、并发预扣竞态、`clearGhost` 切会话泄漏、`ghost.js` 滚动 `rAF` 节流、`NORMALIZE_CACHE` 单字符冲刷与多处 `Promise.race` 拒绝泄漏。
+- **session-meter**：拆分 2,241 行前端为 `client/` 模块并与服务端共享 `lib/model-names.js`；`lib/prices.js` 预建归一化键倒排索引将未知模型回退降至 O(1)；修复 O(1) memo 快路径、面板关闭时跳过全量 `requestCosts`、按请求锚定费率计算缓存节省、有界日账本与 `SESSION_METER_OFFLINE=1` 离线缓存服务。
+- **archived-sessions**：服务端拆分为 `planner`/`transaction`/`recycle`/`routes`；修复回收站兼容含 `:`/`@`/空格/非 ASCII 目录、`previewCleanup` 脱离 `sweeping` 互斥锁、卸载中止在途清扫、`baseConfig.enabled` 优先级、有界 `lastRun` 落盘与前端 `apiPost` 超时/warning 清理。
+- **task-radar**：服务端拆分为 `toast`/`webhook`/`lifecycle`/`routes`，前端模块化构建；轮询携带 `journalId` 与 `configVersion` 修复宿主重启丢事件与配置过期；解耦页内卡片与系统通知锁竞争；Webhook 补 `.unref()`/`body.cancel()`/严格 URL 校验；消除 `ctx.on` TDZ 隐患并本地化界面残余中文。
 
 ## 0.4.0
 

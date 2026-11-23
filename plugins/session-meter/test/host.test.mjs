@@ -526,3 +526,64 @@ test('a non-GET request is refused without touching the catalog', async () => {
     });
   });
 });
+
+test('SESSION_METER_OFFLINE=1 still loads disk cache and registers /session-meter/prices without network', async () => {
+  await withUpstream(async ({ cacheFile }) => {
+    writeFileSync(cacheFile, JSON.stringify({
+      version: 3,
+      fetchedAt: Date.now() - 48 * 3600 * 1000,
+      usdToCny: 7,
+      models: { 'offline-model': { input: 5, output: 15, cacheRead: 1, cacheWrite: 5 } },
+    }));
+    process.env.SESSION_METER_OFFLINE = '1';
+    // Point upstream to a closed port so any accidental network call would fail.
+    process.env.SESSION_METER_PRICES_URL = 'http://127.0.0.1:1/catalog';
+    try {
+      await withPlugin(async (captured) => {
+        attach(captured);
+        assert.equal(captured.route.path, '/session-meter/prices');
+        const res = fakeResponse();
+        await captured.route.handler({ method: 'GET', url: '/session-meter/prices?m=offline-model' }, res);
+        assert.equal(res.statusCode, 200);
+        const payload = JSON.parse(res.body());
+        assert.equal(payload.ok, true);
+        assert.equal(payload.models['offline-model'].input, 5);
+      });
+    } finally {
+      delete process.env.SESSION_METER_OFFLINE;
+    }
+  });
+});
+
+test('HEAD /session-meter/prices returns empty body with content-length and rejects non-loopback sockets', async () => {
+  await withUpstream(async () => {
+    await withPlugin(async (captured) => {
+      attach(captured);
+      const headRes = fakeResponse();
+      await captured.route.handler({
+        method: 'HEAD',
+        url: '/session-meter/prices?m=codex%2Fgpt-6.1-sol',
+        socket: { remoteAddress: '127.0.0.1' },
+      }, headRes);
+      assert.equal(headRes.statusCode, 200);
+      assert.equal(headRes.body(), '', 'HEAD response must have an empty body');
+      assert.ok(Number(headRes.headers['content-length']) > 0, 'HEAD response keeps content-length');
+
+      const deniedSocket = fakeResponse();
+      await captured.route.handler({
+        method: 'GET',
+        url: '/session-meter/prices?m=codex%2Fgpt-6.1-sol',
+        socket: { remoteAddress: '192.0.2.99' },
+      }, deniedSocket);
+      assert.equal(deniedSocket.statusCode, 403);
+
+      const deniedOrigin = fakeResponse();
+      await captured.route.handler({
+        method: 'GET',
+        url: '/session-meter/prices?m=codex%2Fgpt-6.1-sol',
+        headers: { origin: 'https://evil.example', host: '127.0.0.1:3000' },
+      }, deniedOrigin);
+      assert.equal(deniedOrigin.statusCode, 403);
+    });
+  });
+});

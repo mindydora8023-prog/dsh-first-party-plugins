@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../client/client.template.js', import.meta.url), 'utf8')
-  .replace('/*__LOCALES__*/', 'const zh = {}, en = {};');
+const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
 function harness() {
   let api;
   const requests = [], timers = new Map();

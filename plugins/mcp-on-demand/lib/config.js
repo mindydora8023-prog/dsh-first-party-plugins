@@ -9,14 +9,14 @@
  * human to flip a switch before and after each use.
  *
  * What this plugin does. It keeps the server DEFINITIONS in its own config and
- * registers one only when the model calls `mcp_enable`. `ctx.mcpManager.register()`
- * returns a disposer, so `mcp_disable` unregisters the server and withdraws its
+ * registers one only when the model calls `mcpod_enable`. `ctx.mcpManager.register()`
+ * returns a disposer, so `mcpod_disable` unregisters the server and withdraws its
  * tools again. Tools therefore appear and disappear mid-session with no host
  * restart and no human in the loop.
  *
  * Two safety nets:
  *   - `ttlMs` per server (or `defaultTtlMs`): an enabled server disposes itself
- *     after that long, so a model that forgets `mcp_disable` cannot leak a
+ *     after that long, so a model that forgets `mcpod_disable` cannot leak a
  *     Ghidra-backed child process for the rest of the day.
  *   - unload: every live registration is disposed when the plugin unmounts.
  *

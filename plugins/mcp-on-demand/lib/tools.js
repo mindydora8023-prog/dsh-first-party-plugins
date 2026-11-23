@@ -1,12 +1,13 @@
 /**
  * Tool definitions for mcp-on-demand.
  *
- * Five tools, all thin wrappers over the host's MCP manager:
+ * Six tools, all thin wrappers over the host's MCP manager:
  *   mcpod_list     what is configured, what is mounted right now
  *   mcpod_find     search the remembered tool catalog (no process)
  *   mcpod_probe    connect, record tool names, disconnect
  *   mcpod_enable   mount one server -- its tools appear for the next model step
  *   mcpod_disable  dispose the mount -- its tools are withdrawn again
+ *   mcpod_health   preflight config, mount status, catalog freshness, optional probe
  *
  * CONTRACT NOTE (measured 2026-11-17): `output.render` must return CONTENT PARTS,
  * i.e. [{ type: 'text', text }], not a bare string. A string survives the tool
@@ -17,267 +18,22 @@
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { catalogPrompt, remember, searchCatalog, summaryOf } from './catalog.js'
+import { searchCatalog, summaryOf } from './catalog.js'
+import { createLifecycle, READY_WAIT_MS, targetOf } from './lifecycle.js'
 
-/** How long enable waits for the host to report `connected`. */
-export const READY_WAIT_MS = 8000
+export { READY_WAIT_MS, targetOf }
 
-/** How often that wait polls the manager. */
-const READY_POLL_MS = 200
-
-/** Probe budget when the server does not set its own startup timeout. */
-const DEFAULT_PROBE_MS = 20000
-
-/**
- * One line the settings panel can show without leaking env or headers.
- *
- * @param {object | undefined} entry
- * @returns {string}
- */
-export function targetOf(entry) {
-  if (!entry || typeof entry !== 'object') return ''
-  if (entry.transport === 'streamable-http') return typeof entry.url === 'string' ? entry.url : ''
-  const command = typeof entry.command === 'string' ? entry.command : ''
-  const args = Array.isArray(entry.args) ? entry.args.filter((item) => typeof item === 'string').join(' ') : ''
-  return [command, args].filter(Boolean).join(' ')
-}
+const text = (value) => [{ type: 'text', text: value }]
 
 /**
  * @param {object} ctx cordis context
  * @param {{ servers: Record<string, {entry: object, ttlMs: number, description?: string, keywords?: string[]}>, defaultTtlMs: number, catalogFile?: string | false, maxConcurrent?: number }} config
- * @param {object} state live map, catalog, limiter, and the host manager
+ * @param {object} state live map, catalog, limiter, lock, and the host manager
  * @returns {object[]} tool definitions in the host's authoring form
  */
 export function buildTools(ctx, config, state) {
-  const catalog = state.catalog || { servers: {} }
-  const limit = state.limit || { run: (task) => task() }
-  const lock = state.lock || ((_name, task) => task())
-  const now = () => (typeof state.now === 'function' ? state.now() : Date.now())
-
-  function persist() {
-    if (typeof state.saveCatalog === 'function') state.saveCatalog()
-  }
-
-  /** The host reports a status object. Older callers flattened it to a string. */
-  function statusOf(found) {
-    const status = found?.status
-    if (typeof status === 'string') return { state: status }
-    if (status && typeof status.state === 'string') return status
-    if (found?.configured === true) return { state: 'configured' }
-    return { state: 'unknown' }
-  }
-
-  function managerRow(name) {
-    try {
-      const manager = state.manager()
-      const list = typeof manager.list === 'function' ? manager.list() : []
-      return Array.isArray(list) ? list.find((item) => item && item.name === name) : undefined
-    } catch (error) {
-      return { status: { state: 'unreadable', lastError: error?.message ?? String(error) } }
-    }
-  }
-
-  function managerStatus(name) {
-    const row = managerRow(name)
-    if (row === undefined) return 'unknown'
-    const status = statusOf(row)
-    return status.lastError ? `${status.state}: ${status.lastError}` : status.state
-  }
-
-  /** The tool names a mounted server exposes, as far as the host will say. */
-  function listedTools(name) {
-    const prefix = `mcp__${name}__`
-    try {
-      const listed = typeof ctx.tools.definitions === 'function'
-        ? ctx.tools.definitions()
-        : typeof ctx.tools.list === 'function'
-          ? ctx.tools.list({})
-          : []
-      const rows = Array.isArray(listed) ? listed : []
-      return rows
-        .map((item) => (typeof item === 'string' ? { name: item } : item))
-        .filter((item) => item && typeof item.name === 'string' && item.name.startsWith(prefix))
-    } catch {
-      return []
-    }
-  }
-
-  function toolNamesOf(name) {
-    return listedTools(name).map((item) => item.name)
-  }
-
-  const text = (value) => [{ type: 'text', text: value }]
-
-  function unknown(name) {
-    return {
-      name,
-      running: false,
-      status: 'unknown server',
-      tools: [],
-      note: `No server called ${name} is configured. Call mcpod_list for the available names.`,
-    }
-  }
-
-  /**
-   * (Re)schedule the automatic release of a mounted server.
-   *
-   * @param {string} name
-   * @param {number} ttlMs 0 disables the automatic release
-   */
-  function scheduleRelease(name, ttlMs) {
-    const entry = state.live.get(name)
-    if (entry === undefined) return
-    if (entry.timer !== undefined) clearTimeout(entry.timer)
-    entry.timer = undefined
-    entry.expiresAt = ttlMs > 0 ? now() + ttlMs : 0
-    if (ttlMs <= 0) return
-    const timer = setTimeout(() => {
-      const live = state.live.get(name)
-      if (live === undefined || live.busy > 0) {
-        if (live !== undefined) scheduleRelease(name, live.ttlMs)
-        return
-      }
-      state.live.delete(name)
-      try {
-        live.dispose()
-      } catch {
-        /* best effort on the way out */
-      }
-      ctx.logger.info('mcp-on-demand: %s released after its %ss time-to-live', name, Math.round(ttlMs / 1000))
-    }, ttlMs)
-    if (typeof timer.unref === 'function') timer.unref()
-    entry.timer = timer
-  }
-
-  /**
-   * @param {string} toolName
-   * @returns {boolean} whether a mounted server was extended
-   */
-  function noteActivity(toolName) {
-    const match = /^mcp__([^_].*?)__/.exec(typeof toolName === 'string' ? toolName : '')
-    if (match === null) return false
-    const entry = state.live.get(match[1])
-    if (entry === undefined || !(entry.ttlMs > 0)) return false
-    scheduleRelease(match[1], entry.ttlMs)
-    return true
-  }
-
-  /**
-   * Hold the release while a call is in flight. A slow Ghidra call must not be
-   * torn down because the idle timer happened to expire mid-request.
-   *
-   * @param {string} toolName
-   * @returns {(() => void) | undefined}
-   */
-  function hold(toolName) {
-    const match = /^mcp__([^_].*?)__/.exec(typeof toolName === 'string' ? toolName : '')
-    if (match === null) return undefined
-    const entry = state.live.get(match[1])
-    if (entry === undefined) return undefined
-    entry.busy = (entry.busy || 0) + 1
-    if (entry.timer !== undefined) clearTimeout(entry.timer)
-    entry.timer = undefined
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      const live = state.live.get(match[1])
-      if (live === undefined) return
-      live.busy = Math.max(0, (live.busy || 1) - 1)
-      if (live.busy === 0 && live.ttlMs > 0) scheduleRelease(match[1], live.ttlMs)
-    }
-  }
-
-  function requestedTtlFor(args, definition) {
-    return Number.isFinite(args.ttl_seconds) && args.ttl_seconds >= 0
-      ? args.ttl_seconds * 1000
-      : definition.ttlMs
-  }
-
-  function rowOf(name, definition) {
-    const live = state.live.get(name)
-    const running = live !== undefined
-    let release = 'default'
-    let ttlSeconds = Math.round(definition.ttlMs / 1000)
-    if (running) {
-      if (typeof live.expiresAt === 'number' && live.expiresAt > 0) {
-        release = 'remaining'
-        ttlSeconds = Math.max(0, Math.round((live.expiresAt - now()) / 1000))
-      } else {
-        release = 'off'
-        ttlSeconds = 0
-      }
-    }
-    const summary = summaryOf(catalog.servers[name], now())
-    return {
-      name,
-      running,
-      ttl_seconds: ttlSeconds,
-      release,
-      status: running ? managerStatus(name) : 'not mounted',
-      transport: definition.entry.transport,
-      target: targetOf(definition.entry),
-      description: definition.description || '',
-      tools: running ? toolNamesOf(name) : [],
-      catalog: summary
-        ? {
-          ok: summary.ok,
-          stale: summary.stale,
-          toolCount: summary.toolCount,
-          at: summary.at,
-          error: summary.error,
-          sample: summary.ok && !summary.stale
-            ? summary.tools.slice(0, 6).map((tool) => tool.name).filter(Boolean)
-            : [],
-        }
-        : null,
-    }
-  }
-
-  async function waitUntilReady(name, budgetMs) {
-    const deadline = now() + budgetMs
-    let last = 'unknown'
-    for (;;) {
-      const status = statusOf(managerRow(name))
-      last = status.lastError ? `${status.state}: ${status.lastError}` : status.state
-      if (status.state === 'connected' || status.state === 'failed') return last
-      if (now() >= deadline) return last
-      const wait = typeof state.sleep === 'function' ? state.sleep : (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-      await wait(Math.min(READY_POLL_MS, Math.max(0, deadline - now())))
-    }
-  }
-
-  function learnFromHost(name) {
-    const tools = listedTools(name)
-    if (tools.length === 0) return undefined
-    const row = managerRow(name)
-    const count = row?.status && Number.isFinite(row.status.toolCount) ? row.status.toolCount : tools.length
-    remember(catalog, name, { ok: true, tools, toolCount: count, truncated: count > tools.length })
-    persist()
-    return summaryOf(catalog.servers[name], now())
-  }
-
-  async function probeServer(name, definition) {
-    const manager = state.manager()
-    if (typeof manager.probe !== 'function') {
-      return { ok: false, stage: 'unsupported', error: 'this host has no probe', tools: [] }
-    }
-    const timeoutMs = definition.entry.startupTimeoutMs > 0 ? definition.entry.startupTimeoutMs : DEFAULT_PROBE_MS
-    const result = await manager.probe(name, { timeoutMs, maxToolNames: 80, maxPages: 4 })
-    const tools = Array.isArray(result?.toolNames) ? result.toolNames.map((toolName) => ({ name: toolName })) : []
-    const outcome = {
-      ok: result?.ok === true,
-      stage: typeof result?.stage === 'string' ? result.stage : '',
-      error: result?.ok === true ? '' : (result?.message || result?.cleanupError || 'probe failed'),
-      tools,
-      toolCount: tools.length,
-      truncated: result?.truncated === true,
-      durationMs: Number.isFinite(result?.durationMs) ? result.durationMs : 0,
-    }
-    remember(catalog, name, outcome)
-    persist()
-    return outcome
-  }
+  const lifecycle = createLifecycle(ctx, config, state)
+  const { catalog, now } = lifecycle
 
   const mcpList = {
     name: 'mcpod_list',
@@ -286,6 +42,8 @@ export function buildTools(ctx, config, state) {
       + 'time-to-live, a one-line purpose, and what the host reports about it. Nothing is mounted until '
       + 'mcpod_enable is called, so this is the cheap way to see what is available.',
     parameters: {},
+    timeoutMs: 10000,
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',
@@ -297,6 +55,7 @@ export function buildTools(ctx, config, state) {
               properties: {
                 name: { type: 'string' },
                 running: { type: 'boolean' },
+                in_flight: { type: 'boolean' },
                 ttl_seconds: { type: 'integer' },
                 release: { type: 'string', enum: ['remaining', 'default', 'off'] },
                 status: { type: 'string' },
@@ -304,7 +63,7 @@ export function buildTools(ctx, config, state) {
                 target: { type: 'string' },
                 description: { type: 'string' },
                 tools: { type: 'array', items: { type: 'string' } },
-                catalog: { type: 'object', additionalProperties: true },
+                catalog: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
               },
               required: ['name', 'running', 'status'],
               additionalProperties: true,
@@ -321,13 +80,14 @@ export function buildTools(ctx, config, state) {
           const cached = server.catalog && server.catalog.ok && !server.catalog.stale
             ? ` catalog=${server.catalog.toolCount}`
             : ''
-          return `- ${server.name}: ${server.running ? 'RUNNING' : 'off'} status=${server.status} ttl=${server.ttl_seconds}s${tools}${cached}`
+          const ttlLabel = server.in_flight === true ? 'in-flight' : `ttl=${server.ttl_seconds}s`
+          return `- ${server.name}: ${server.running ? 'RUNNING' : 'off'} status=${server.status} ${ttlLabel}${tools}${cached}`
         })
         return text([`${value.servers.length} MCP server(s) available`, ...lines, value.hint].join('\n'))
       },
     },
     async execute() {
-      const servers = Object.entries(config.servers).map(([name, definition]) => rowOf(name, definition))
+      const servers = Object.entries(config.servers).map(([name, definition]) => lifecycle.rowOf(name, definition))
       return {
         servers,
         hint: servers.some((server) => server.running)
@@ -351,6 +111,8 @@ export function buildTools(ctx, config, state) {
       },
       limit: { type: 'integer', description: 'How many hits to return. Default 12, at most 20.' },
     },
+    timeoutMs: 10000,
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',
@@ -387,6 +149,7 @@ export function buildTools(ctx, config, state) {
       const hits = searchCatalog(catalog, query, {
         limit: args.limit,
         now: now(),
+        allowedServers: config.servers,
         aboutOf: (name) => config.servers[name]?.description || '',
         keywordsOf: (name) => config.servers[name]?.keywords || [],
       })
@@ -413,6 +176,8 @@ export function buildTools(ctx, config, state) {
     parameters: {
       name: { type: 'string', required: true, description: 'Server name as mcpod_list reports it.' },
     },
+    timeoutMs: 60000,
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',
@@ -439,50 +204,28 @@ export function buildTools(ctx, config, state) {
       const name = args.name
       const definition = config.servers[name]
       if (definition === undefined) {
-        const missing = unknown(name)
+        const missing = lifecycle.unknown(name)
         return { name, ok: false, toolCount: 0, tools: [], note: missing.note }
       }
-      if (state.live.has(name)) {
-        const learned = learnFromHost(name)
-        const tools = (learned?.tools || []).map((tool) => tool.name)
-        return {
-          name,
-          ok: tools.length > 0,
-          toolCount: learned?.toolCount || tools.length,
-          tools,
-          note: 'Already mounted, so this read the live tool list and did not open a second connection.',
-        }
+      const outcome = await lifecycle.probeServer(name, definition)
+      const toolNames = (outcome.tools || []).map((tool) => (typeof tool === 'string' ? tool : tool.name)).filter(Boolean).slice(0, 80)
+      let note
+      if (outcome.fromLive && outcome.waitedForLive) {
+        note = 'It became mounted while this probe was waiting, so the live list was recorded instead.'
+      } else if (outcome.fromLive) {
+        note = 'Already mounted, so this read the live tool list and did not open a second connection.'
+      } else if (outcome.ok) {
+        note = 'Recorded and disconnected. Call mcpod_enable when you are ready to use one of these tools.'
+      } else {
+        note = `Probe failed: ${outcome.error || 'unknown error'}`
       }
-      return lock(name, () => limit.run(async () => {
-        if (state.live.has(name)) {
-          const learned = learnFromHost(name)
-          const tools = (learned?.tools || []).map((tool) => tool.name)
-          return {
-            name,
-            ok: tools.length > 0,
-            toolCount: learned?.toolCount || tools.length,
-            tools,
-            note: 'It became mounted while this probe was waiting, so the live list was recorded instead.',
-          }
-        }
-        let outcome
-        try {
-          outcome = await probeServer(name, definition)
-        } catch (error) {
-          outcome = { ok: false, error: error?.message ?? String(error), tools: [], toolCount: 0 }
-          remember(catalog, name, outcome)
-          persist()
-        }
-        return {
-          name,
-          ok: outcome.ok === true,
-          toolCount: outcome.toolCount || 0,
-          tools: (outcome.tools || []).map((tool) => tool.name).slice(0, 80),
-          note: outcome.ok
-            ? 'Recorded and disconnected. Call mcpod_enable when you are ready to use one of these tools.'
-            : `Probe failed: ${outcome.error || 'unknown error'}`,
-        }
-      }))
+      return {
+        name,
+        ok: outcome.ok === true,
+        toolCount: outcome.toolCount || toolNames.length,
+        tools: toolNames,
+        note,
+      }
     },
   }
 
@@ -500,6 +243,8 @@ export function buildTools(ctx, config, state) {
         description: 'Auto-release after this many idle seconds. Defaults to the configured time-to-live; 0 disables it.',
       },
     },
+    timeoutMs: 60000,
+    isConcurrencySafe: () => false,
     output: {
       schema: {
         type: 'object',
@@ -526,87 +271,9 @@ export function buildTools(ctx, config, state) {
     async execute(args) {
       const name = args.name
       const definition = config.servers[name]
-      if (definition === undefined) return unknown(name)
-      return lock(name, () => mountOrRenew(name, definition, args))
+      if (definition === undefined) return lifecycle.unknown(name)
+      return lifecycle.mountOrRenew(name, definition, args)
     },
-  }
-
-  async function mountOrRenew(name, definition, args) {
-    if (state.live.has(name)) {
-      const ttlMs = requestedTtlFor(args, definition)
-      const entry = state.live.get(name)
-      entry.ttlMs = ttlMs
-      scheduleRelease(name, ttlMs)
-      learnFromHost(name)
-      return {
-        name,
-        running: true,
-        status: managerStatus(name),
-        tools: toolNamesOf(name),
-        note: ttlMs > 0
-          ? `Already mounted; its release was pushed back to ${Math.round(ttlMs / 1000)}s of idle time.`
-          : 'Already mounted; automatic release is now off, so call mcpod_disable when done.',
-      }
-    }
-
-    return limit.run(async () => {
-      if (state.live.has(name)) return mountOrRenew(name, definition, args)
-      let dispose
-      try {
-        dispose = state.manager().register(name, definition.entry)
-      } catch (error) {
-        return {
-          name,
-          running: false,
-          status: 'register failed',
-          tools: [],
-          note: `The host refused the registration: ${error?.message ?? String(error)}`,
-        }
-      }
-
-      const requestedTtl = requestedTtlFor(args, definition)
-      state.live.set(name, {
-        dispose,
-        timer: undefined,
-        since: now(),
-        ttlMs: requestedTtl,
-        busy: 0,
-        expiresAt: 0,
-      })
-      const budget = definition.entry.startupTimeoutMs > 0
-        ? Math.min(definition.entry.startupTimeoutMs, READY_WAIT_MS)
-        : READY_WAIT_MS
-      const status = await waitUntilReady(name, budget)
-      const failed = status === 'failed' || status.startsWith('failed:')
-      if (failed) {
-        const live = state.live.get(name)
-        state.live.delete(name)
-        try {
-          live?.dispose()
-        } catch {
-          /* the host already reported the failure */
-        }
-        return {
-          name,
-          running: false,
-          status,
-          tools: [],
-          note: 'The server did not stay connected, so it was released. Fix the command or URL before enabling it again.',
-        }
-      }
-      scheduleRelease(name, requestedTtl)
-      learnFromHost(name)
-      const ready = status === 'connected'
-      return {
-        name,
-        running: true,
-        status,
-        tools: toolNamesOf(name),
-        note: requestedTtl > 0
-          ? `${ready ? 'Mounted' : 'Registered, still ' + status}. It releases after ${Math.round(requestedTtl / 1000)}s of idle time, or call mcpod_disable when done.`
-          : `${ready ? 'Mounted' : 'Registered, still ' + status} with no time-to-live; call mcpod_disable when done.`,
-      }
-    })
   }
 
   const mcpDisable = {
@@ -617,6 +284,8 @@ export function buildTools(ctx, config, state) {
     parameters: {
       name: { type: 'string', required: true, description: 'Server name as mcpod_list reports it.' },
     },
+    timeoutMs: 30000,
+    isConcurrencySafe: () => false,
     output: {
       schema: {
         type: 'object',
@@ -631,27 +300,7 @@ export function buildTools(ctx, config, state) {
       render: (_args, value) => text(`${value.name}: ${value.running ? 'still running' : 'released'}\n${value.note}`),
     },
     async execute(args) {
-      const name = args.name
-      const entry = state.live.get(name)
-      if (entry === undefined) {
-        return { name, running: false, note: 'That server was not mounted by this plugin; nothing to release.' }
-      }
-      state.live.delete(name)
-      if (entry.timer !== undefined) clearTimeout(entry.timer)
-      try {
-        entry.dispose()
-      } catch (error) {
-        return {
-          name,
-          running: true,
-          note: `The host reported a disposal problem: ${error?.message ?? String(error)}`,
-        }
-      }
-      return {
-        name,
-        running: false,
-        note: 'Released: its tools leave the tool list from the next request on. The catalog of names is kept.',
-      }
+      return lifecycle.disableServer(args.name)
     },
   }
 
@@ -665,6 +314,8 @@ export function buildTools(ctx, config, state) {
       name: { type: 'string', required: true, description: 'Server name as mcpod_list reports it.' },
       probe: { type: 'boolean', description: 'Also connect once (bounded) to confirm reachability. Default false (cheap).' },
     },
+    timeoutMs: 60000,
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',
@@ -693,29 +344,52 @@ export function buildTools(ctx, config, state) {
       const live = state.live.get(name)
       let mounted = 'no'
       if (live !== undefined) {
-        const ttlSeconds = live.ttlMs > 0 ? Math.max(0, Math.round((live.expiresAt - now()) / 1000)) : 0
-        mounted = `yes, ${managerStatus(name)}, ttl=${ttlSeconds}s`
+        const status = lifecycle.managerStatus(name)
+        if ((live.busy || 0) > 0 || live.inFlight === true) {
+          mounted = `yes, ${status}, active (in-flight)`
+        } else {
+          const ttlSeconds = live.ttlMs > 0 ? Math.max(0, Math.round((live.expiresAt - now()) / 1000)) : 0
+          mounted = `yes, ${status}, ttl=${ttlSeconds}s`
+        }
       }
-      const cached = catalog.servers ? catalog.servers[name] : undefined
-      const tools = cached && typeof cached.toolCount === 'number'
-        ? cached.toolCount
-        : Array.isArray(cached?.tools) ? cached.tools.length : undefined
-      const ageSeconds = cached && typeof cached.at === 'number' ? Math.max(0, Math.round((now() - cached.at) / 1000)) : undefined
-      const stale = ageSeconds !== undefined && ageSeconds > 7 * 24 * 3600
+      const rawCached = catalog.servers ? catalog.servers[name] : undefined
+      const summary = summaryOf(rawCached, now())
+      let catalogLine = 'catalog: none'
+      if (summary !== undefined) {
+        const hasTimestamp = typeof rawCached?.at === 'number'
+        const ageSeconds = hasTimestamp ? Math.max(0, Math.round((now() - rawCached.at) / 1000)) : undefined
+        const stale = ageSeconds !== undefined && ageSeconds > 7 * 24 * 3600
+        const ageText = ageSeconds !== undefined ? `, age ${ageSeconds}s${stale ? ' (stale)' : ''}` : ''
+        const errorText = summary.error ? `, error: ${summary.error}` : ''
+        catalogLine = `catalog: ${summary.toolCount} tool(s)${ageText}${errorText}`
+      }
       const lines = [
         `Server: ${name}`,
         `configured: ${issues.length === 0 ? 'yes' : 'no (' + issues.join('; ') + ')'}`,
         `mounted: ${mounted}`,
-        `catalog: ${tools === undefined ? 'none' : tools + ' tool(s)'}${ageSeconds !== undefined ? ', age ' + ageSeconds + 's' + (stale ? ' (stale)' : '') : ''}`,
+        catalogLine,
       ]
+      let probeOk = true
       if (args?.probe === true) {
-        const result = await probeServer(name, definition)
-        lines.push(`probe: ${result.ok === true ? 'reachable, ' + (Array.isArray(result.tools) ? result.tools.length : 0) + ' tool(s)' : 'failed: ' + (result.error || 'unknown error')}`)
+        let result
+        try {
+          result = await lifecycle.probeServer(name, definition)
+        } catch (error) {
+          result = { ok: false, error: error?.message ?? String(error), tools: [] }
+        }
+        probeOk = result.ok === true
+        lines.push(
+          `probe: ${probeOk ? 'reachable, ' + (Array.isArray(result.tools) ? result.tools.length : 0) + ' tool(s)' : 'failed: ' + (result.error || 'unknown error')}`,
+        )
       }
-      return { ok: issues.length === 0, text: lines.join('\n') }
+      return { ok: issues.length === 0 && probeOk, text: lines.join('\n') }
     },
   }
 
   const tools = [mcpList, mcpFind, mcpProbe, mcpEnable, mcpDisable, mcpHealth]
-  return Object.assign(tools, { noteActivity, hold, prompt: () => catalogPrompt(config.servers, catalog, now()) })
+  return Object.assign(tools, {
+    noteActivity: lifecycle.noteActivity,
+    hold: lifecycle.hold,
+    prompt: lifecycle.prompt,
+  })
 }

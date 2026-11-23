@@ -23,7 +23,7 @@
     "licenses"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/tree.js && node --check lib/access.js && node --check lib/text.js && node --check lib/escape.js && node --check lib/compact.js && node --check lib/render.js && node --check lib/outcome.js && node --check lib/select.js && node --check lib/define.js",
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/tools.js && node --check lib/tree.js && node --check lib/access.js && node --check lib/credential-guard.js && node --check lib/fs-access.js && node --check lib/state-dir.js && node --check lib/text.js && node --check lib/escape.js && node --check lib/compact.js && node --check lib/render.js && node --check lib/outcome.js && node --check lib/select.js && node --check lib/define.js",
     "test": "node --test test/*.test.mjs"
   },
   "dsh": {

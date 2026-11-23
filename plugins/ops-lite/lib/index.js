@@ -1,10 +1,10 @@
 /**
  * ops-lite host side.
  *
- * One tool: `ops_read_files`. It exists to prove four behaviours that dsh-ops
- * established and that the rest of this workspace should inherit:
+ * Registers two tools (`ops_read_files` and `ops_tree`) that carry four
+ * behaviours dsh-ops established:
  *
- *   1. structured failures -- a call returns {status, error.code, effectState,
+ *   1. structured failures -- calls return {status, error.code, effectState,
  *      retry, nextAction} instead of throwing a bare Error;
  *   2. a two-level output budget -- per line, per file and per call, all
  *      measured in ESCAPED bytes, with a concrete resume instruction;
@@ -13,9 +13,6 @@
  *
  * Deliberately NOT here (see README for why): progressive disclosure,
  * discovery/PTC projections, a bundled shell, or replacing official tools.
- * Those are the parts of dsh-ops that its own issue tracker documents as the
- * source of O(N) prompt reassembly. This plugin registers a constant set of
- * tools once and never reassembles anything.
  *
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
@@ -24,6 +21,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { defineTool as bundledDefineTool } from './define.js'
 import { stateProvenance } from './state-dir.js'
 
 export const name = 'ops-lite'
@@ -39,14 +37,8 @@ const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /**
  * Resolve a `defineTool` implementation.
  *
- * The bundled copy in `lib/define.js` is used directly. Probing for a host copy
- * was measured on 2026-10-26 and EVERY candidate failed -- the bare specifier
- * throws ERR_MODULE_NOT_FOUND (this `link:` plugin resolves from outside the
- * profile) and the absolute paths do not exist -- so this returned `bundled` on
- * every load while paying for `existsSync` calls and a swallowed import each time.
- *
- * The probe survives behind `DSH_PROBE_HOST_TOOLS=1` so a future host layout that
- * does ship an importable copy can be diagnosed instead of guessed at.
+ * Uses the bundled copy in `lib/define.js` directly. Set `DSH_PROBE_HOST_TOOLS=1`
+ * only when diagnosing whether a future host layout ships an importable copy.
  *
  * @returns {Promise<{defineTool: Function, source: string}>}
  */
@@ -78,8 +70,7 @@ async function loadTools() {
       }
     }
   }
-  const local = await import('./define.js')
-  return { defineTool: local.defineTool, source: 'bundled' }
+  return { defineTool: bundledDefineTool, source: 'bundled' }
 }
 
 export function apply(ctx, config) {
@@ -95,7 +86,7 @@ export function apply(ctx, config) {
 }
 
 /**
- * Register the tool and its prompt guidance, and announce what loaded.
+ * Register the tools and prompt guidance, and announce what loaded.
  * @param {object} ctx - the injected runtime context.
  * @param {object|undefined} config - the raw plugin config.
  * @param {object} dirs - resolved plugin/profile/home directories.
@@ -114,24 +105,36 @@ async function register(ctx, config, dirs) {
 
   const disposers = definitions.map((definition) => ctx.tools.register(defineTool(definition)))
 
-  // Guidance is scoped: it disappears from the prompt when the tool does.
+  // Guidance is scoped: it disappears from the prompt when both tools do.
   const sectionDisposer = resolved.promptGuidance
     ? ctx.systemPrompt.section({
       name: 'ops-lite:read',
-      // 986 keeps this guidance adjacent to filekit's (985) without tying with
-      // it: equal orders would fall back to registration order, which is not a
-      // contract worth relying on across two separate plugins.
+      // 986 keeps this guidance adjacent to filekit's (985) without tying with it.
       order: 986,
       text: ({ scope }) => {
-        if (ctx.tools.get('ops_read_files', scope) === undefined) return ''
-        return [
-          'ops_read_files reads several plain-text files in one call. A path may be a file, a directory, or a glob (* ? **).',
-          'ops_tree lists a directory as an indented tree in one call (names only; vendor/VCS folders and credentials are skipped).',
-          'literal opens that file on the first exact match; around is lines of context before the hit (default 20).',
-          'CSV/TSV/DOCX/XLSX/PDF go to the filekit readers, not here.',
-          'pending > 0 means resend the files not yet returned; a file with more lines continues at its nextOffset.',
-          'A clipped line is incomplete, and retry: never means inspect the reported state before calling again.',
-        ].join('\n')
+        const hasRead = ctx.tools.get('ops_read_files', scope) !== undefined
+        const hasTree = ctx.tools.get('ops_tree', scope) !== undefined
+        if (!hasRead && !hasTree) return ''
+        const lines = []
+        if (hasRead) {
+          lines.push(
+            'ops_read_files reads several plain-text files in one call. A path may be a file, a directory, or a glob (* ? **).',
+          )
+        }
+        if (hasTree) {
+          lines.push(
+            'ops_tree lists a directory as an indented tree in one call (names only; vendor/VCS folders and credentials are skipped).',
+          )
+        }
+        if (hasRead) {
+          lines.push(
+            'literal opens that file on the first exact match; around is lines of context before the hit (default 20).',
+            'CSV/TSV/DOCX/XLSX/PDF go to the filekit readers, not here.',
+            'pending > 0 means resend the files not yet returned; a file with more lines continues at its nextOffset.',
+            'A clipped line is incomplete, and retry: never means inspect the reported state before calling again.',
+          )
+        }
+        return lines.join('\n')
       },
     })
     : undefined
@@ -149,14 +152,6 @@ async function register(ctx, config, dirs) {
     }
   }, 'ops-lite registrations')
 
-  // A small on-disk receipt: which code actually loaded, and with what. This is
-  // the cheapest way to answer "is the running host using the new build?".
-  //
-  // `resolved.statusFile` is `false` when the caller disabled it (tests do), and
-  // otherwise points at the per-user state directory -- NOT this plugin's source
-  // tree. That matters: the source directory is mirrored to git, and before
-  // 2026-10-26 this block ignored the setting and always wrote here, so a test
-  // run silently overwrote the file the live host had written.
   if (resolved.statusFile !== false) {
     try {
       let version = 'unknown'

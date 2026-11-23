@@ -3,31 +3,21 @@
  *
  * An .xlsx is a ZIP of XML parts. This module reads the minimum set needed to
  * render one worksheet as a paged table:
- *   xl/workbook.xml            sheet names + r:id
+ *   xl/workbook.xml            sheet names + r:id + date1904 flag
  *   xl/_rels/workbook.xml.rels  r:id -> part path
- *   xl/sharedStrings.xml       shared string table (optional)
+ *   xl/sharedStrings.xml       shared string table (optional, skipping <rPh> ruby text)
  *   xl/styles.xml              cell formats, used only to recognise DATE cells
  *   xl/worksheets/sheetN.xml   rows and cells
  *
- * Supported cell types: shared string (t="s"), inline string (t="inlineStr"),
- * formula string (t="str"), boolean (t="b"), error (t="e"), and numbers
- * (default), with date-formatted numbers converted to ISO dates.
- *
- * Deliberately unsupported: formulas are shown as their cached value (not
- * recalculated), merged cells are flattened to their top-left value, charts,
- * images, pivot tables, and legacy binary .xls. Those are reported, not guessed.
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { readZipEntry, looksLikeZip } from './zip.js'
-import { unescapeXml } from './docx.js'
-import { markdownTable } from './md.js'
+import { Buffer } from 'node:buffer'
+import { looksLikeZip } from './zip.js'
+import { mdCell, markdownTable } from './md.js'
+import { attr, parseRels, readZipText, sheetPart, truncateUtf8, unescapeXml } from './ooxml.js'
 
-/**
- * Hard cap on columns per row. A single malformed/far reference (e.g. r="XFD1"
- * => column 16383) would otherwise build a huge sparse row that the hole-fill
- * loop and the renderer expand to every row, blowing up memory and output for a
- * whole sheet. Cells past the cap are dropped, keeping one cell bounded.
- */
+/** Hard cap on columns per row to keep sparse sheets bounded. */
 const MAX_COLUMNS = 1024
 
 /** Excel column letters ("A", "AB") to a 0-based index. */
@@ -41,31 +31,31 @@ export function columnIndex(ref) {
   return n - 1
 }
 
-/** Compiled per-attribute regexes, so a big sheet does not build one per cell. */
-const ATTR_RE_CACHE = new Map()
-
-/** Read an attribute value from a start tag string, e.g. r="A1". */
-function attr(tag, name) {
-  let re = ATTR_RE_CACHE.get(name)
-  if (re === undefined) {
-    re = new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}="([^"]*)"`)
-    ATTR_RE_CACHE.set(name, re)
-  }
-  const m = re.exec(tag)
-  return m === null ? undefined : m[1]
+/** Detect whether the workbook uses the 1904 date system (`<workbookPr date1904="1"/>`). */
+export function isDate1904(workbookXml) {
+  if (typeof workbookXml !== 'string') return false
+  const m = /<workbookPr\b([^>]*?)\/?>/.exec(workbookXml)
+  if (m === null) return false
+  const val = (attr(m[1], 'date1904') ?? '').trim().toLowerCase()
+  return val === '1' || val === 'true'
 }
 
-/** Parse sharedStrings.xml into an array of plain strings (bounded to entries). */
+/** Strip phonetic ruby guides (`<rPh>...</rPh>`) before reading `<t>` runs. */
+function stripRuby(fragment) {
+  return fragment.includes('<rPh') ? fragment.replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g, '') : fragment
+}
+
+/** Parse sharedStrings.xml into an array of plain strings, skipping `<rPh>` ruby text. */
 export function parseSharedStrings(xml) {
   const out = []
   const siRe = /<si\b[^>]*>([\s\S]*?)<\/si>/g
   let m
   while ((m = siRe.exec(xml)) !== null) {
-    // A shared string may be split into multiple <t> runs (rich text).
+    const clean = stripRuby(m[1])
     let text = ''
     const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g
     let t
-    while ((t = tRe.exec(m[1])) !== null) text += unescapeXml(t[1])
+    while ((t = tRe.exec(clean)) !== null) text += unescapeXml(t[1])
     out.push(text)
   }
   return out
@@ -75,25 +65,30 @@ const BUILTIN_DATE_FMT_IDS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46
 
 /**
  * Determine which cell style indices (cellXfs) render as dates.
+ * Strips quoted literals, escaped chars, and `[...]` color/locale/currency
+ * tokens before testing for date tokens so `[$USD] 0.00` and `[Red]#,##0` stay
+ * numbers.
+ *
  * @returns {Set<number>} date-style indices usable by a cell's `s` attribute.
  */
 export function parseDateStyles(stylesXml) {
   const dateStyles = new Set()
   if (typeof stylesXml !== 'string' || stylesXml.length === 0) return dateStyles
 
-  // Custom number formats that look like dates.
   const customDateFmtIds = new Set()
   const fmtRe = /<numFmt\b([^>]*)\/?>/g
   let f
   while ((f = fmtRe.exec(stylesXml)) !== null) {
     const id = Number(attr(f[1], 'numFmtId'))
-    const code = attr(f[1], 'formatCode') ?? ''
-    // Strip quoted literals and escaped chars before looking for date tokens.
-    const bare = code.replace(/"[^"]*"/g, '').replace(/\\./g, '')
+    const code = unescapeXml(attr(f[1], 'formatCode') ?? '')
+    const bare = code
+      .replace(/"[^"]*"/g, '')
+      .replace(/\\./g, '')
+      .replace(/\[[^\]]*\]/g, '')
+      .trim()
     if (/[ymdhs]/i.test(bare) && !/^#|^0|general/i.test(bare)) customDateFmtIds.add(id)
   }
 
-  // cellXfs lists each cell's xf in order; its `numFmtId` picks the format.
   const xfsBlock = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(stylesXml)
   if (xfsBlock === null) return dateStyles
   const xfRe = /<xf\b([^>]*?)\/?>/g
@@ -107,85 +102,160 @@ export function parseDateStyles(stylesXml) {
   return dateStyles
 }
 
-/** Convert an Excel serial date to an ISO date/time string (UTC, 1900 system). */
-export function serialToIso(serial) {
+/**
+ * Convert an Excel serial date to an ISO date/time string (UTC).
+ * @param {number} serial
+ * @param {boolean} [date1904=false] true when workbook sets `date1904="1"`
+ */
+export function serialToIso(serial, date1904 = false) {
   const ms = Math.round(serial * 86400000)
-  // Excel's epoch: serial 1 = 1900-01-01, with the fictitious 1900-02-29 (serial
-  // 60). Anchoring at 1899-12-30 matches all serials >= 61 in practice.
-  const d = new Date(Date.UTC(1899, 11, 30) + ms)
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30)
+  const d = new Date(epoch + ms)
   if (Number.isNaN(d.getTime())) return String(serial)
   const iso = d.toISOString()
-  // Whole days render as a plain date; anything with a time keeps the time.
   return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.replace('T', ' ').replace('.000Z', '')
+}
+
+/** Parse one `<row>...</row>` inner XML into an array of cell strings. */
+function parseRowCells(rowInner, sharedStrings, dateStyles, date1904, cellCounter) {
+  const row = []
+  const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
+  let c
+  while ((c = cellRe.exec(rowInner)) !== null) {
+    const tag = c[1]
+    const inner = c[2] ?? ''
+    const type = attr(tag, 't')
+    const styleRaw = attr(tag, 's')
+    const styleIndex = styleRaw === undefined ? -1 : Number(styleRaw)
+    const ref = attr(tag, 'r')
+    const col = ref === undefined ? row.length : columnIndex(ref)
+    if (col >= MAX_COLUMNS) continue
+
+    let value = ''
+    if (type === 's') {
+      const idx = Number((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1])
+      value = Number.isInteger(idx) ? sharedStrings[idx] ?? '' : ''
+    } else if (type === 'inlineStr') {
+      const is = /<is>([\s\S]*?)<\/is>/.exec(inner)
+      if (is !== null) {
+        const clean = stripRuby(is[1])
+        let text = ''
+        const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g
+        let t
+        while ((t = tRe.exec(clean)) !== null) text += unescapeXml(t[1])
+        value = text
+      }
+    } else if (type === 'str') {
+      value = unescapeXml((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1] ?? '')
+    } else if (type === 'b') {
+      value = String((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1]) === '1' ? 'TRUE' : 'FALSE'
+    } else if (type === 'e') {
+      const rawErr = (/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1] ?? 'ERROR'
+      value = rawErr.startsWith('#') ? rawErr : `#${rawErr}`
+    } else {
+      const raw = (/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1]
+      if (raw !== undefined) {
+        const num = Number(raw)
+        if (dateStyles.has(styleIndex) && Number.isFinite(num)) value = serialToIso(num, date1904)
+        else value = raw
+      }
+    }
+    row[col] = value
+    cellCounter.count += 1
+    if (cellCounter.count >= cellCounter.max) {
+      cellCounter.hit = true
+      break
+    }
+  }
+  for (let i = 0; i < row.length; i += 1) if (row[i] === undefined) row[i] = ''
+  return row
+}
+
+/** Count `<row` tags quickly starting from `pos`, capped at `maxAdditional`. */
+function countRemainingRows(sheetXml, startPos, maxAdditional) {
+  let count = 0
+  let pos = startPos
+  while (count < maxAdditional) {
+    const idx = sheetXml.indexOf('<row', pos)
+    if (idx === -1) return { count, capped: false }
+    const next = sheetXml.charCodeAt(idx + 4)
+    if (next === 32 || next === 62 || next === 9 || next === 10 || next === 13 || next === 47) {
+      count += 1
+    }
+    pos = idx + 4
+  }
+  // Check whether at least one more <row exists beyond the cap.
+  let probe = pos
+  while (probe < sheetXml.length) {
+    const idx = sheetXml.indexOf('<row', probe)
+    if (idx === -1) return { count, capped: false }
+    const next = sheetXml.charCodeAt(idx + 4)
+    if (next === 32 || next === 62 || next === 9 || next === 10 || next === 13 || next === 47) {
+      return { count, capped: true }
+    }
+    probe = idx + 4
+  }
+  return { count, capped: false }
 }
 
 /**
  * Parse one worksheet's rows into arrays of display strings.
+ *
+ * When `caps.collectStart` / `caps.collectCount` are provided, only row 0 (if
+ * `keepFirstRow`) and the requested window `[collectStart, collectStart + collectCount)`
+ * are materialized as cell arrays; once collected, cell parsing stops early and
+ * remaining `<row` tags are counted without allocating row arrays.
+ *
  * @param {string} sheetXml
  * @param {string[]} sharedStrings
  * @param {Set<number>} dateStyles
- * @param {{maxRows?:number, maxCells?:number}} caps
- * @returns {{rows:string[][], truncated:boolean}}
+ * @param {{maxRows?:number, maxCells?:number, date1904?:boolean, collectStart?:number, collectCount?:number, keepFirstRow?:boolean}} caps
+ * @returns {{rows:string[][], headerRow?:string[], totalSheetRows:number, truncated:boolean}}
  */
 export function parseSheet(sheetXml, sharedStrings, dateStyles, caps = {}) {
   const maxRows = Number.isFinite(caps.maxRows) ? caps.maxRows : 100000
   const maxCells = Number.isFinite(caps.maxCells) ? caps.maxCells : 2000000
+  const date1904 = caps.date1904 === true
+  const windowed = Number.isFinite(caps.collectStart) && Number.isFinite(caps.collectCount)
+  const collectStart = windowed ? Math.max(0, Math.trunc(caps.collectStart)) : 0
+  const collectEnd = windowed ? collectStart + Math.max(0, Math.trunc(caps.collectCount)) : maxRows
+  const keepFirstRow = windowed && caps.keepFirstRow === true
+
   const rows = []
-  let cells = 0
+  let headerRow
+  let totalSheetRows = 0
+  const cellCounter = { count: 0, max: maxCells, hit: false }
   const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g
   let r
-  while ((r = rowRe.exec(sheetXml)) !== null) {
-    const row = []
-    const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
-    let c
-    while ((c = cellRe.exec(r[1])) !== null) {
-      const tag = c[1]
-      const inner = c[2] ?? ''
-      const type = attr(tag, 't')
-      const styleRaw = attr(tag, 's')
-      const styleIndex = styleRaw === undefined ? -1 : Number(styleRaw)
-      const ref = attr(tag, 'r')
-      const col = ref === undefined ? row.length : columnIndex(ref)
-      // Drop absurd far columns instead of growing the row to that width.
-      if (col >= MAX_COLUMNS) continue
 
-      let value = ''
-      if (type === 's') {
-        const idx = Number((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1])
-        value = Number.isInteger(idx) ? sharedStrings[idx] ?? '' : ''
-      } else if (type === 'inlineStr') {
-        const is = /<is>([\s\S]*?)<\/is>/.exec(inner)
-        if (is !== null) {
-          let text = ''
-          const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g
-          let t
-          while ((t = tRe.exec(is[1])) !== null) text += unescapeXml(t[1])
-          value = text
-        }
-      } else if (type === 'str') {
-        value = unescapeXml((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1] ?? '')
-      } else if (type === 'b') {
-        value = String((/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1]) === '1' ? 'TRUE' : 'FALSE'
-      } else if (type === 'e') {
-        value = `#${(/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1] ?? 'ERROR'}`
-      } else {
-        const raw = (/<v>([\s\S]*?)<\/v>/.exec(inner) ?? [])[1]
-        if (raw !== undefined) {
-          const num = Number(raw)
-          if (dateStyles.has(styleIndex) && Number.isFinite(num)) value = serialToIso(num)
-          else value = raw
-        }
+  while ((r = rowRe.exec(sheetXml)) !== null) {
+    const idx = totalSheetRows
+    totalSheetRows += 1
+
+    const needRow = !windowed || (idx >= collectStart && idx < collectEnd) || (keepFirstRow && idx === 0)
+    if (needRow) {
+      const parsedRow = parseRowCells(r[1], sharedStrings, dateStyles, date1904, cellCounter)
+      if (keepFirstRow && idx === 0) headerRow = parsedRow
+      if (!windowed || (idx >= collectStart && idx < collectEnd)) {
+        rows.push(parsedRow)
       }
-      row[col] = value
-      cells += 1
-      if (cells >= maxCells) return { rows: row.length > 0 ? [...rows, row] : rows, truncated: true }
+      if (cellCounter.hit) {
+        return { rows, headerRow, totalSheetRows, truncated: true }
+      }
     }
-    // Fill holes so columns stay aligned.
-    for (let i = 0; i < row.length; i += 1) if (row[i] === undefined) row[i] = ''
-    rows.push(row)
-    if (rows.length >= maxRows) return { rows, truncated: true }
+
+    if (totalSheetRows >= maxRows) {
+      return { rows, headerRow, totalSheetRows, truncated: true }
+    }
+
+    // Early-stop cell parsing once the requested window (and optional header) has been collected!
+    if (windowed && totalSheetRows >= collectEnd && (!keepFirstRow || headerRow !== undefined)) {
+      const rest = countRemainingRows(sheetXml, rowRe.lastIndex, maxRows - totalSheetRows)
+      totalSheetRows += rest.count
+      return { rows, headerRow, totalSheetRows, truncated: rest.capped }
+    }
   }
-  return { rows, truncated: false }
+  return { rows, headerRow, totalSheetRows, truncated: false }
 }
 
 /**
@@ -194,37 +264,26 @@ export function parseSheet(sheetXml, sharedStrings, dateStyles, caps = {}) {
  */
 export function listSheets(workbookXml, relsXml) {
   const relMap = new Map()
-  const relRe = /<Relationship\b([^>]*?)\/?>/g
-  let m
-  while ((m = relRe.exec(relsXml)) !== null) {
-    const id = attr(m[1], 'Id')
-    const target = attr(m[1], 'Target')
-    if (id !== undefined && target !== undefined) relMap.set(id, target.replace(/^\/?xl\//, '').replace(/^\//, ''))
+  for (const rel of parseRels(relsXml)) {
+    relMap.set(rel.id, rel.target.replace(/^\/?xl\//, '').replace(/^\//, ''))
   }
   const sheets = []
   const sheetRe = /<sheet\b([^>]*?)\/?>/g
+  let m
   while ((m = sheetRe.exec(workbookXml)) !== null) {
     const name = attr(m[1], 'name')
     const rid = attr(m[1], 'r:id') ?? attr(m[1], 'id')
     if (name === undefined || rid === undefined) continue
     const target = relMap.get(rid)
-    sheets.push({ name, rid, target: target === undefined ? '' : target })
+    sheets.push({ name: unescapeXml(name), rid, target: target === undefined ? '' : target })
   }
   return sheets
 }
 
-/** Zip part name for a sheet target, tolerating absolute vs relative spellings. */
-function sheetPart(target) {
-  const clean = target.replace(/^\.?\//, '')
-  return clean.startsWith('xl/') ? clean : `xl/${clean}`
-}
-
-
-
 /**
  * Read an XLSX buffer into a bounded, model-facing text window of one sheet.
  * @param {Buffer} buffer
- * @param {{offset:number, limit:number, sheet?:string|number, hasHeader?:boolean, maxCellLength?:number, maxBytes?:number}} req
+ * @param {{offset:number, limit:number, sheet?:string|number, hasHeader?:boolean, maxCellLength?:number, maxBytes?:number, scanMaxBytes?:number}} req
  * @returns {{text:string, sheetName:string, sheets:string[], returned:number, totalRows:number, truncatedByBytes:boolean, warnings:string[]}}
  */
 export function readXlsx(buffer, req) {
@@ -232,16 +291,17 @@ export function readXlsx(buffer, req) {
   if (!looksLikeZip(buffer)) {
     throw new Error('not an XLSX container (no ZIP signature). Legacy binary .xls is not supported; save as .xlsx first.')
   }
+  const zipOpts = req.scanMaxBytes !== undefined ? { maxBytes: req.scanMaxBytes } : {}
   const readText = (name, optional) => {
     try {
-      return readZipEntry(buffer, name).toString('utf8')
+      return readZipText(buffer, name, { ...zipOpts, optional })
     } catch (error) {
-      if (optional) return null
       throw new Error(`not a readable XLSX: missing ${name} (${error?.message ?? String(error)})`)
     }
   }
 
   const workbookXml = readText('xl/workbook.xml', false)
+  const date1904 = isDate1904(workbookXml)
   const relsXml = readText('xl/_rels/workbook.xml.rels', true) ?? ''
   const sheets = listSheets(workbookXml, relsXml)
   if (sheets.length === 0) throw new Error('XLSX has no worksheets')
@@ -269,35 +329,75 @@ export function readXlsx(buffer, req) {
   const stylesXml = readText('xl/styles.xml', true)
   const dateStyles = parseDateStyles(stylesXml)
 
-  const parsed = parseSheet(sheetXml, sharedStrings, dateStyles, { maxRows: 200000 })
-  if (parsed.truncated) warnings.push('the sheet scan stopped at a row/cell cap; totals may be short')
-
   const maxCellLength = Number.isFinite(req.maxCellLength) ? req.maxCellLength : 500
   const maxBytes = Number.isFinite(req.maxBytes) ? req.maxBytes : 50 * 1024
   const hasHeader = req.hasHeader !== false
-  const rows = parsed.rows
-  const totalRows = hasHeader ? Math.max(0, rows.length - 1) : rows.length
   const dataStart = hasHeader ? 1 : 0
   const start = Math.max(0, req.offset - 1)
 
-  const focused = req.sheet !== undefined
-  const page = rows.slice(dataStart + start, dataStart + start + req.limit)
-  const shownRows = hasHeader ? [rows[0] ?? [], ...page] : page
-  let table = markdownTable(shownRows.length > 0 ? shownRows : [[]], maxCellLength)
-  if (!hasHeader && table !== '') {
-    const lines = table.split('\n')
-    table = lines.slice(2).join('\n')
+  const parsed = parseSheet(sheetXml, sharedStrings, dateStyles, {
+    maxRows: 200000,
+    date1904,
+    collectStart: dataStart + start,
+    collectCount: req.limit,
+    keepFirstRow: hasHeader,
+  })
+  if (parsed.truncated) warnings.push('the sheet scan stopped at a row/cell cap; totals may be short')
+
+  const totalRows = hasHeader ? Math.max(0, parsed.totalSheetRows - 1) : parsed.totalSheetRows
+  const page = parsed.rows
+  const headerRow = hasHeader ? (parsed.headerRow ?? []) : undefined
+
+  // Compute uniform column width across header + page rows.
+  let width = headerRow ? headerRow.length : 0
+  for (const row of page) {
+    if (row.length > width) width = row.length
   }
-  const parts = [`## ${chosen.name}\n${table}`]
-  let bytes = Buffer.byteLength(parts[0], 'utf8')
-  let truncatedByBytes = false
-  if (!focused) {
+  const formatRow = (row) => {
+    const cols = Array.from({ length: width }, (_, i) => mdCell(row?.[i], maxCellLength))
+    return `| ${cols.join(' | ')} |`
+  }
+
+  const tableLines = [`## ${chosen.name}`]
+  let bytes = Buffer.byteLength(tableLines[0], 'utf8') + 1
+  if (hasHeader && width > 0) {
+    const hLine = formatRow(headerRow)
+    const sepLine = `| ${Array.from({ length: width }, () => '---').join(' | ')} |`
+    tableLines.push(hLine, sepLine)
+    bytes += Buffer.byteLength(hLine, 'utf8') + Buffer.byteLength(sepLine, 'utf8') + 2
+  }
+
+  // Enforce maxBytes row-by-row on the primary sheet (never dropping row 0 on hasHeader: false).
+  let shown = 0
+  let primaryTruncated = false
+  for (let r = 0; r < page.length; r += 1) {
+    const line = width > 0 ? formatRow(page[r]) : '|  |'
+    const size = Buffer.byteLength(line, 'utf8') + 1
+    if (bytes + size > maxBytes) {
+      if (shown === 0) {
+        const notice = '... (row truncated to fit output cap)'
+        const budget = Math.max(64, maxBytes - bytes - Buffer.byteLength(notice, 'utf8') - 16)
+        tableLines.push(`${truncateUtf8(line, budget)}${notice}`)
+        shown += 1
+      }
+      primaryTruncated = true
+      break
+    }
+    bytes += size
+    tableLines.push(line)
+    shown += 1
+  }
+
+  const parts = [tableLines.join('\n')]
+  let truncatedByBytes = primaryTruncated
+  const focused = req.sheet !== undefined
+  if (!focused && !primaryTruncated) {
     for (const section of sheets) {
       if (section === chosen || section.target === '') continue
       let header = []
       try {
         const xml = readText(sheetPart(section.target), false)
-        header = parseSheet(xml, sharedStrings, dateStyles, { maxRows: 1 }).rows[0] ?? []
+        header = parseSheet(xml, sharedStrings, dateStyles, { maxRows: 1, date1904 }).rows[0] ?? []
       } catch (error) {
         warnings.push(`sheet "${section.name}" was not previewed (${error?.message ?? String(error)})`)
       }
@@ -308,12 +408,18 @@ export function readXlsx(buffer, req) {
       parts.push(preview)
     }
   }
-  const shown = page.length
+
   const end = start + shown
   let footer
-  if (truncatedByBytes) footer = `(Output capped at ${maxBytes} bytes. Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
-  else if (end < totalRows) footer = `(Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
-  else footer = `(End of sheet "${chosen.name}" - ${totalRows} data rows${hasHeader ? ', 1 header row' : ''})`
+  if (primaryTruncated) {
+    footer = `(Output capped at ${maxBytes} bytes. Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
+  } else if (end < totalRows) {
+    footer = `(Showing rows ${req.offset}-${end} of ${totalRows} on "${chosen.name}". Use offset=${end + 1} to continue.)`
+  } else if (truncatedByBytes) {
+    footer = `(End of sheet "${chosen.name}" - ${totalRows} data rows${hasHeader ? ', 1 header row' : ''}; remaining sheet previews omitted due to output cap)`
+  } else {
+    footer = `(End of sheet "${chosen.name}" - ${totalRows} data rows${hasHeader ? ', 1 header row' : ''})`
+  }
 
   const body = `${parts.join('\n\n')}\n\n${footer}`
   return {

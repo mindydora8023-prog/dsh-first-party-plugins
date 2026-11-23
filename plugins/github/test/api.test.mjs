@@ -1,19 +1,22 @@
 /**
- * Unit tests for the REST client, using a stubbed global fetch.
+ * Unit tests for the REST client, using a stubbed global fetch and local HTTP
+ * servers for the proxy tunnel path.
  *
  *   node --test test/api.test.mjs
  */
 
 import assert from 'node:assert/strict'
+import { createServer, request as httpRequest } from 'node:http'
+import { connect as netConnect } from 'node:net'
 import test from 'node:test'
 
-import { GitHubError, describeWriteCheck, parseNextPage, request } from '../lib/api.js'
+import { GitHubError, describeWriteCheck, parseNextPage, request, tunnelledFetch } from '../lib/api.js'
 import { scrub } from '../lib/auth.js'
 import { readConfig } from '../lib/config.js'
 
 // Stubs replace globalThis.fetch, so the proxy path (node:https) must stay off.
 const config = readConfig(
-  { retries: 0, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false },
+  { retries: 0, timeoutMs: 5000, retryBaseDelayMs: 5, proxyFromEnv: false, proxyFromSystem: false },
   { pluginDir: 'E:/tmp', profileDir: '', home: '' },
 )
 const authInfo = { token: 'ghp_secretsecretsecret', source: 'test' }
@@ -24,8 +27,10 @@ function stubFetch(handler) {
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init })
     const result = await handler(url, init)
-    return new Response(result.body ?? '', {
-      status: result.status ?? 200,
+    const status = result.status ?? 200
+    const body = status === 204 || status === 205 || status === 304 ? null : (result.body ?? '')
+    return new Response(body, {
+      status,
       headers: result.headers ?? { 'content-type': 'application/json' },
     })
   }
@@ -51,9 +56,9 @@ test('a successful request carries auth, version headers, and the query', async 
   } finally {
     stub.restore()
   }
-});
+})
 
-test('a 401 explains how to fix the credential without leaking the token', async () => {
+test('a 401 explains how to fix the credential using credentialsFile without leaking the token', async () => {
   const stub = stubFetch(() => ({ status: 401, body: JSON.stringify({ message: 'Bad credentials' }) }))
   try {
     await assert.rejects(
@@ -63,6 +68,8 @@ test('a 401 explains how to fix the credential without leaking the token', async
         assert.equal(error.status, 401)
         assert.match(error.message, /rejected the credential/)
         assert.match(error.message, /github\.com again/)
+        assert.ok(error.message.includes(config.credentialsFile), '401 must point to config.credentialsFile')
+        assert.ok(!error.message.includes('next to the plugin'))
         assert.ok(!error.message.includes('ghp_secretsecretsecret'))
         return true
       },
@@ -90,7 +97,43 @@ test('a 403 with an exhausted quota is reported as rate limiting', async () => {
   }
 })
 
-test('a 403 without a zero quota mentions the missing scope', async () => {
+test('a 429 and a secondary rate-limit 403 are classified as rate-limited rather than missing scope', async () => {
+  let mode = '429'
+  const stub = stubFetch(() => {
+    if (mode === '429') {
+      return {
+        status: 429,
+        headers: { 'retry-after': '60', 'x-ratelimit-limit': '5000', 'x-ratelimit-remaining': '4900' },
+        body: JSON.stringify({ message: 'Too many requests' }),
+      }
+    }
+    return {
+      status: 403,
+      headers: { 'x-ratelimit-limit': '5000', 'x-ratelimit-remaining': '4900' },
+      body: JSON.stringify({ message: 'You have exceeded a secondary rate limit.' }),
+    }
+  })
+  try {
+    await assert.rejects(request(config, authInfo, { path: '/search/code' }), (error) => {
+      assert.equal(error.status, 429)
+      assert.equal(error.code, 'rate-limited')
+      assert.doesNotMatch(error.message, /lacks the required scope/)
+      assert.match(error.message, /Retry after 60s/)
+      return true
+    })
+    mode = 'secondary-403'
+    await assert.rejects(request(config, authInfo, { path: '/search/code' }), (error) => {
+      assert.equal(error.status, 403)
+      assert.equal(error.code, 'rate-limited')
+      assert.doesNotMatch(error.message, /lacks the required scope/)
+      return true
+    })
+  } finally {
+    stub.restore()
+  }
+})
+
+test('a 403 without a zero quota or rate-limit signal mentions the missing scope', async () => {
   const stub = stubFetch(() => ({
     status: 403,
     headers: { 'x-ratelimit-limit': '5000', 'x-ratelimit-remaining': '4999' },
@@ -143,7 +186,7 @@ test('a non-JSON body is returned as text rather than throwing', async () => {
 test('a network error is retried once when retries is 1', async () => {
   let attempts = 0
   const original = globalThis.fetch
-  const retried = readConfig({ retries: 1, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const retried = { ...config, retries: 1, retryBaseDelayMs: 5 }
   globalThis.fetch = async () => {
     attempts += 1
     if (attempts === 1) throw new Error('socket hang up')
@@ -161,7 +204,7 @@ test('a network error is retried once when retries is 1', async () => {
 test('an aborted request reports a timeout and is not retried', async () => {
   let attempts = 0
   const original = globalThis.fetch
-  const fast = readConfig({ retries: 3, timeoutMs: 10, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const fast = { ...config, retries: 3, timeoutMs: 25 }
   globalThis.fetch = async (_url, init) => {
     attempts += 1
     return new Promise((_resolve, reject) => {
@@ -181,12 +224,9 @@ test('an aborted request reports a timeout and is not retried', async () => {
 })
 
 test('a network error on a WRITE is never retried and reports an unknown effect', async () => {
-  // The dangerous case: the POST may have reached GitHub before the connection
-  // dropped, so a replay would open a second public issue. `retries: 3` must not
-  // loosen this.
   let attempts = 0
   const original = globalThis.fetch
-  const retried = readConfig({ retries: 3, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const retried = { ...config, retries: 3, retryBaseDelayMs: 5 }
   globalThis.fetch = async () => {
     attempts += 1
     throw new Error('socket hang up')
@@ -205,6 +245,32 @@ test('a network error on a WRITE is never retried and reports an unknown effect'
       },
     )
     assert.equal(attempts, 1, 'a write must be attempted exactly once')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a premature stream close while reading a WRITE response preserves unknown effect', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => {
+    const stream = new ReadableStream({
+      pull(controller) {
+        controller.error(new Error('premature close'))
+      },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    await assert.rejects(
+      request(config, authInfo, { method: 'POST', path: '/repos/octo/hello/issues', body: { title: 'x' } }),
+      (error) => {
+        assert.ok(error instanceof GitHubError)
+        assert.equal(error.code, 'write-outcome-unknown')
+        assert.equal(error.effectState, 'unknown')
+        assert.equal(error.retry, 'never')
+        return true
+      },
+    )
   } finally {
     globalThis.fetch = original
   }
@@ -236,7 +302,7 @@ test('a 5xx on a read is retried once (and a write is not)', async () => {
     calls += 1
     return calls === 1 ? { status: 503, body: '{}' } : { status: 200, body: JSON.stringify({ ok: true }) }
   })
-  const retried = readConfig({ retries: 1, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const retried = { ...config, retries: 1, retryBaseDelayMs: 5 }
   try {
     const result = await request(retried, authInfo, { method: 'GET', path: '/rate_limit' })
     assert.equal(result.status, 200)
@@ -247,8 +313,6 @@ test('a 5xx on a read is retried once (and a write is not)', async () => {
 })
 
 test('a write rejected with a 4xx reports no effect and stays retryable after a fix', async () => {
-  // 422 is the server refusing to act, so the effect is genuinely `none` and
-  // telling the model "never retry" would be wrong.
   const stub = stubFetch(() => ({ status: 422, body: JSON.stringify({ message: 'Validation Failed' }) }))
   try {
     await assert.rejects(
@@ -267,8 +331,7 @@ test('a write rejected with a 4xx reports no effect and stays retryable after a 
 
 test('a write timeout is reported as unknown rather than as a plain timeout', async () => {
   const original = globalThis.fetch
-  // readConfig clamps timeoutMs to >= 1000, so the assertion uses that value.
-  const fast = readConfig({ retries: 0, timeoutMs: 1000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const fast = { ...config, retries: 0, timeoutMs: 25 }
   globalThis.fetch = async (_url, init) => {
     return new Promise((_resolve, reject) => {
       init.signal.addEventListener('abort', () => {
@@ -284,8 +347,7 @@ test('a write timeout is reported as unknown rather than as a plain timeout', as
       (error) => {
         assert.equal(error.code, 'write-outcome-unknown')
         assert.equal(error.retry, 'never')
-        assert.match(error.message, /timed out after 1000 ms/)
-        // Regression: the hint must not produce a doubled full stop.
+        assert.match(error.message, /timed out after 25 ms/)
         assert.ok(!error.message.includes('one..'), 'message must not contain a doubled period')
         return true
       },
@@ -355,7 +417,7 @@ test('a retried GET discards an unbounded error body and still retries', async (
     }
     return { status: 200, body: JSON.stringify({ ok: true }) }
   })
-  const retried = readConfig({ retries: 1, timeoutMs: 5000, proxyFromEnv: false, proxyFromSystem: false }, { pluginDir: 'E:/tmp', profileDir: '', home: '' })
+  const retried = { ...config, retries: 1, retryBaseDelayMs: 5 }
   try {
     const result = await request(retried, authInfo, { method: 'GET', path: '/rate_limit' })
     assert.equal(result.data.ok, true)
@@ -370,4 +432,196 @@ test('scrub removes a token wherever it appears', () => {
   assert.equal(scrub(`bearer ${token} rejected`, token), 'bearer [redacted] rejected')
   assert.equal(scrub('nothing to hide', token), 'nothing to hide')
   assert.equal(scrub('short', 'abc'), 'short')
+})
+
+// --------------------------------------------------- tunnelledFetch regressions
+
+function startServer(handler) {
+  return new Promise((resolve) => {
+    const server = createServer(handler)
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, port: server.address().port })
+    })
+  })
+}
+
+function startConnectProxy(options = {}) {
+  return new Promise((resolve) => {
+    const server = createServer((_req, res) => {
+      res.writeHead(405)
+      res.end()
+    })
+    server.on('connect', (req, clientSocket, head) => {
+      if (options.hangConnect === true) return
+      const [host, portText] = req.url.split(':')
+      const targetSocket = netConnect(Number(portText), host, () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        if (head && head.length > 0) targetSocket.write(head)
+        targetSocket.pipe(clientSocket)
+        clientSocket.pipe(targetSocket)
+      })
+      targetSocket.on('error', () => clientSocket.destroy())
+      clientSocket.on('error', () => targetSocket.destroy())
+    })
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, port: server.address().port })
+    })
+  })
+}
+
+const plainTunnelDeps = {
+  allowHttp: true,
+  httpRequest,
+  httpsRequest: httpRequest,
+  createConnection: (tunnel) => tunnel,
+}
+
+test('tunnelledFetch follows cross-host 302 redirects and strips Authorization', async () => {
+  const seen = []
+  const logsServer = await startServer((req, res) => {
+    seen.push({ server: 'logs', auth: req.headers.authorization })
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('job log body')
+  })
+  const apiServer = await startServer((req, res) => {
+    seen.push({ server: 'api', auth: req.headers.authorization })
+    res.writeHead(302, { location: `http://127.0.0.1:${logsServer.port}/log.txt` })
+    res.end()
+  })
+  const proxy = await startConnectProxy()
+  try {
+    const response = await tunnelledFetch(
+      `http://127.0.0.1:${apiServer.port}/actions/jobs/1/logs`,
+      { method: 'GET', headers: { Authorization: 'Bearer ghp_secret00000000000000' } },
+      `http://127.0.0.1:${proxy.port}`,
+      config,
+      0,
+      plainTunnelDeps,
+    )
+    assert.equal(response.status, 200)
+    assert.equal(await response.text(), 'job log body')
+    assert.equal(seen.length, 2)
+    assert.equal(seen[0].auth, 'Bearer ghp_secret00000000000000')
+    assert.equal(seen[1].auth, undefined, 'Authorization must be stripped across hosts')
+  } finally {
+    proxy.server.close()
+    apiServer.server.close()
+    logsServer.server.close()
+  }
+})
+
+test('tunnelledFetch handles 204 and 304 null-body statuses cleanly', async () => {
+  const target = await startServer((req, res) => {
+    const status = req.url === '/304' ? 304 : 204
+    res.writeHead(status)
+    res.end()
+  })
+  const proxy = await startConnectProxy()
+  try {
+    const r204 = await tunnelledFetch(
+      `http://127.0.0.1:${target.port}/204`,
+      { method: 'GET', headers: {} },
+      `http://127.0.0.1:${proxy.port}`,
+      config,
+      0,
+      plainTunnelDeps,
+    )
+    assert.equal(r204.status, 204)
+    assert.equal(await r204.text(), '')
+
+    const r304 = await tunnelledFetch(
+      `http://127.0.0.1:${target.port}/304`,
+      { method: 'GET', headers: {} },
+      `http://127.0.0.1:${proxy.port}`,
+      config,
+      0,
+      plainTunnelDeps,
+    )
+    assert.equal(r304.status, 304)
+    assert.equal(await r304.text(), '')
+  } finally {
+    proxy.server.close()
+    target.server.close()
+  }
+})
+
+test('tunnelledFetch enforces the 8 MiB streaming cap and destroys the socket', async () => {
+  const target = await startServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/octet-stream' })
+    const chunk = Buffer.alloc(1024 * 1024, 65)
+    let sent = 0
+    const pump = () => {
+      while (sent < 10 && !res.destroyed) {
+        sent += 1
+        if (!res.write(chunk)) {
+          res.once('drain', pump)
+          return
+        }
+      }
+      if (!res.destroyed) res.end()
+    }
+    pump()
+  })
+  const proxy = await startConnectProxy()
+  try {
+    await assert.rejects(
+      tunnelledFetch(
+        `http://127.0.0.1:${target.port}/huge`,
+        { method: 'GET', headers: {} },
+        `http://127.0.0.1:${proxy.port}`,
+        config,
+        0,
+        plainTunnelDeps,
+      ),
+      (error) => {
+        assert.ok(error instanceof GitHubError)
+        assert.equal(error.code, 'response-too-large')
+        assert.equal(error.retry, 'never')
+        return true
+      },
+    )
+  } finally {
+    proxy.server.close()
+    target.server.close()
+  }
+})
+
+test('tunnelledFetch throws AbortError on CONNECT timeout and honours init.signal', async () => {
+  const proxy = await startConnectProxy({ hangConnect: true })
+  try {
+    await assert.rejects(
+      tunnelledFetch(
+        'http://127.0.0.1:443/test',
+        { method: 'GET', headers: {} },
+        `http://127.0.0.1:${proxy.port}`,
+        { ...config, timeoutMs: 40 },
+        0,
+        plainTunnelDeps,
+      ),
+      (error) => {
+        assert.equal(error.name, 'AbortError')
+        assert.match(error.message, /timed out/)
+        return true
+      },
+    )
+
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 30)
+    await assert.rejects(
+      tunnelledFetch(
+        'http://127.0.0.1:443/test',
+        { method: 'GET', headers: {}, signal: controller.signal },
+        `http://127.0.0.1:${proxy.port}`,
+        { ...config, timeoutMs: 5000 },
+        0,
+        plainTunnelDeps,
+      ),
+      (error) => {
+        assert.equal(error.name, 'AbortError')
+        return true
+      },
+    )
+  } finally {
+    proxy.server.close()
+  }
 })

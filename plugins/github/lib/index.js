@@ -11,28 +11,36 @@
  *   github_get_repo       one repository's metadata
  *   github_list_files     a directory, or a whole tree at a ref
  *   github_read_file      one file's decoded text
- *   github_commits        recent commits, optionally by path/branch/author
+ *   github_commits        recent commits, or one commit with patches
  *   github_branches       branch list with head shas
  *   github_issues         issue list
  *   github_issue          one issue or pull request with comments
- *   github_pulls          pull request list
+ *   github_pulls          pull request list, or one PR with review comments
  *   github_pull_files     a pull request's changed files and patches
- *   github_actions        CI workflow runs
+ *   github_actions        CI workflow runs and failed job logs
  *   github_create_issue   (write) open an issue
  *   github_comment        (write) comment on an issue or pull request
+ *   github_create_pr      (write) open a pull request
+ *   github_update_issue   (write) update an issue or pull request
+ *   github_merge_pr       (write) merge a pull request
+ *   github_submit_review  (write) submit a pull request review
  *
  * Design constraints:
  *   1. No third-party dependency: fetch is built in, and a `link:` plugin lives
  *      outside the profile, so anything else could fail to resolve.
- *   2. Credentials are resolved per call, so a rotated token or a fresh browser
- *      login takes effect without restarting the host.
+ *   2. Credentials are resolved lazily per call, never blocking host startup
+ *      with synchronous subprocesses.
  *   3. Nothing echoes the token: errors are scrubbed before they reach a tool
  *      result.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+
+import { readConfig } from './config.js'
+import { defineTool } from './define.js'
+import { buildTools } from './tools.js'
 
 export const name = 'github'
 
@@ -41,49 +49,16 @@ export const inject = ['tools', 'systemPrompt']
 
 const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-/**
- * Resolve `defineTool`.
- *
- * The bundled copy in `lib/define.js` is used directly. Probing for a host copy
- * was measured on 2026-10-26 and EVERY candidate failed -- the bare specifier
- * throws ERR_MODULE_NOT_FOUND and the absolute paths do not exist -- so this
- * always returned `bundled` while paying for `existsSync` calls and a swallowed
- * import on every startup.
- *
- * The probe survives behind `DSH_PROBE_HOST_TOOLS=1` for diagnosing a future host
- * layout instead of guessing at it.
- */
-async function loadTools() {
-  if (process.env['DSH_PROBE_HOST_TOOLS'] === '1') {
-    const candidates = [null]
-    const home = process.env['DSH_HOME']
-    if (typeof home === 'string' && home.trim() !== '') {
-      candidates.push(join(resolve(home), 'profiles', 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js'))
-    }
-    const profileDir = process.env['DSH_PROFILE_DIR']
-    if (typeof profileDir === 'string' && profileDir.trim() !== '') {
-      candidates.push(join(resolve(profileDir), 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js'))
-    }
-    candidates.push(
-      join(pluginDir, '..', '..', 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js'),
-      join(pluginDir, '..', 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js'),
-    )
-
-    for (const candidate of candidates) {
-      if (candidate !== null && !existsSync(candidate)) continue
-      try {
-        const specifier = candidate === null ? '@deepseek-ai/dsh-tools' : pathToFileURL(candidate).href
-        const module = await import(specifier)
-        if (typeof module.defineTool === 'function') {
-          return { defineTool: module.defineTool, source: candidate ?? 'bare' }
-        }
-      } catch {
-        /* try the next candidate; fall back to the bundled implementation at the end */
-      }
-    }
+function staticCredentialSource(resolved) {
+  if (typeof resolved.token === 'string' && resolved.token !== '') return 'config'
+  if (
+    (process.env['GITHUB_TOKEN'] ?? '').trim() !== '' ||
+    (process.env['GH_TOKEN'] ?? '').trim() !== '' ||
+    (process.env['GH_ENTERPRISE_TOKEN'] ?? '').trim() !== ''
+  ) {
+    return 'env'
   }
-  const local = await import('./define.js')
-  return { defineTool: local.defineTool, source: 'bundled' }
+  return 'lazy'
 }
 
 export function apply(ctx, config) {
@@ -93,13 +68,39 @@ export function apply(ctx, config) {
     home: process.env['DSH_HOME'] ?? '',
   }
   ctx.inject(['tools', 'systemPrompt'], (runtimeCtx) => {
-    const ready = register(runtimeCtx, config, dirs)
+    const state = { disposed: false, disposers: [], sectionDisposer: null }
+    runtimeCtx.effect(() => () => {
+      state.disposed = true
+      disposeRegistered(runtimeCtx, state)
+    }, 'github tool registrations')
+
+    const ready = register(runtimeCtx, config, dirs, state)
     // Attach the observer right away: a rejection between creating the promise
     // and the effect running would otherwise surface as an unhandled rejection.
     ready.catch((error) => {
       runtimeCtx.logger.warn('github: registration failed: %s', error?.message ?? String(error))
     })
   })
+}
+
+function disposeRegistered(ctx, state) {
+  if (typeof state.sectionDisposer === 'function') {
+    const off = state.sectionDisposer
+    state.sectionDisposer = null
+    try {
+      off()
+    } catch (error) {
+      ctx.logger.warn('github: system prompt dispose failed: %s', error?.message ?? String(error))
+    }
+  }
+  const disposers = state.disposers.splice(0).reverse()
+  for (const dispose of disposers) {
+    try {
+      dispose()
+    } catch (error) {
+      ctx.logger.warn('github: tool dispose failed: %s', error?.message ?? String(error))
+    }
+  }
 }
 
 /**
@@ -125,21 +126,24 @@ function withLosslessOutput(definition) {
   }
 }
 
-async function register(ctx, config, dirs) {  const { defineTool, source } = await loadTools()
+async function register(ctx, config, dirs, state) {
+  if (state.disposed) return []
   if (typeof defineTool !== 'function') throw new Error('github: defineTool is unavailable')
 
-  const { readConfig } = await import('./config.js')
   const resolved = readConfig(config, dirs)
-  const { buildTools } = await import('./tools.js')
   const definitions = buildTools(resolved, ctx.logger)
+  if (state.disposed) return []
 
-  const disposers = []
   for (const definition of definitions) {
-    disposers.push(ctx.tools.register(defineTool(withLosslessOutput(definition))))
+    if (state.disposed) {
+      disposeRegistered(ctx, state)
+      return []
+    }
+    state.disposers.push(ctx.tools.register(defineTool(withLosslessOutput(definition))))
   }
 
   const names = definitions.map((tool) => tool.name)
-  const sectionDisposer = ctx.systemPrompt.section({
+  state.sectionDisposer = ctx.systemPrompt.section({
     name: 'github',
     order: 935,
     text: ({ scope }) => {
@@ -153,31 +157,21 @@ async function register(ctx, config, dirs) {  const { defineTool, source } = awa
         'github_commits with sha returns that commit and its patches. ' +
         'github_pulls with number returns one pull request and its line comments. ' +
         'github_actions with run_id returns failed jobs, annotations, and a log tail. ' +
-        'github_create_issue and github_comment write as the signed-in account: confirm the exact title or text first, and never post on your own initiative. ' +
-        'Never print the access token.'
+        'Write tools (github_create_issue, github_comment, github_create_pr, github_update_issue, github_merge_pr, github_submit_review) ' +
+        'act under the signed-in account: confirm the exact content or action with the user first, and never write on your own initiative. ' +
+        `Credentials are resolved lazily (file path: ${resolved.credentialsFile}); never print the access token.`
       )
     },
   })
 
-  ctx.effect(() => () => {
-    if (typeof sectionDisposer === 'function') {
-      try {
-        sectionDisposer()
-      } catch (error) {
-        ctx.logger.warn('github: system prompt dispose failed: %s', error?.message ?? String(error))
-      }
-    }
-    for (const dispose of disposers.reverse()) {
-      try {
-        dispose()
-      } catch (error) {
-        ctx.logger.warn('github: tool dispose failed: %s', error?.message ?? String(error))
-      }
-    }
-  }, 'github tool registrations')
+  if (state.disposed) {
+    disposeRegistered(ctx, state)
+    return []
+  }
 
   // Load self-report: a status file makes "did the host really load this
   // plugin?" answerable, because host logs are not persisted.
+  // Never spawn git/gh synchronously during startup; record only the static hint.
   if (resolved.statusFile !== false) {
     try {
       let version = 'unknown'
@@ -185,16 +179,6 @@ async function register(ctx, config, dirs) {  const { defineTool, source } = awa
         version = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8')).version ?? version
       } catch {
         /* a missing version does not affect loading */
-      }
-      let credentialSource = 'none'
-      let login = ''
-      try {
-        const { resolveToken } = await import('./auth.js')
-        const token = resolveToken(resolved)
-        credentialSource = token.source
-        login = token.login
-      } catch {
-        /* credential probing must never fail the load */
       }
       mkdirSync(dirname(resolved.statusFile), { recursive: true })
       writeFileSync(
@@ -206,10 +190,10 @@ async function register(ctx, config, dirs) {  const { defineTool, source } = awa
             exec_path: process.execPath,
             plugin_version: version,
             tools: names,
-            define_tool_source: source,
+            define_tool_source: 'bundled',
             api: resolved.apiBaseUrl,
-            credential_source: credentialSource,
-            login,
+            credential_source: staticCredentialSource(resolved),
+            login: '',
             default_repo: resolved.defaultRepo,
             allow_write: resolved.allowWrite,
             profile_dir: resolved.dirs.profileDir,

@@ -7,8 +7,9 @@
  *   - One request per call. GitHub's REST API is cheap and stateless, so no
  *     connection pool or ETag cache is maintained here.
  *   - Errors are turned into messages that say what to do next: 401 means the
- *     stored credential is expired or revoked, 403 with a zero remaining quota
- *     means the rate limit is exhausted, 404 is reported with the repo/ref.
+ *     stored credential is expired or revoked, 403/429 rate limits are
+ *     classified separately from missing scopes, 404 is reported with the
+ *     repo/ref.
  *   - `Link` headers are parsed so listing tools can say `has_more` and give a
  *     page number a model can pass back.
  */
@@ -19,16 +20,65 @@ import { request as httpsRequest } from 'node:https'
 import { connect as tlsConnect } from 'node:tls'
 
 import { invalidateToken, scrub } from './auth.js'
+import { hostFromApiBase } from './config.js'
 
 const USER_AGENT = 'dsh-plugin-github (+https://github.com)'
+
+/**
+ * Parse a Windows Internet Settings `ProxyServer` registry value into a usable
+ * HTTP(S) proxy URL, or '' if none is usable.
+ *
+ * Examples:
+ *   "127.0.0.1:7897"                              -> "http://127.0.0.1:7897"
+ *   "localhost:7897"                              -> "http://localhost:7897"
+ *   "proxy.corp:8080"                             -> "http://proxy.corp:8080"
+ *   "http=a:1;https=proxy.corp:8080"              -> "http://proxy.corp:8080"
+ *   "socks=127.0.0.1:1080"                        -> ""
+ *   "socks=127.0.0.1:1080;https=proxy.corp:8080"  -> "http://proxy.corp:8080"
+ */
+export function parseWindowsProxyServer(raw) {
+  if (typeof raw !== 'string') return ''
+  const trimmed = raw.trim()
+  if (trimmed === '') return ''
+
+  let chosen = ''
+  if (trimmed.includes('=')) {
+    const entries = trimmed.split(';').map((part) => part.trim()).filter(Boolean)
+    let httpEntry = ''
+    let httpsEntry = ''
+    for (const entry of entries) {
+      const sep = entry.indexOf('=')
+      if (sep <= 0) continue
+      const scheme = entry.slice(0, sep).trim().toLowerCase()
+      const target = entry.slice(sep + 1).trim()
+      if (target === '') continue
+      if (scheme === 'https') httpsEntry = target
+      else if (scheme === 'http') httpEntry = target
+      // socks=, ftp=, etc. are intentionally ignored: CONNECT only speaks HTTP(S).
+    }
+    chosen = httpsEntry || httpEntry
+  } else {
+    if (/^socks\d*[a-z]*:\/\//i.test(trimmed)) return ''
+    chosen = trimmed
+  }
+
+  if (chosen === '') return ''
+  const candidate = chosen.includes('://') ? chosen : `http://${chosen}`
+  try {
+    const parsed = new URL(candidate)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    if (parsed.hostname === '') return ''
+    return candidate
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Resolve the proxy for this request.
  *
  * Node's built-in fetch ignores the Windows Internet Settings proxy, so a
- * direct connection times out on networks that need one (this machine has
- * 127.0.0.1:7897 configured system-wide, and the host process is not started
- * with HTTPS_PROXY). Order:
+ * direct connection times out on networks that need one. Order:
  *   1. an explicit `proxyUrl` in the plugin config
  *   2. the standard proxy environment variables
  *   3. the Windows system proxy from the registry
@@ -67,10 +117,7 @@ function systemProxy() {
     const server = spawnSync('reg', ['query', key, '/v', 'ProxyServer'], { encoding: 'utf8', timeout: 5000, windowsHide: true })
     const match = /ProxyServer\s+REG_SZ\s+(\S+)/i.exec(String(server.stdout ?? ''))
     if (match === null) return SYSTEM_PROXY_CACHE
-    // The value is either "host:port" or "http=host:port;https=host:port".
-    const raw = match[1].trim()
-    const chosen = /https=([^;]+)/i.exec(raw)?.[1] ?? /http=([^;]+)/i.exec(raw)?.[1] ?? raw
-    SYSTEM_PROXY_CACHE = /^\d/.test(chosen) ? `http://${chosen}` : chosen
+    SYSTEM_PROXY_CACHE = parseWindowsProxyServer(match[1])
   } catch {
     /* a missing reg.exe or an unreadable key just means "no system proxy" */
   }
@@ -82,19 +129,38 @@ export function clearProxyCache() {
   SYSTEM_PROXY_CACHE = null
 }
 
+/** Stop buffering a response the plugin will only trim or discard. */
+export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+const MAX_DRAIN_BYTES = 64 * 1024
+
+/** Redirect statuses the tunnel may follow (replay-safe methods only). */
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308])
+/** Statuses that must pass `null` as the Response body (Fetch spec / Node 24). */
+const NULL_BODY_STATUS = new Set([204, 205, 304])
+/** Bound on redirect hops so a redirect loop cannot hang the call. */
+const MAX_REDIRECTS = 3
+
+function makeAbortError(message) {
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function stripAuthorization(headers) {
+  const out = {}
+  if (!headers || typeof headers !== 'object') return out
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== 'authorization') out[key] = value
+  }
+  return out
+}
+
 /**
  * fetch() that honours the configured proxy, with no third-party dependency.
  *
- * Node's global fetch cannot be routed through a proxy, and `undici` is not a
- * resolvable module in a stock Node install (`import 'undici'` throws
- * ERR_MODULE_NOT_FOUND, `node:undici` is not a builtin). The runtime flag
- * NODE_USE_ENV_PROXY only works if the host process was started with it, which
- * a plugin cannot change for itself.
- *
- * So the proxied path uses node:https directly with an HTTP CONNECT tunnel:
- * ask the proxy to open a TCP tunnel to api.github.com:443, then do TLS over
- * that socket. This is what curl -x does, and it needs nothing but the
- * standard library. The non-proxied path keeps the simpler global fetch.
+ * The proxied path uses node:https directly with an HTTP CONNECT tunnel:
+ * ask the proxy to open a TCP tunnel to host:443, then do TLS over that socket.
+ * The non-proxied path keeps the simpler global fetch.
  */
 function httpFetch(url, init, config) {
   const proxy = proxyOf(config)
@@ -102,36 +168,69 @@ function httpFetch(url, init, config) {
   return tunnelledFetch(url, init, proxy, config)
 }
 
-/** Redirect statuses the tunnel may follow (replay-safe methods only). */
-const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308])
-/** Bound on redirect hops so a redirect loop cannot hang the call. */
-const MAX_REDIRECTS = 3
-
 /** Build the Response-shaped object the rest of this file expects. */
-async function tunnelledFetch(url, init, proxy, config, hop = 0) {
+export async function tunnelledFetch(url, init, proxy, config, hop = 0, deps = null) {
   const target = new URL(url)
   const proxyUrl = new URL(proxy.includes('://') ? proxy : `http://${proxy}`)
-  if (target.protocol !== 'https:') throw new Error(`proxy support covers https only, got ${target.protocol}`)
+  const allowHttp = deps?.allowHttp === true
+  if (proxyUrl.protocol !== 'http:' && proxyUrl.protocol !== 'https:') {
+    throw new Error(`unsupported proxy protocol: ${proxyUrl.protocol}`)
+  }
+  if (target.protocol !== 'https:' && !(allowHttp && target.protocol === 'http:')) {
+    throw new Error(`proxy support covers https only, got ${target.protocol}`)
+  }
+
+  const maxBytes = Number.isFinite(config?.maxResponseBytes) && config.maxResponseBytes > 0
+    ? config.maxResponseBytes
+    : MAX_RESPONSE_BYTES
+  const connectRequest = deps?.httpRequest ?? httpRequest
+  const tunnelRequest = deps?.httpsRequest ?? httpsRequest
+  const createTunnelConnection = deps?.createConnection
+    ?? ((tunnel, hostname) => tlsConnect({ socket: tunnel, servername: hostname }))
 
   const proxyAuth =
     proxyUrl.username !== ''
       ? `Basic ${Buffer.from(`${decodeURIComponent(proxyUrl.username)}:${decodeURIComponent(proxyUrl.password)}`).toString('base64')}`
       : ''
 
-  // 1. CONNECT through the proxy.
+  // 1. CONNECT through the proxy, honouring init.signal and timing out as AbortError.
+  const targetPort = Number(target.port || (target.protocol === 'http:' ? 80 : 443))
   const tunnel = await new Promise((resolve, reject) => {
-    const request = httpRequest({
+    if (init.signal?.aborted) {
+      reject(makeAbortError('proxy CONNECT aborted'))
+      return
+    }
+    let settled = false
+    const request = connectRequest({
       host: proxyUrl.hostname,
       port: Number(proxyUrl.port || 8080),
       method: 'CONNECT',
-      path: `${target.hostname}:${target.port || 443}`,
+      path: `${target.hostname}:${targetPort}`,
       headers: {
-        Host: `${target.hostname}:${target.port || 443}`,
+        Host: `${target.hostname}:${targetPort}`,
         ...(proxyAuth === '' ? {} : { 'Proxy-Authorization': proxyAuth }),
       },
       timeout: Number.isFinite(config?.timeoutMs) ? config.timeoutMs : 20000,
     })
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      request.destroy()
+      reject(makeAbortError('proxy CONNECT aborted'))
+    }
+    const cleanup = () => {
+      if (init.signal) init.signal.removeEventListener('abort', onAbort)
+    }
+    if (init.signal) init.signal.addEventListener('abort', onAbort, { once: true })
+
     request.once('connect', (response, socket) => {
+      cleanup()
+      if (settled) {
+        socket.destroy()
+        return
+      }
+      settled = true
       if (response.statusCode !== 200) {
         socket.destroy()
         reject(new Error(`proxy CONNECT failed with HTTP ${response.statusCode}`))
@@ -139,12 +238,23 @@ async function tunnelledFetch(url, init, proxy, config, hop = 0) {
       }
       resolve(socket)
     })
-    request.once('timeout', () => request.destroy(new Error('proxy CONNECT timed out')))
-    request.once('error', reject)
+    request.once('timeout', () => {
+      cleanup()
+      if (settled) return
+      settled = true
+      request.destroy()
+      reject(makeAbortError('proxy CONNECT timed out'))
+    })
+    request.once('error', (error) => {
+      cleanup()
+      if (settled) return
+      settled = true
+      reject(error)
+    })
     request.end()
   })
 
-  // 2. TLS over the tunnel, then one HTTP request.
+  // 2. TLS over the tunnel, then one HTTP request with streaming byte cap.
   let response
   try {
     const body = init.body === undefined ? null : Buffer.from(String(init.body), 'utf8')
@@ -152,31 +262,59 @@ async function tunnelledFetch(url, init, proxy, config, hop = 0) {
     if (body !== null) headers['Content-Length'] = String(body.length)
 
     response = await new Promise((resolve, reject) => {
-      const request = httpsRequest(
+      let settled = false
+      const finishError = (error) => {
+        if (settled) return
+        settled = true
+        reject(error)
+      }
+      const request = tunnelRequest(
         {
           host: target.hostname,
-          port: Number(target.port || 443),
+          port: targetPort,
           path: `${target.pathname}${target.search}`,
           method: init.method ?? 'GET',
           headers,
-          createConnection: () => tlsConnect({ socket: tunnel, servername: target.hostname }),
+          createConnection: () => createTunnelConnection(tunnel, target.hostname),
           signal: init.signal,
         },
-        (response) => {
+        (incoming) => {
           const chunks = []
-          response.on('data', (chunk) => chunks.push(chunk))
-          response.on('end', () => {
-            const headers = new Headers()
-            for (const [key, value] of Object.entries(response.headers)) {
-              if (Array.isArray(value)) for (const item of value) headers.append(key, item)
-              else if (value !== undefined) headers.set(key, String(value))
+          let total = 0
+          let overflowed = false
+          incoming.on('data', (chunk) => {
+            if (overflowed || settled) return
+            total += chunk.length
+            if (total > maxBytes) {
+              overflowed = true
+              request.destroy()
+              tunnel.destroy()
+              finishError(
+                new GitHubError(
+                  `GitHub response exceeded ${maxBytes} bytes and was stopped before it was buffered.`,
+                  { status: incoming.statusCode ?? 0, code: 'response-too-large', effectState: 'none', retry: 'never' },
+                ),
+              )
+              return
             }
-            resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 0, headers }))
+            chunks.push(chunk)
           })
-          response.on('error', reject)
+          incoming.on('end', () => {
+            if (overflowed || settled) return
+            settled = true
+            const responseHeaders = new Headers()
+            for (const [key, value] of Object.entries(incoming.headers)) {
+              if (Array.isArray(value)) for (const item of value) responseHeaders.append(key, item)
+              else if (value !== undefined) responseHeaders.set(key, String(value))
+            }
+            const status = incoming.statusCode ?? 0
+            const payload = NULL_BODY_STATUS.has(status) ? null : Buffer.concat(chunks)
+            resolve(new Response(payload, { status, headers: responseHeaders }))
+          })
+          incoming.on('error', finishError)
         },
       )
-      request.once('error', reject)
+      request.once('error', finishError)
       if (body !== null) request.write(body)
       request.end()
     })
@@ -186,12 +324,10 @@ async function tunnelledFetch(url, init, proxy, config, hop = 0) {
     tunnel.destroy()
   }
 
-  // 3. Follow a same-host redirect for a replay-safe method, mirroring the
-  //    direct fetch() path's `redirect: 'follow'`. A renamed/transferred repo
-  //    answers 301; without this the tunnelled path (the only path on a
-  //    proxy-only network) would report it as a hard failure. We never follow a
-  //    redirect for a write (that would re-issue a POST) and never forward the
-  //    token to another host.
+  // 3. Follow redirects for replay-safe methods (GET/HEAD), mirroring direct
+  //    fetch()'s `redirect: 'follow'`. Cross-host redirects (such as Actions
+  //    log downloads to *.actions.githubusercontent.com) are followed, with
+  //    Authorization stripped whenever the host changes so tokens never leak.
   if (REDIRECT_STATUS.has(response.status) && hop < MAX_REDIRECTS) {
     const location = response.headers.get('location')
     if (location !== null && location !== '') {
@@ -200,8 +336,13 @@ async function tunnelledFetch(url, init, proxy, config, hop = 0) {
         throw new Error(`proxy request was redirected (HTTP ${response.status}); refusing to replay a ${method}`)
       }
       const next = new URL(location, target)
-      if (next.protocol !== 'https:') throw new Error(`proxy support covers https only, got ${next.protocol}`)
-      if (next.host === target.host) return tunnelledFetch(next.toString(), init, proxy, config, hop + 1)
+      if (next.protocol !== 'https:' && !(allowHttp && next.protocol === 'http:')) {
+        throw new Error(`proxy support covers https only, got ${next.protocol}`)
+      }
+      const nextInit = next.host === target.host
+        ? init
+        : { ...init, headers: stripAuthorization(init.headers) }
+      return tunnelledFetch(next.toString(), nextInit, proxy, config, hop + 1, deps)
     }
   }
   return response
@@ -228,16 +369,12 @@ export class GitHubError extends Error {
     // most failures happen before the server acted. A transport failure on a
     // write is the exception: the bytes may have arrived and been applied.
     this.effectState = details.effectState ?? 'none'
-    // May the caller repeat the identical call? See EFFECT_STATES in the
-    // workspace: an effect that may have happened never licenses a replay.
+    // May the caller repeat the identical call? An effect that may have
+    // happened never licenses a replay.
     this.retry = details.retry ?? 'after-input-change'
     this.nextAction = details.nextAction ?? ''
   }
 }
-
-/** Stop buffering a response the plugin will only trim or discard. */
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-const MAX_DRAIN_BYTES = 64 * 1024
 
 /**
  * Read a response body up to `maxBytes`. A longer body is cancelled and refused
@@ -292,17 +429,13 @@ async function drainBody(response) {
  * Methods whose replay cannot create a second resource.
  *
  * Only reads are listed. `PUT` and `DELETE` are idempotent per HTTP but this
- * plugin issues none of them; adding one here later should be a deliberate
- * decision, not a side effect of the name looking safe.
+ * plugin issues none of them as replay-safe; adding one here later should be a
+ * deliberate decision.
  */
 const REPLAY_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 /**
  * The concrete "did my write land?" instruction for one endpoint.
- *
- * A generic "check before retrying" is not actionable for a model: it needs the
- * exact call that would reveal a duplicate. These are the two write endpoints
- * this plugin exposes; an unknown path falls back to a safe generic sentence.
  *
  * @param method the HTTP method, used only for the wording.
  * @param path the request path, e.g. `/repos/o/r/issues`.
@@ -350,7 +483,7 @@ function parseRate(headers) {
   }
 }
 
-/** Parse `Link: <url>; rel="next", ...` into { next: pageNumber }. */
+/** Parse `Link: <url>; rel="next", ...` into the next page number. */
 function parseNextPage(linkHeader) {
   if (typeof linkHeader !== 'string' || linkHeader === '') return null
   const match = /<([^>]+)>\s*;\s*rel="next"/.exec(linkHeader)
@@ -375,11 +508,30 @@ function buildQuery(query) {
   return text === '' ? '' : `?${text}`
 }
 
+function sleepWithSignal(ms, signal) {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(makeAbortError('the call was cancelled'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(makeAbortError('the call was cancelled'))
+    }
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    if (signal) signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /**
  * Perform one REST request.
  * @param config normalized plugin config
  * @param auth { token, source }
- * @param spec { method, path, query, body, accept, headers }
+ * @param spec { method, path, query, body, accept, headers, raw, signal }
  * @returns {{ data: any, status: number, headers: Headers, rate: object|null }}
  */
 export async function request(config, auth, spec) {
@@ -399,21 +551,44 @@ export async function request(config, auth, spec) {
   if (spec.body !== undefined) headers['Content-Type'] = 'application/json'
 
   const token = auth?.token ?? ''
-  // A GET that hits a connection blip is worth retrying: nothing was created,
-  // and the server saw the same idempotent request twice. A write is different:
-  // GitHub has no idempotency key, so a POST that reached the server but whose
-  // response was lost (socket reset, proxy drop, half-closed tunnel) would open
-  // a SECOND issue or post a SECOND comment if it were replayed. This plugin
-  // therefore never retries a write, whatever `retries` says -- and reports the
-  // outcome as `unknown` so the model checks before acting.
   const replaySafe = REPLAY_SAFE_METHODS.has(method)
   const attempts = replaySafe ? Math.max(1, config.retries + 1) : 1
+  const retryBaseDelayMs = Number.isFinite(config.retryBaseDelayMs) && config.retryBaseDelayMs >= 0
+    ? config.retryBaseDelayMs
+    : 400
+  const maxResponseBytes = Number.isFinite(config.maxResponseBytes) && config.maxResponseBytes > 0
+    ? config.maxResponseBytes
+    : MAX_RESPONSE_BYTES
   let lastError = null
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (spec.signal?.aborted) {
+      throw new GitHubError('GitHub request was cancelled.', {
+        status: 0,
+        code: 'cancelled',
+        effectState: 'none',
+        retry: 'never',
+      })
+    }
+
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), config.timeoutMs)
+    let timedOut = false
+    let callerAborted = false
+    const onCallerAbort = () => {
+      callerAborted = true
+      controller.abort()
+    }
+    if (spec.signal) spec.signal.addEventListener('abort', onCallerAbort, { once: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, config.timeoutMs)
+
     let response
+    let text = ''
+    let shouldRetry = false
+    let retryWaitMs = 0
+
     try {
       response = await httpFetch(url, {
         method,
@@ -422,16 +597,44 @@ export async function request(config, auth, spec) {
         signal: controller.signal,
         redirect: 'follow',
       }, config)
+
+      // Retry a transient server fault (5xx) or a secondary rate limit (429, or a
+      // 403 that carries Retry-After) for a replay-safe request. A write is never
+      // retried, whatever the status.
+      if (replaySafe && attempt + 1 < attempts) {
+        const retryAfter = Number(response.headers.get('retry-after') ?? '')
+        const transient = response.status === 502 || response.status === 503 || response.status === 504
+          || ((response.status === 429 || response.status === 403) && Number.isFinite(retryAfter) && retryAfter > 0)
+        if (transient) {
+          await drainBody(response)
+          shouldRetry = true
+          retryWaitMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? Math.min(retryAfter * 1000, 5000)
+            : retryBaseDelayMs * (attempt + 1)
+        }
+      }
+
+      if (!shouldRetry) {
+        text = await readBody(response, maxResponseBytes)
+      }
     } catch (error) {
       clearTimeout(timer)
-      const timedOut = error?.name === 'AbortError'
-      const reason = timedOut ? `timed out after ${config.timeoutMs} ms` : toMessage(error)
-      // Built as a sentence fragment so the two callers below can each end the
-      // sentence themselves; appending a period here produced "one..".
-      const hint = proxyOf(config) !== '' ? '' : ' (no proxy is configured; set proxyUrl in the plugin config if this network needs one)'
+      if (spec.signal) spec.signal.removeEventListener('abort', onCallerAbort)
+
+      // Preserve structured errors such as response-too-large directly.
+      if (error instanceof GitHubError) throw error
+
+      const abortedByTimeout = timedOut || (!callerAborted && error?.name === 'AbortError')
+      const reason = callerAborted
+        ? 'the call was cancelled'
+        : (abortedByTimeout ? `timed out after ${config.timeoutMs} ms` : toMessage(error))
+      const hint = callerAborted || proxyOf(config) !== ''
+        ? ''
+        : ' (no proxy is configured; set proxyUrl in the plugin config if this network needs one)'
+
       if (!replaySafe) {
-        // The request may already have been applied. Say so explicitly: the
-        // dangerous recovery here is blindly calling again.
+        // The request may already have been applied (including premature socket
+        // close while reading the response). Never retry; report unknown effect.
         throw new GitHubError(
           `GitHub did not answer the ${method}: ${scrub(reason, token)}${hint}. ` +
             'The write may or may not have been applied: GitHub gives no idempotency key, so this call is NOT retried. ' +
@@ -445,38 +648,35 @@ export async function request(config, auth, spec) {
           },
         )
       }
+      if (callerAborted) {
+        throw new GitHubError('GitHub request was cancelled.', {
+          status: 0,
+          code: 'cancelled',
+          effectState: 'none',
+          retry: 'never',
+        })
+      }
       lastError = new GitHubError(
         `GitHub request failed: ${scrub(reason, token)}${hint}.`,
         { status: 0, code: 'network', effectState: 'none', retry: 'after-input-change' },
       )
-      // A network blip deserves one retry; a timeout usually does not, because
-      // the same call will burn the same wall-clock budget again.
-      if (timedOut) throw lastError
+      if (abortedByTimeout) throw lastError
       if (attempt + 1 < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+        await sleepWithSignal(retryBaseDelayMs * (attempt + 1), spec.signal)
         continue
       }
       throw lastError
+    } finally {
+      clearTimeout(timer)
+      if (spec.signal) spec.signal.removeEventListener('abort', onCallerAbort)
     }
-    clearTimeout(timer)
 
-    // Retry a transient server fault (5xx) or a secondary rate limit (429, or a
-    // 403 that carries Retry-After) for a replay-safe request. A write is never
-    // retried, whatever the status.
-    if (replaySafe && attempt + 1 < attempts) {
-      const retryAfter = Number(response.headers.get('retry-after') ?? '')
-      const transient = response.status === 502 || response.status === 503 || response.status === 504
-        || ((response.status === 429 || response.status === 403) && Number.isFinite(retryAfter) && retryAfter > 0)
-      if (transient) {
-        await drainBody(response)
-        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 400 * (attempt + 1)
-        await new Promise((resolve) => setTimeout(resolve, waitMs))
-        continue
-      }
+    if (shouldRetry) {
+      await sleepWithSignal(retryWaitMs, spec.signal)
+      continue
     }
 
     const rate = parseRate(response.headers)
-    const text = await readBody(response, MAX_RESPONSE_BYTES)
     // `raw: true` means the body IS the payload (file content), not an API
     // document: parsing it would turn a JSON file into a fake API object.
     let data = null
@@ -497,16 +697,14 @@ export async function request(config, auth, spec) {
     const suffix = details === '' ? '' : ` (request id ${details})`
 
     if (response.status === 401) {
-      // Remember that this token is dead, so the next call does not repeat the
-      // same failure: resolveToken() re-probes the sources once and then falls
-      // back to anonymous mode for reads.
       if (typeof auth?.token === 'string' && auth.token !== '') {
-        invalidateToken(config, `GitHub rejected the ${auth.source ?? 'stored'} token (401)`)
+        invalidateToken(config, `GitHub rejected the ${auth.source ?? 'stored'} token (401)`, auth.token)
       }
+      const host = hostFromApiBase(config.apiBaseUrl)
       throw new GitHubError(
         `GitHub rejected the credential (401). ${scrub(message, token)}. ` +
-          'The stored token is invalid or expired: sign in to github.com again from the browser, ' +
-          'or put a fresh personal access token in credentials.json next to the plugin. ' +
+          `The stored token is invalid or expired: sign in to ${host} again from the browser, ` +
+          `or put a fresh personal access token in ${config.credentialsFile}. ` +
           `Source currently in use: ${auth?.source ?? 'none'}.${suffix}`,
         { status: 401, code: 'bad-credentials', body: data },
       )
@@ -517,6 +715,20 @@ export async function request(config, auth, spec) {
         throw new GitHubError(
           `GitHub ${rate.resource || 'API'} rate limit exhausted for this credential (${rate.limit} per window).${until} ` +
             'Unauthenticated and fine-grained tokens have lower limits; wait for the reset or use a token with more quota.',
+          { status: response.status, code: 'rate-limited', rate, body: data },
+        )
+      }
+      const retryAfter = Number(response.headers.get('retry-after') ?? '')
+      const isSecondaryRateLimit =
+        response.status === 429 ||
+        (Number.isFinite(retryAfter) && retryAfter > 0) ||
+        /secondary rate limit|abuse detection|rate limit exceeded|too many requests/i.test(message)
+      if (isSecondaryRateLimit) {
+        const waitHint = Number.isFinite(retryAfter) && retryAfter > 0 ? ` Retry after ${retryAfter}s.` : ''
+        throw new GitHubError(
+          `GitHub rate limit triggered (${response.status}): ${message === '' ? 'too many requests' : message}.${waitHint} ` +
+            'Slow down and wait before retrying.' +
+            suffix,
           { status: response.status, code: 'rate-limited', rate, body: data },
         )
       }
@@ -541,11 +753,6 @@ export async function request(config, auth, spec) {
         { status: 422, code: 'invalid', body: data, documentation: String(data?.documentation_url ?? '') },
       )
     }
-    // A 5xx on a write is the second way the outcome can be unknowable: GitHub
-    // returns 500/502/504 for some requests it has already applied, and the
-    // client cannot tell that apart from one it dropped. The 4xx branches above
-    // are safe to report as `none` because the server explicitly rejected the
-    // request before acting.
     const serverFault = response.status >= 500
     if (!replaySafe && serverFault) {
       throw new GitHubError(
@@ -578,35 +785,6 @@ export function get(config, auth, path, query, spec = {}) {
 
 export function post(config, auth, path, body, spec = {}) {
   return request(config, auth, { ...spec, method: 'POST', path, body })
-}
-
-/** Follow up to `maxPages` pages of a list endpoint. */
-export async function paginate(config, auth, path, query, options = {}) {
-  const limit = Math.min(Math.max(1, Math.trunc(options.pages ?? 1)), 5)
-  const items = []
-  let page = Math.max(1, Math.trunc(options.startPage ?? 1))
-  let rate = null
-  let hasMore = false
-  for (let index = 0; index < limit; index += 1) {
-    const result = await request(config, auth, {
-      method: 'GET',
-      path,
-      query: { ...(query ?? {}), page },
-      accept: options.accept,
-    })
-    rate = result.rate ?? rate
-    const data = result.data
-    if (Array.isArray(data)) items.push(...data)
-    hasMore = parseNextPage(result.headers.get('link')) !== null
-    if (!hasMore) break
-    page += 1
-  }
-  return {
-    items,
-    rate,
-    has_more: hasMore,
-    next_page: hasMore ? page : null,
-  }
 }
 
 export { parseNextPage }

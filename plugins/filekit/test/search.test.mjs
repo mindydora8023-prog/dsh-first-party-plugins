@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readConfig } from '../lib/config.js'
 import { buildTools } from '../lib/tools.js'
+import { searchDocument } from '../lib/search.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = join(here, 'fixtures')
@@ -80,4 +81,31 @@ test('filekit_search reports no matches cleanly', async () => {
 
 test('filekit_search rejects a non-document path', async () => {
   await assert.rejects(() => run('sample.csv', 'x'), /supports \.docx, \.xlsx, \.pptx and \.pdf only/)
+})
+
+test('filekit_search aligns DOCX matches with block offset, searches PPTX notes, and warns on truncated PDF scan', async () => {
+  // DOCX paragraph after a table must report its exact block offset (block 5 in sample.docx).
+  const docxHit = await run('sample.docx', 'Paragraph after the table')
+  assert.match(docxHit.text, /block \d+ \/ para \d+: Paragraph after the table/)
+
+  // PPTX speaker notes must be searchable.
+  const pptxNotes = await run('sample.pptx', 'Remember the bolt count')
+  assert.equal(pptxNotes.hits, 1)
+  assert.match(pptxNotes.text, /slide 1 notes: Remember the bolt count/)
+
+  // PDF search capped below total pageCount must emit an explicit truncation warning.
+  const pdfBuf = readFileSync(join(fixtures, 'sample.pdf'))
+  const partialPdf = searchDocument(pdfBuf, 'pdf', 'page', { maxPdfPages: 1 })
+  assert.ok(
+    partialPdf.warnings.some((w) => /first 1 of 2 pages/.test(w)),
+    `expected PDF truncation warning, got: ${JSON.stringify(partialPdf.warnings)}`,
+  )
+
+  // Early-stop when match limit is reached (limit=1 stops before scanning all rows).
+  const xlsxBuf = readFileSync(join(fixtures, 'sample.xlsx'))
+  const all = searchDocument(xlsxBuf, 'xlsx', '0', { limit: 50 })
+  const limited = searchDocument(xlsxBuf, 'xlsx', '0', { limit: 1 })
+  assert.equal(limited.hits, 1)
+  assert.equal(limited.truncated, true)
+  assert.ok(limited.scanned < all.scanned, 'early stop should scan fewer units than a full scan')
 })

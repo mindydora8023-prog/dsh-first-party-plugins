@@ -1,0 +1,18 @@
+{
+  "template": "client/template.js",
+  "output": "lib/client.js",
+  "indent": "    ",
+  "locales": {
+    "source": "client/locales.json",
+    "output": "lib/locales.js",
+    "exportName": "LOCALES"
+  },
+  "blocks": [
+    { "marker": "/* @BLOCK_LOCALES */", "source": "lib/locales.js" },
+    { "marker": "/* @BLOCK_FETCH */", "source": "client/fetch.js" },
+    { "marker": "/* @BLOCK_RECEIPTS */", "source": "client/receipts.js" },
+    { "marker": "/* @BLOCK_POLLER */", "source": "client/poller.js" },
+    { "marker": "/* @BLOCK_SETTINGS_MODEL */", "source": "client/settings-model.js" },
+    { "marker": "/* @BLOCK_UI */", "source": "client/ui.js" }
+  ]
+}

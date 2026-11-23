@@ -20,22 +20,32 @@
  * rollback) and skips anything live, recently active, or refused by the cascade
  * rules. One failing session never aborts the sweep.
  *
- * ASCII only: user-visible text is rendered by the client locale dictionary.
+ * ASCII only: user-facing text is rendered by the client locale dictionary.
  */
 
-import { randomUUID } from 'node:crypto'
-import { readFile, writeFile, rename, mkdir, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { stat } from 'node:fs/promises'
 
 import { statePath } from './state-dir.js'
+import {
+  DEFAULT_MAX_JSON_BYTES,
+  enqueueFileWrite,
+  readJsonFileBoundedSync,
+  writeJsonAtomicSync,
+} from './json-store.js'
 
 /** Defaults; a config file (or UI change) overrides them. */
 export const DEFAULT_CLEANUP = Object.freeze({ enabled: true, days: 5 })
 
+/** Maximum number of deleted ids or failures persisted into cleanup.json. */
+export const MAX_PERSISTED_ITEMS = 200
+
+/** Maximum failure message length persisted into cleanup.json. */
+const MAX_FAILURE_MESSAGE_CHARS = 500
+
 /** A day in milliseconds. */
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** How many log stats a sweep may have in flight. One stat per archived id, sequentially, made a large archive wait on the disk one file at a time. */
+/** How many log stats a sweep may have in flight. */
 export const STAT_CONCURRENCY = 8
 
 /**
@@ -76,99 +86,120 @@ export function cleanupFile() {
   return statePath('archived-sessions', 'cleanup.json')
 }
 
-/**
- * Merge an arbitrary stored value over the defaults and clamp it.
- * @param {unknown} value
- * @returns {{ enabled: boolean, days: number }}
- */
-export function normalizeCleanup(value) {
-  const source = value && typeof value === 'object' ? value : {}
-  const enabled = typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_CLEANUP.enabled
-  const raw = Number(source.days)
-  let days = Number.isFinite(raw) ? Math.floor(raw) : DEFAULT_CLEANUP.days
+function clampDays(value, fallback = DEFAULT_CLEANUP.days) {
+  const raw = Number(value)
+  let days = Number.isFinite(raw) ? Math.floor(raw) : fallback
   if (days < 1) days = 1
   if (days > 3650) days = 3650
+  return days
+}
+
+/**
+ * Merge an arbitrary stored value over defaults and clamp it.
+ * @param {unknown} value
+ * @param {{ enabled?: boolean, days?: number }} [defaults]
+ * @returns {{ enabled: boolean, days: number }}
+ */
+export function normalizeCleanup(value, defaults = DEFAULT_CLEANUP) {
+  const source = value && typeof value === 'object' ? value : {}
+  const baseEnabled = typeof defaults?.enabled === 'boolean' ? defaults.enabled : DEFAULT_CLEANUP.enabled
+  const baseDays = defaults && defaults !== DEFAULT_CLEANUP && defaults.days !== undefined
+    ? clampDays(defaults.days, DEFAULT_CLEANUP.days)
+    : DEFAULT_CLEANUP.days
+  const enabled = typeof source.enabled === 'boolean' ? source.enabled : baseEnabled
+  const days = source.days !== undefined ? clampDays(source.days, baseDays) : baseDays
   return { enabled, days }
+}
+
+function readRawCleanup(file) {
+  const parsed = readJsonFileBoundedSync(file, { maxBytes: DEFAULT_MAX_JSON_BYTES, fallback: {} })
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+}
+
+/**
+ * Cap variable-length arrays in lastRun so cleanup.json stays tiny and can
+ * never exceed the bounded read ceiling and lose the user's saved config.
+ */
+export function boundLastRun(lastRun) {
+  if (!lastRun || typeof lastRun !== 'object') return null
+  const out = { ...lastRun }
+  if (Array.isArray(lastRun.deletedIds)) {
+    out.deletedIdsTotal = lastRun.deletedIds.length
+    out.deletedIds = lastRun.deletedIds
+      .slice(0, MAX_PERSISTED_ITEMS)
+      .map((id) => String(id))
+  }
+  if (Array.isArray(lastRun.failures)) {
+    out.failuresTotal = lastRun.failures.length
+    out.failures = lastRun.failures
+      .slice(0, MAX_PERSISTED_ITEMS)
+      .map((entry) => ({
+        id: String(entry?.id ?? ''),
+        status: typeof entry?.status === 'number' ? entry.status : null,
+        message: String(entry?.message ?? '').slice(0, MAX_FAILURE_MESSAGE_CHARS),
+      }))
+  }
+  return out
 }
 
 /**
  * Read the persisted cleanup state.
  * @param {string} [file]
+ * @param {{ enabled?: boolean, days?: number }} [defaults]
  * @returns {Promise<{ config: { enabled: boolean, days: number }, lastRun: object|null }>}
  */
-export async function loadCleanup(file = cleanupFile()) {
-  let raw
-  try {
-    const text = await readFile(file, 'utf8')
-    if (Buffer.byteLength(text) > 256 * 1024) throw new Error('cleanup state too large')
-    raw = JSON.parse(text)
-  } catch {
-    raw = {}
-  }
-  const config = normalizeCleanup(raw && typeof raw === 'object' ? raw.config : undefined)
-  const lastRun = raw && typeof raw === 'object' && raw.lastRun && typeof raw.lastRun === 'object' ? raw.lastRun : null
+export async function loadCleanup(file = cleanupFile(), defaults = DEFAULT_CLEANUP) {
+  const raw = readRawCleanup(file)
+  const storedConfig = raw.config && typeof raw.config === 'object' ? raw.config : undefined
+  const config = normalizeCleanup(storedConfig, defaults)
+  const lastRun = raw.lastRun && typeof raw.lastRun === 'object' ? raw.lastRun : null
   return { config, lastRun }
-}
-
-/**
- * Per-file promise chain that serialises read-modify-write sequences.
- *
- * saveCleanupConfig and saveLastRun both do load -> merge -> write. A background
- * sweep (saveLastRun) and a settings change (saveCleanupConfig) can run at the
- * same time, so without a lock the second write can overwrite the first's field:
- * a user's just-saved config, or the latest sweep summary, silently disappears.
- */
-const WRITE_CHAINS = new Map()
-function withFileLock(file, fn) {
-  const tail = WRITE_CHAINS.get(file) ?? Promise.resolve()
-  const next = tail.then(() => fn())
-  // Store a settled-safe tail so one rejection never poisons the next waiter.
-  WRITE_CHAINS.set(file, next.catch(() => {}))
-  return next
-}
-
-/** Atomic write: tmp then rename, so a crash never leaves a half file. */
-async function writeState(file, value) {
-  await mkdir(dirname(file), { recursive: true })
-  // The tmp name carries a random suffix so two concurrent writers (different
-  // pids, or the same pid before serialisation kicks in) never collide on it.
-  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
-  await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8')
-  await rename(tmp, file)
 }
 
 /**
  * Persist a partial config change, preserving any recorded lastRun.
  * @param {object} patch
  * @param {string} [file]
+ * @param {{ enabled?: boolean, days?: number }} [defaults]
  * @returns {Promise<{ enabled: boolean, days: number }>} the saved, normalized config.
  */
-export async function saveCleanupConfig(patch, file = cleanupFile()) {
-  return withFileLock(file, async () => {
-    const state = await loadCleanup(file)
-    const config = normalizeCleanup({ ...state.config, ...(patch && typeof patch === 'object' ? patch : {}) })
-    await writeState(file, { version: 1, config, lastRun: state.lastRun })
+export async function saveCleanupConfig(patch, file = cleanupFile(), defaults = DEFAULT_CLEANUP) {
+  return enqueueFileWrite(file, async () => {
+    const raw = readRawCleanup(file)
+    const current = normalizeCleanup(raw.config, defaults)
+    const config = normalizeCleanup({ ...current, ...(patch && typeof patch === 'object' ? patch : {}) }, defaults)
+    const lastRun = raw.lastRun && typeof raw.lastRun === 'object' ? raw.lastRun : null
+    writeJsonAtomicSync(file, { version: 1, config, lastRun })
     return config
   })
 }
 
 /**
- * Persist the outcome of one sweep, preserving the config.
+ * Persist the outcome of one sweep, preserving any explicit user config without
+ * synthesizing default config fields over baseConfig precedence.
  * @param {object} lastRun
  * @param {string} [file]
  */
 export async function saveLastRun(lastRun, file = cleanupFile()) {
-  return withFileLock(file, async () => {
-    const state = await loadCleanup(file)
-    await writeState(file, { version: 1, config: state.config, lastRun })
+  return enqueueFileWrite(file, async () => {
+    const raw = readRawCleanup(file)
+    const payload = { version: 1, lastRun: boundLastRun(lastRun) }
+    if (raw.config && typeof raw.config === 'object') {
+      payload.config = raw.config
+    }
+    writeJsonAtomicSync(file, payload)
   })
 }
 
 /** The activity time to compare against the cutoff, or undefined when unknown. */
 function lastActivityOf(createdAt, mtimeMs) {
-  const values = [createdAt, mtimeMs].filter(value => typeof value === 'number' && Number.isFinite(value))
+  const values = [createdAt, mtimeMs].filter((value) => typeof value === 'number' && Number.isFinite(value))
   if (!values.length) return undefined
   return Math.max(...values)
+}
+
+function isCancelled(options) {
+  return Boolean(options?.signal?.aborted || options?.isDisposed?.())
 }
 
 /**
@@ -182,12 +213,15 @@ function lastActivityOf(createdAt, mtimeMs) {
  * @param {object} ctx host context.
  * @param {number} now reference time (ms).
  * @param {number} days age threshold in days.
+ * @param {{ signal?: AbortSignal, isDisposed?: () => boolean }} [options]
  * @returns {Promise<{ rows: Array<object> }>}
  */
-export async function scanArchived(ctx, now, days) {
+export async function scanArchived(ctx, now, days, options = {}) {
   const registry = ctx.workspaceRegistry
   const archived = Array.isArray(registry?.archivedSessionIds) ? [...registry.archivedSessionIds] : []
   const cutoff = now - days * DAY_MS
+
+  if (isCancelled(options)) return { rows: [] }
 
   const headers = new Map()
   const paths = new Map()
@@ -196,6 +230,7 @@ export async function scanArchived(ctx, now, days) {
   // the wrong cost for an hourly sweep that only needs this id set.
   if (typeof backend?.findLog === 'function') {
     await mapLimited(archived, STAT_CONCURRENCY, async (id) => {
+      if (isCancelled(options)) return
       try {
         const selected = await backend.findLog(id)
         const file = typeof selected?.currentPath === 'string' && selected.currentPath !== ''
@@ -214,13 +249,15 @@ export async function scanArchived(ctx, now, days) {
         const header = item?.header ?? item
         if (typeof header?.id !== 'string') continue
         if (!headers.has(header.id)) headers.set(header.id, header)
-        const path = item?.location?.path
-        if (typeof path === 'string' && !paths.has(header.id)) paths.set(header.id, path)
+        const filePath = item?.location?.path
+        if (typeof filePath === 'string' && !paths.has(header.id)) paths.set(header.id, filePath)
       }
     } catch {
       /* listing failure leaves timestamps unknown; those sessions are skipped */
     }
   }
+  if (isCancelled(options)) return { rows: [] }
+
   for (const item of (typeof ctx.sessions?.list === 'function' ? ctx.sessions.list() : [])) {
     const header = item?.header ?? item
     if (typeof header?.id === 'string' && !headers.has(header.id)) headers.set(header.id, header)
@@ -228,6 +265,7 @@ export async function scanArchived(ctx, now, days) {
   const registryHeaders = registry?.headers
 
   const rows = await mapLimited(archived, STAT_CONCURRENCY, async (id) => {
+    if (isCancelled(options)) return { id, state: 'aborted' }
     const live = Boolean(ctx.sessions?.get?.(id) ?? ctx.get?.('agents')?.get?.(id))
     if (live) return { id, state: 'live' }
 
@@ -235,9 +273,9 @@ export async function scanArchived(ctx, now, days) {
     const createdAt = typeof header?.createdAt === 'number' ? header.createdAt : undefined
 
     let mtimeMs
-    const path = paths.get(id)
-    if (typeof path === 'string') {
-      try { mtimeMs = (await stat(path)).mtimeMs } catch { mtimeMs = undefined }
+    const filePath = paths.get(id)
+    if (typeof filePath === 'string') {
+      try { mtimeMs = (await stat(filePath)).mtimeMs } catch { mtimeMs = undefined }
     }
 
     const lastActivity = lastActivityOf(createdAt, mtimeMs)
@@ -245,16 +283,28 @@ export async function scanArchived(ctx, now, days) {
     if (lastActivity >= cutoff) return { id, state: 'recent', lastActivity }
     return { id, state: 'eligible', lastActivity }
   })
-  return { rows }
+  return { rows: rows.filter((row) => row && row.state !== 'aborted') }
 }
 
 /** Empty result counters shared by every sweep return value. */
 function emptyReport(reason, dryRun) {
   return {
-    at: Date.now(), reason, dryRun,
-    scanned: 0, live: 0, recent: 0, unknownAge: 0,
-    eligible: 0, deleted: 0, removed: 0, children: 0, ghosts: 0,
-    blocked: 0, errors: 0, deletedIds: [], failures: [],
+    at: Date.now(),
+    reason,
+    dryRun,
+    scanned: 0,
+    live: 0,
+    recent: 0,
+    unknownAge: 0,
+    eligible: 0,
+    deleted: 0,
+    removed: 0,
+    children: 0,
+    ghosts: 0,
+    blocked: 0,
+    errors: 0,
+    deletedIds: [],
+    failures: [],
   }
 }
 
@@ -266,6 +316,8 @@ function emptyReport(reason, dryRun) {
  * @param {number} [options.now] reference time.
  * @param {number} [options.days] age threshold.
  * @param {boolean} [options.dryRun] report only, delete nothing.
+ * @param {AbortSignal} [options.signal] abort signal cancelling in-flight sweeps.
+ * @param {() => boolean} [options.isDisposed] disposal predicate cancelling in-flight sweeps.
  * @param {(id: string, opts: object) => Promise<object>} options.deleteOne
  *        the shared removal transaction (index.js passes `deleteArchived`).
  * @returns {Promise<object>} a bounded report.
@@ -279,7 +331,17 @@ export async function runAutoCleanup(ctx, options) {
   // Callers (the settings preview) need the threshold that produced `eligible`.
   report.days = days
 
-  const { rows } = await scanArchived(ctx, now, days)
+  if (isCancelled(options)) {
+    report.aborted = true
+    return report
+  }
+
+  const { rows } = await scanArchived(ctx, now, days, options)
+  if (isCancelled(options)) {
+    report.aborted = true
+    return report
+  }
+
   report.scanned = rows.length
   const eligible = []
   for (const row of rows) {
@@ -289,9 +351,16 @@ export async function runAutoCleanup(ctx, options) {
     else if (row.state === 'eligible') eligible.push(row)
   }
   report.eligible = eligible.length
-  if (dryRun || typeof deleteOne !== 'function') { report.deletedIds = eligible.map(row => row.id); return report }
+  if (dryRun || typeof deleteOne !== 'function') {
+    report.deletedIds = eligible.map((row) => row.id)
+    return report
+  }
 
   for (const row of eligible) {
+    if (isCancelled(options)) {
+      report.aborted = true
+      break
+    }
     try {
       const result = await deleteOne(row.id, { cascade: true })
       report.deleted += 1

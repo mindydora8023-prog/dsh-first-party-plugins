@@ -78,14 +78,6 @@ window.__ModuleLoader__.load({
       busy: 'Working\u2026',
     }
 
-    // The dictionaries above are written with literal backslash-u so this file
-    // stays ASCII. Decode them once, the same way a JSON parser would.
-    for (const table of [zh, en]) {
-      for (const key of Object.keys(table)) {
-        table[key] = table[key].replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      }
-    }
-
     function hostFetch(input, init) {
       const carrier = window.__DSH_TRANSPORT__
       return carrier && typeof carrier.fetch === 'function'
@@ -152,6 +144,8 @@ window.__ModuleLoader__.load({
       const [query, setQuery] = React.useState('')
       const [tick, setTick] = React.useState(0)
       const [nowMs, setNowMs] = React.useState(() => Date.now())
+      const inFlightActionsRef = React.useRef(0)
+      const actionGenRef = React.useRef(0)
 
       React.useEffect(() => {
         const timer = setInterval(() => setNowMs(Date.now()), 1000)
@@ -161,10 +155,12 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         let on = true
         const pull = async () => {
+          if (inFlightActionsRef.current > 0) return
+          const gen = actionGenRef.current
           try {
             const response = await hostFetch(API, { method: 'GET', credentials: 'same-origin' })
             const value = await response.json()
-            if (!on) return
+            if (!on || inFlightActionsRef.current > 0 || gen !== actionGenRef.current) return
             if (!response.ok || !value || !Array.isArray(value.servers)) {
               setView((current) => ({
                 ...current,
@@ -182,7 +178,7 @@ window.__ModuleLoader__.load({
               fetchedAt: Date.now(),
             }))
           } catch {
-            if (on) {
+            if (on && inFlightActionsRef.current === 0 && gen === actionGenRef.current) {
               setView((current) => ({
                 ...current,
                 phase: current.servers.length > 0 ? 'ready' : 'error',
@@ -202,6 +198,8 @@ window.__ModuleLoader__.load({
 
       const act = async (name, action) => {
         if (busy[name]) return
+        inFlightActionsRef.current += 1
+        actionGenRef.current += 1
         setBusy((current) => ({ ...current, [name]: action }))
         setView((current) => ({ ...current, notice: '', tone: '' }))
         try {
@@ -231,6 +229,8 @@ window.__ModuleLoader__.load({
         } catch {
           setView((current) => ({ ...current, phase: 'ready', notice: t('actionError'), tone: 'bad' }))
         } finally {
+          inFlightActionsRef.current = Math.max(0, inFlightActionsRef.current - 1)
+          actionGenRef.current += 1
           setBusy((current) => {
             const next = { ...current }
             delete next[name]

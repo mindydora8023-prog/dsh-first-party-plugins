@@ -247,3 +247,65 @@ test('special session IDs resolve without selector interpolation', (t) => {
   paintGhost(f.doc, key, 'text');
   assert.equal(f.layer(a.host).children[0].textContent, 'text');
 });
+
+test('paintGhost short-circuits empty text when session has no state yet', (t) => {
+  const f = fixture();
+  t.after(() => clearGhost(f.doc));
+  const a = f.composer('fresh');
+  paintGhost(f.doc, 'fresh', '');
+  assert.equal(f.layer(a.host), undefined, 'empty paint must not allocate a ghost layer');
+  assert.equal(f.doc.head.children.length, 0, 'empty paint must not inject stylesheet');
+  assert.equal(f.observers.length, 0, 'empty paint must not attach ResizeObserver');
+  assert.equal(f.listeners.get('scroll')?.size ?? 0, 0, 'empty paint must not attach scroll listener');
+});
+
+test('ghost onMove coalesces via rAF, skips when hidden, and cancels pending rAF on clear', (t) => {
+  const f = fixture();
+  t.after(() => clearGhost(f.doc));
+  let nextRafId = 0;
+  const rafQueue = new Map();
+  let cancelled = [];
+  f.doc.defaultView.requestAnimationFrame = (fn) => {
+    const id = ++nextRafId;
+    rafQueue.set(id, fn);
+    return id;
+  };
+  f.doc.defaultView.cancelAnimationFrame = (id) => {
+    cancelled.push(id);
+    rafQueue.delete(id);
+  };
+  let rectReads = 0;
+  const a = f.composer('s');
+  const origRect = a.editor.getBoundingClientRect.bind(a.editor);
+  a.editor.getBoundingClientRect = () => { rectReads += 1; return origRect(); };
+
+  paintGhost(f.doc, 's', 'hello');
+  const afterInitialPaint = rectReads;
+  // Multiple scroll events within one frame coalesce into a single rAF.
+  f.fire('scroll');
+  f.fire('scroll');
+  f.fire('resize');
+  assert.equal(rafQueue.size, 1, 'multiple moves must schedule only one rAF');
+  assert.equal(rectReads, afterInitialPaint, 'layout must wait for rAF');
+  const [[firstId, firstFn]] = [...rafQueue.entries()];
+  rafQueue.delete(firstId);
+  firstFn();
+  assert.equal(rectReads, afterInitialPaint + 1, 'rAF callback updates layout once');
+
+  // Hiding the ghost stops scroll/resize from scheduling rAF or reading layout.
+  paintGhost(f.doc, 's', '');
+  const afterHide = rectReads;
+  f.fire('scroll');
+  f.fire('resize');
+  assert.equal(rafQueue.size, 0, 'hidden ghost must not schedule rAF on scroll/resize');
+  assert.equal(rectReads, afterHide, 'hidden ghost must not read layout');
+
+  // Pending rAF is cancelled when clearGhost runs.
+  paintGhost(f.doc, 's', 'again');
+  f.fire('scroll');
+  assert.equal(rafQueue.size, 1);
+  const [pendingId] = rafQueue.keys();
+  clearGhost(f.doc, 's');
+  assert.deepEqual(cancelled, [pendingId]);
+  assert.equal(rafQueue.size, 0);
+});

@@ -6,21 +6,16 @@
  * one block: a heading, then its text shapes and tables in document order.
  * Speaker notes are appended only when the notes part has text.
  *
- * Pictures are named, not described. Charts, animations and legacy .ppt are
- * out of scope and said so rather than guessed.
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { listZipEntries, readZipEntry, looksLikeZip } from './zip.js'
-import { unescapeXml } from './docx.js'
+import { Buffer } from 'node:buffer'
+import { listZipEntries, looksLikeZip } from './zip.js'
 import { markdownTable } from './md.js'
-
-function attr(tag, name) {
-  const m = new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=(["'])(.*?)\\1`).exec(tag)
-  return m === null ? '' : m[2]
-}
+import { attr, parseRels, readZipText, resolvePart, truncateUtf8, unescapeXml } from './ooxml.js'
 
 /** Visible text of one shape tree fragment, paragraphs separated by newlines. */
-function shapeText(fragment) {
+export function shapeText(fragment) {
   const paras = []
   // `a:t` is also a prefix of `a:tbl` / `a:tc` / `a:tr`, so the tag name has to
   // end at a delimiter. The same rule applies to `a:p` versus `a:pPr`.
@@ -63,17 +58,15 @@ function tableRows(fragment) {
  */
 export function listSlides(presentationXml, relsXml) {
   const rels = new Map()
-  const relRe = /<Relationship\b([^>]*?)\/?>/g
-  let m
-  while ((m = relRe.exec(relsXml)) !== null) {
-    const id = attr(m[1], 'Id')
-    const target = attr(m[1], 'Target')
-    if (id !== '' && target !== '') rels.set(id, target.replace(/^\//, ''))
+  for (const rel of parseRels(relsXml)) {
+    rels.set(rel.id, rel.target.replace(/^\//, ''))
   }
   const slides = []
   const sldRe = /<p:sldId(?=[\s>])([^>]*?)\/?>/g
+  let m
   while ((m = sldRe.exec(presentationXml)) !== null) {
     const rid = attr(m[1], 'r:id')
+    if (rid === undefined) continue
     const target = rels.get(rid)
     if (target === undefined) continue
     slides.push(target.startsWith('ppt/') ? target : `ppt/${target.replace(/^\.\//, '')}`)
@@ -81,38 +74,38 @@ export function listSlides(presentationXml, relsXml) {
   return slides
 }
 
-/** Resolve a relationship target against the slide part that owns it. */
-function resolvePart(baseFile, target) {
-  if (target.startsWith('/')) return target.replace(/^\//, '')
-  const parts = baseFile.split('/').slice(0, -1)
-  for (const segment of target.split('/')) {
-    if (segment === '..') parts.pop()
-    else if (segment !== '.' && segment !== '') parts.push(segment)
-  }
-  return parts.join('/')
-}
-
 /**
  * Speaker-notes part for one slide.
- * The slide rels are authoritative. A same-numbered notes part is only a
- * fallback for a deck that omitted the relationship.
+ * The slide rels are authoritative; a same-numbered notes part is only a fallback.
  */
-function notesPart(buffer, names, slidePart) {
+export function notesPart(buffer, names, slidePart, scanMaxBytes) {
+  const zipOpts = scanMaxBytes !== undefined ? { maxBytes: scanMaxBytes } : {}
   const relsName = slidePart.replace(/^(.*)\/([^/]+)$/, '$1/_rels/$2.rels')
   if (names.has(relsName)) {
-    const xml = readZipEntry(buffer, relsName).toString('utf8')
-    const relRe = /<Relationship\b([^>]*?)\/?>/g
-    let m
-    while ((m = relRe.exec(xml)) !== null) {
-      if (!/notesSlide/.test(attr(m[1], 'Type') + attr(m[1], 'Target'))) continue
-      const target = attr(m[1], 'Target')
-      if (target === '') continue
-      const part = resolvePart(slidePart, target)
-      if (names.has(part)) return part
+    const xml = readZipText(buffer, relsName, { ...zipOpts, optional: true })
+    if (xml !== null) {
+      for (const rel of parseRels(xml)) {
+        if (!/notesSlide/.test(`${rel.type}${rel.target}`)) continue
+        if (rel.target === '') continue
+        const part = resolvePart(slidePart, rel.target)
+        if (names.has(part)) return part
+      }
     }
   }
   const guessed = slidePart.replace('ppt/slides/', 'ppt/notesSlides/').replace(/slide(\d+)\.xml$/, 'notesSlide$1.xml')
   return names.has(guessed) ? guessed : ''
+}
+
+/** Extract trimmed speaker notes text for one slide, or '' if absent. */
+export function extractSlideNotes(buffer, names, slidePart, scanMaxBytes) {
+  const part = notesPart(buffer, names, slidePart, scanMaxBytes)
+  if (part === '') return ''
+  try {
+    const xml = readZipText(buffer, part, scanMaxBytes !== undefined ? { maxBytes: scanMaxBytes } : {})
+    return shapeText(xml).trim()
+  } catch {
+    return ''
+  }
 }
 
 /** Render one slide XML as Markdown without the heading. */
@@ -138,7 +131,7 @@ export function renderSlideXml(xml, maxCellLength) {
 /**
  * Read a PPTX buffer into a bounded window of slides.
  * @param {Buffer} buffer
- * @param {{offset:number, limit:number, maxCellLength?:number, maxBytes?:number}} req
+ * @param {{offset:number, limit:number, maxCellLength?:number, maxBytes?:number, scanMaxBytes?:number}} req
  * @returns {{text:string, returned:number, slideCount:number, truncatedByBytes:boolean, warnings:string[]}}
  */
 export function readPptx(buffer, req) {
@@ -146,8 +139,9 @@ export function readPptx(buffer, req) {
   if (!looksLikeZip(buffer)) {
     throw new Error('not a PPTX container (no ZIP signature). Legacy binary .ppt is not supported; save as .pptx first.')
   }
+  const zipOpts = req.scanMaxBytes !== undefined ? { maxBytes: req.scanMaxBytes } : {}
   const names = new Set(listZipEntries(buffer).map((entry) => entry.name))
-  const readText = (name) => readZipEntry(buffer, name).toString('utf8')
+  const readText = (name) => readZipText(buffer, name, zipOpts)
   if (!names.has('ppt/presentation.xml')) {
     throw new Error('not a readable PPTX: missing ppt/presentation.xml')
   }
@@ -170,18 +164,20 @@ export function readPptx(buffer, req) {
     } catch (error) {
       warnings.push(`slide ${i + 1}: ${error?.message ?? String(error)}`)
     }
-    const notesName = notesPart(buffer, names, slides[i])
-    if (notesName !== '') {
-      try {
-        const notes = shapeText(readText(notesName)).trim()
-        if (notes !== '') body = `${body}\n\n### Notes\n${notes}`.trim()
-      } catch {
-        /* a missing or odd notes part is not a failed slide */
-      }
-    }
+    const notes = extractSlideNotes(buffer, names, slides[i], req.scanMaxBytes)
+    if (notes !== '') body = `${body}\n\n### Notes\n${notes}`.trim()
     const chunk = `## Slide ${i + 1}\n${body === '' ? '(no extractable text)' : body}`
     const size = Buffer.byteLength(chunk, 'utf8') + 2
-    if (parts.length > 0 && bytes + size > maxBytes) { truncatedByBytes = true; break }
+    if (bytes + size > maxBytes) {
+      if (parts.length === 0) {
+        const notice = '\n... (slide truncated to fit output cap)'
+        const budget = Math.max(64, maxBytes - bytes - Buffer.byteLength(notice, 'utf8') - 16)
+        parts.push(`${truncateUtf8(chunk, budget)}${notice}`)
+        returned += 1
+      }
+      truncatedByBytes = true
+      break
+    }
     bytes += size
     parts.push(chunk)
     returned += 1

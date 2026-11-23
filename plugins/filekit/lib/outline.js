@@ -7,36 +7,27 @@
  *   - PPTX: one title line per slide (first text shape)
  *   - PDF : first non-empty line per page, plus the page count
  *
- * This is the capability borrowed from dcd887/dsh-doc-read (`outline` mode):
- * an agent can decide which range to read instead of paging blindly. It reuses
- * the same parsers the read tools use, so there is no second parser to drift.
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { readZipEntry, looksLikeZip, listZipEntries } from './zip.js'
+import { Buffer } from 'node:buffer'
+import { looksLikeZip, listZipEntries } from './zip.js'
 import { parseDocumentXml, parseHyperlinkRels } from './docx.js'
-import { listSheets, parseSharedStrings, parseDateStyles, parseSheet } from './xlsx.js'
+import { isDate1904, listSheets, parseSharedStrings, parseDateStyles, parseSheet } from './xlsx.js'
 import { listSlides, renderSlideXml } from './pptx.js'
 import { extractPdfText } from './pdf.js'
+import { readZipText, sheetPart } from './ooxml.js'
 
 const SUPPORTED = ['docx', 'xlsx', 'pptx', 'pdf']
 
-/** Normalize a worksheet target to its ZIP part name. */
-function sheetPart(target) {
-  const clean = String(target).replace(/^\.?\//, '')
-  return clean.startsWith('xl/') ? clean : `xl/${clean}`
-}
-
-function docxEntries(buffer) {
+function docxEntries(buffer, scanMaxBytes) {
   if (!looksLikeZip(buffer)) {
     throw new Error('not a DOCX container (no ZIP signature). Legacy binary .doc files are not supported; convert to .docx first.')
   }
-  let links = new Map()
-  try {
-    links = parseHyperlinkRels(readZipEntry(buffer, 'word/_rels/document.xml.rels').toString('utf8'))
-  } catch {
-    links = new Map()
-  }
-  const blocks = parseDocumentXml(readZipEntry(buffer, 'word/document.xml').toString('utf8'), links)
+  const zipOpts = scanMaxBytes !== undefined ? { maxBytes: scanMaxBytes } : {}
+  const relsXml = readZipText(buffer, 'word/_rels/document.xml.rels', { ...zipOpts, optional: true })
+  const links = relsXml !== null ? parseHyperlinkRels(relsXml) : new Map()
+  const blocks = parseDocumentXml(readZipText(buffer, 'word/document.xml', zipOpts), links)
   const entries = []
   for (const block of blocks) {
     if (block.kind !== 'para') continue
@@ -48,15 +39,15 @@ function docxEntries(buffer) {
   return entries
 }
 
-function xlsxEntries(buffer, warnings) {
+function xlsxEntries(buffer, warnings, scanMaxBytes) {
   if (!looksLikeZip(buffer)) {
     throw new Error('not an XLSX container (no ZIP signature). Legacy binary .xls is not supported; save as .xlsx first.')
   }
-  const readText = (name) => {
-    try { return readZipEntry(buffer, name).toString('utf8') } catch { return null }
-  }
+  const zipOpts = scanMaxBytes !== undefined ? { maxBytes: scanMaxBytes } : {}
+  const readText = (name) => readZipText(buffer, name, { ...zipOpts, optional: true })
   const workbookXml = readText('xl/workbook.xml')
   if (workbookXml === null) throw new Error('not a readable XLSX: missing xl/workbook.xml')
+  const date1904 = isDate1904(workbookXml)
   const relsXml = readText('xl/_rels/workbook.xml.rels') ?? ''
   const sheets = listSheets(workbookXml, relsXml)
   if (sheets.length === 0) throw new Error('XLSX has no worksheets')
@@ -68,7 +59,10 @@ function xlsxEntries(buffer, warnings) {
     let hint = ''
     if (sheet.target !== '') {
       try {
-        const first = parseSheet(readText(sheetPart(sheet.target)) ?? '', sharedStrings, dateStyles, { maxRows: 1 }).rows[0] ?? []
+        const first = parseSheet(readText(sheetPart(sheet.target)) ?? '', sharedStrings, dateStyles, {
+          maxRows: 1,
+          date1904,
+        }).rows[0] ?? []
         hint = first.filter((cell) => String(cell).trim() !== '').slice(0, 8).join(' | ')
       } catch (error) {
         warnings.push(`sheet "${sheet.name}" header unavailable (${error?.message ?? String(error)})`)
@@ -79,11 +73,12 @@ function xlsxEntries(buffer, warnings) {
   return entries
 }
 
-function pptxEntries(buffer, warnings) {
+function pptxEntries(buffer, warnings, scanMaxBytes) {
   if (!looksLikeZip(buffer)) {
     throw new Error('not a PPTX container (no ZIP signature). Legacy binary .ppt is not supported; save as .pptx first.')
   }
-  const readText = (name) => readZipEntry(buffer, name).toString('utf8')
+  const zipOpts = scanMaxBytes !== undefined ? { maxBytes: scanMaxBytes } : {}
+  const readText = (name) => readZipText(buffer, name, zipOpts)
   const names = new Set(listZipEntries(buffer).map((entry) => entry.name))
   if (!names.has('ppt/presentation.xml')) throw new Error('not a readable PPTX: missing ppt/presentation.xml')
   const slides = listSlides(
@@ -104,8 +99,12 @@ function pptxEntries(buffer, warnings) {
   return entries
 }
 
-function pdfEntries(buffer, warnings, maxPages) {
-  const doc = extractPdfText(buffer, { offset: 1, limit: maxPages })
+function pdfEntries(buffer, warnings, maxPages, scanMaxBytes) {
+  const doc = extractPdfText(buffer, {
+    offset: 1,
+    limit: maxPages,
+    ...(scanMaxBytes !== undefined ? { maxStreamBytes: scanMaxBytes } : {}),
+  })
   const entries = []
   for (const page of doc.pages) {
     const firstLine = page.text
@@ -126,7 +125,7 @@ function pdfEntries(buffer, warnings, maxPages) {
  *
  * @param {Buffer} buffer
  * @param {'docx'|'xlsx'|'pptx'|'pdf'} format
- * @param {{maxEntries?:number, maxBytes?:number, maxPdfPages?:number}} [opts]
+ * @param {{maxEntries?:number, maxBytes?:number, maxPdfPages?:number, scanMaxBytes?:number}} [opts]
  * @returns {{text:string, entryCount:number, totalEntries:number, truncated:boolean, warnings:string[]}}
  */
 export function buildOutline(buffer, format, opts = {}) {
@@ -138,12 +137,13 @@ export function buildOutline(buffer, format, opts = {}) {
   const maxEntries = Number.isFinite(opts.maxEntries) && opts.maxEntries > 0 ? Math.trunc(opts.maxEntries) : 500
   const maxBytes = Number.isFinite(opts.maxBytes) && opts.maxBytes > 0 ? Math.trunc(opts.maxBytes) : 50 * 1024
   const maxPdfPages = Number.isFinite(opts.maxPdfPages) && opts.maxPdfPages > 0 ? Math.trunc(opts.maxPdfPages) : 32
+  const scanMaxBytes = Number.isFinite(opts.scanMaxBytes) && opts.scanMaxBytes > 0 ? Math.trunc(opts.scanMaxBytes) : undefined
 
   let raw
-  if (fmt === 'docx') raw = docxEntries(buffer)
-  else if (fmt === 'xlsx') raw = xlsxEntries(buffer, warnings)
-  else if (fmt === 'pptx') raw = pptxEntries(buffer, warnings)
-  else raw = pdfEntries(buffer, warnings, maxPdfPages)
+  if (fmt === 'docx') raw = docxEntries(buffer, scanMaxBytes)
+  else if (fmt === 'xlsx') raw = xlsxEntries(buffer, warnings, scanMaxBytes)
+  else if (fmt === 'pptx') raw = pptxEntries(buffer, warnings, scanMaxBytes)
+  else raw = pdfEntries(buffer, warnings, maxPdfPages, scanMaxBytes)
 
   const totalEntries = raw.length
   const lines = []

@@ -85,7 +85,16 @@ function hidePlaceholder(state) {
   node.style.display = 'none';
 }
 
+function cancelScheduledMove(state) {
+  if (state.rafId === null) return;
+  if (typeof state.win?.cancelAnimationFrame === 'function') {
+    state.win.cancelAnimationFrame(state.rafId);
+  }
+  state.rafId = null;
+}
+
 function releaseState(state) {
+  cancelScheduledMove(state);
   restorePlaceholder(state);
   state.observer?.disconnect();
   state.observer = null;
@@ -157,6 +166,9 @@ function place(doc, state) {
 export function paintGhost(doc, sessionId, text, options = {}) {
   if (doc == null) return;
   const key = sessionKey(sessionId);
+  // Short-circuit empty clears before any DOM lookup or resource allocation
+  // when this session has never painted a ghost layer.
+  if (text === '' && ghostDocuments.get(doc)?.sessions.get(key) === undefined) return;
   const editor = findEditor(doc, key);
   if (editor?.parentElement == null) {
     clearGhost(doc, key);
@@ -182,24 +194,41 @@ export function paintGhost(doc, sessionId, text, options = {}) {
     layer.dataset.session = key;
     layer.dataset.shown = '0';
     state = { key, layer, editor: null, observer: null, win: doc.defaultView ?? null,
-      onMove: null, placeholder: null, placeholderWas: '' };
+      onMove: null, rafId: null, placeholder: null, placeholderWas: '' };
     state.onMove = () => {
-      if (ghostDocuments.get(doc)?.sessions.get(key) === state) place(doc, state);
+      if (ghostDocuments.get(doc)?.sessions.get(key) !== state) return;
+      if (state.layer.dataset.shown !== '1') return;
+      const raf = state.win?.requestAnimationFrame;
+      if (typeof raf === 'function') {
+        if (state.rafId !== null) return;
+        state.rafId = raf(() => {
+          state.rafId = null;
+          if (ghostDocuments.get(doc)?.sessions.get(key) === state && state.layer.dataset.shown === '1') {
+            place(doc, state);
+          }
+        });
+        return;
+      }
+      place(doc, state);
     };
     owner.sessions.set(key, state);
     state.win?.addEventListener('resize', state.onMove, true);
     state.win?.addEventListener('scroll', state.onMove, true);
   }
   ensureStyle(doc, owner);
-  if (!place(doc, state)) return;
-  lastGhost = state;
-  const node = state.layer;
-  clearChildren(node);
   if (text === '') {
+    cancelScheduledMove(state);
+    lastGhost = state;
+    const node = state.layer;
+    clearChildren(node);
     node.dataset.shown = '0';
     restorePlaceholder(state);
     return;
   }
+  if (!place(doc, state)) return;
+  lastGhost = state;
+  const node = state.layer;
+  clearChildren(node);
   const prefix = typeof options.prefix === 'string' ? options.prefix : '';
   if (prefix !== '') {
     const spacer = doc.createElement('span');

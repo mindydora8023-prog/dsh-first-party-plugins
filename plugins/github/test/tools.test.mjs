@@ -805,4 +805,92 @@ test('writeFailureRecord only converts errors that carry an unknown effect', () 
   // A malformed error without nextAction still yields actionable advice.
   const fallback = writeFailureRecord({ effectState: 'unknown' }, {})
   assert.match(fallback.error.nextAction, /Read the resource back/)
+  // Non-unknown effect states are preserved rather than flattened to unknown.
+  const partial = writeFailureRecord({ effectState: 'partial', message: 'half done', nextAction: 'verify' }, { action: 'update_issue', repo: 'octo/hello', number: 5 })
+  assert.equal(partial.status, 'partial')
+  assert.equal(partial.applied, false)
+  assert.equal(partial.error.effectState, 'partial')
+})
+
+test('github_read_file detects NUL bytes in file body even with text/plain header', async () => {
+  const stub = stubFetch(() => ({ body: 'hello\u0000world', headers: { 'content-type': 'text/plain' } }))
+  try {
+    const result = await toolsOf(makeConfig()).get('github_read_file').execute({ path: 'mystery.bin' })
+    assert.equal(result.binary, true)
+    assert.equal(result.content, '')
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_issues keeps count equal to issues.length and reports accurate pagination', async () => {
+  const stub = stubFetch((url) => {
+    const page = Number(url.searchParams.get('page'))
+    if (page === 1) {
+      return {
+        body: [
+          { number: 1, title: 'i1', state: 'open', user: { login: 'a' }, labels: [] },
+          { number: 2, title: 'pr1', state: 'open', user: { login: 'b' }, labels: [], pull_request: { url: 'x' } },
+          { number: 3, title: 'pr2', state: 'open', user: { login: 'b' }, labels: [], pull_request: { url: 'x' } },
+        ],
+        headers: { link: '<https://api.github.com/repos/octo/hello/issues?page=2&per_page=3>; rel="next"' },
+      }
+    }
+    return {
+      body: [
+        { number: 4, title: 'i2', state: 'open', user: { login: 'a' }, labels: [] },
+        { number: 5, title: 'i3', state: 'open', user: { login: 'a' }, labels: [] },
+        { number: 6, title: 'i4', state: 'open', user: { login: 'a' }, labels: [] },
+      ],
+      headers: { link: '<https://api.github.com/repos/octo/hello/issues?page=3&per_page=3>; rel="next"' },
+    }
+  })
+  try {
+    const result = await toolsOf(makeConfig({ perPage: 3 })).get('github_issues').execute({ limit: 3 })
+    assert.equal(result.issues.length, 3)
+    assert.equal(result.count, result.issues.length)
+    assert.equal(result.has_more, true)
+    assert.equal(result.next_page, 2)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_pull_files accepts page, returns pagination, and honours config.maxFiles', async () => {
+  const stub = stubFetch((url) => {
+    assert.equal(url.searchParams.get('per_page'), '12')
+    assert.equal(url.searchParams.get('page'), '2')
+    return {
+      body: [{ filename: 'b.ts', status: 'modified', additions: 1, deletions: 0, changes: 1, patch: '+a' }],
+      headers: { link: '<https://api.github.com/repos/octo/hello/pulls/9/files?page=3>; rel="next"' },
+    }
+  })
+  try {
+    const result = await toolsOf(makeConfig({ maxFiles: 12 })).get('github_pull_files').execute({ number: 9, page: 2 })
+    assert.equal(result.page, 2)
+    assert.equal(result.has_more, true)
+    assert.equal(result.next_page, 3)
+    assert.equal(result.count, 1)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('github_pulls preserves mergeable: null when GitHub is still computing it', async () => {
+  const stub = stubFetch((url) => {
+    if (url.pathname.endsWith('/comments')) return { body: [] }
+    return { body: { number: 9, title: 'WIP', state: 'open', mergeable: null, mergeable_state: 'unknown' } }
+  })
+  try {
+    const result = await toolsOf(makeConfig()).get('github_pulls').execute({ number: 9 })
+    assert.equal(result.mergeable, null)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('tool timeoutMs scales dynamically from config.timeoutMs', () => {
+  const slow = toolsOf(makeConfig({ timeoutMs: 90000, retries: 1 }))
+  assert.ok(slow.get('github_get_repo').timeoutMs > 90000)
+  assert.ok(slow.get('github_create_issue').timeoutMs >= 95000)
 })

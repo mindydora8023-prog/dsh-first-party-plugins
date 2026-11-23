@@ -93,7 +93,7 @@ test('apply() registers the tool and its prompt section, and unload removes both
   await mountService(ctx, cordis, 'systemPrompt', services.systemPrompt)
   await mountService(ctx, cordis, 'fs', services.fs)
 
-  const fiber = ctx.plugin({ name, inject, apply }, { promptGuidance: true })
+  const fiber = ctx.plugin({ name, inject, apply }, { promptGuidance: true, statusFile: false })
   await new Promise((resolve) => setTimeout(resolve, 400))
 
   assert.ok(services.tools.registered.has('ops_read_files'), 'the tool must be registered')
@@ -136,11 +136,15 @@ test('promptGuidance: false registers the tool without a prompt section', async 
   await mountService(ctx, cordis, 'systemPrompt', services.systemPrompt)
   await mountService(ctx, cordis, 'fs', services.fs)
 
-  ctx.plugin({ name, inject, apply }, { promptGuidance: false })
-  await new Promise((resolve) => setTimeout(resolve, 400))
+  const fiber = ctx.plugin({ name, inject, apply }, { promptGuidance: false, statusFile: false })
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 400))
 
-  assert.ok(services.tools.registered.has('ops_read_files'))
-  assert.equal(services.systemPrompt.sections.has('ops-lite:read'), false)
+    assert.ok(services.tools.registered.has('ops_read_files'))
+    assert.equal(services.systemPrompt.sections.has('ops-lite:read'), false)
+  } finally {
+    await fiber.dispose()
+  }
 })
 
 /**

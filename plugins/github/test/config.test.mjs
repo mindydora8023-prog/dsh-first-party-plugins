@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { DEFAULT_API_BASE, readConfig, parseRepo } from '../lib/config.js'
+import { DEFAULT_API_BASE, hostFromApiBase, readConfig, parseRepo } from '../lib/config.js'
 import { statePath } from '../lib/state-dir.js'
 
 const dirs = { pluginDir: join(tmpdir(), 'dsh-github-config-test'), profileDir: '', home: '' }
@@ -75,4 +75,16 @@ test('parseRepo rejects malformed references with an actionable message', () => 
   assert.throws(() => parseRepo('a/b/c'), /expected "owner\/name"/)
   assert.throws(() => parseRepo('own er/repo'), /Invalid repository/)
   assert.throws(() => parseRepo('owner/re po'), /Invalid repository/)
+})
+
+test('hostFromApiBase derives github.com and GitHub Enterprise hosts', () => {
+  assert.equal(hostFromApiBase('https://api.github.com'), 'github.com')
+  assert.equal(hostFromApiBase('https://git.corp/api/v3'), 'git.corp')
+  assert.equal(hostFromApiBase('https://api.acme.ghe.com'), 'acme.ghe.com')
+})
+
+test('parseRepo accepts GitHub Enterprise host URLs', () => {
+  assert.equal(parseRepo('https://git.corp/team/app', '', 'git.corp').full, 'team/app')
+  assert.equal(parseRepo('https://git.corp/team/app/pull/42', '', 'git.corp').full, 'team/app')
+  assert.equal(parseRepo('git.corp/team/app.git', '', 'git.corp').full, 'team/app')
 })

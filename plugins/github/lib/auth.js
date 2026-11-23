@@ -3,11 +3,11 @@
  *
  * Order (first hit wins):
  *   1. plugin config `token`
- *   2. GITHUB_TOKEN / GH_TOKEN environment variables
+ *   2. GITHUB_TOKEN / GH_TOKEN environment variables (or GH_ENTERPRISE_TOKEN on GHE)
  *   3. credentials.json  ({"token": "...", "login": "..."} or {"token": "..."})
- *   4. `git credential fill` for github.com -- this is what makes the browser
- *      login already stored by Git Credential Manager work with no pasting
- *   5. `gh auth token`, when the GitHub CLI is installed and logged in
+ *   4. `git credential fill` for the configured host -- this is what makes the
+ *      browser login already stored by Git Credential Manager work with no pasting
+ *   5. `gh auth token --hostname <host>`, when the GitHub CLI is installed and logged in
  *
  * The token is never returned to the caller by accident: every function here
  * returns metadata plus the secret only on the `token` field, and error
@@ -15,10 +15,14 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { hostFromApiBase } from './config.js'
+
 const CACHE = new Map()
+const REJECTED = new Map()
 
 function firstText(...values) {
   for (const value of values) {
@@ -45,6 +49,7 @@ function safeEnv() {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
   delete env['GITHUB_TOKEN']
   delete env['GH_TOKEN']
+  delete env['GH_ENTERPRISE_TOKEN']
   return env
 }
 
@@ -82,14 +87,14 @@ function quoteArg(value) {
   return text
 }
 
-/** Ask Git Credential Manager (or any configured helper) for github.com. */
-function fromGitCredential(config) {
+/** Ask Git Credential Manager (or any configured helper) for the configured host. */
+function fromGitCredential(config, host, timeoutMs) {
   const result = run(
     config.gitExecutable,
     ['-c', 'credential.interactive=false', 'credential', 'fill'],
     {
-      input: 'protocol=https\nhost=github.com\n\n',
-      timeout: 15000,
+      input: `protocol=https\nhost=${host}\n\n`,
+      timeout: timeoutMs,
       env: safeEnv(),
     },
   )
@@ -109,14 +114,14 @@ function fromGitCredential(config) {
  * Find a usable gh executable.
  *
  * The plugin runs inside the Electron host, whose PATH often does not include
- * a portable install (this machine has no winget and no installer copy), so an
- * explicit path still has to be discovered. Candidates, in order:
+ * a portable install, so an explicit path still has to be discovered.
+ * Candidates, in order:
  *   1. the configured executable
  *   2. the well-known portable / installer locations
  *   3. `gh` on PATH
  * The first candidate that answers `--version` wins.
  */
-function resolveGhExecutable(config) {
+function resolveGhExecutable(config, timeoutMs) {
   const candidates = []
   if (typeof config.ghExecutable === 'string' && config.ghExecutable.trim() !== '') candidates.push(config.ghExecutable.trim())
   const home = process.env['USERPROFILE'] ?? process.env['HOME'] ?? ''
@@ -129,22 +134,23 @@ function resolveGhExecutable(config) {
   if (programFilesX86 !== '') candidates.push(join(programFilesX86, 'GitHub CLI', 'gh.exe'))
   candidates.push('gh')
 
+  const probeTimeout = Math.min(8000, Math.max(timeoutMs, 2000))
   for (const candidate of candidates) {
     // A bare command name is left to the shell to resolve; a path must exist.
     if (candidate !== 'gh' && !existsSync(candidate)) continue
-    const probe = run(candidate, ['--version'], { timeout: 8000, env: safeEnv() })
+    const probe = run(candidate, ['--version'], { timeout: probeTimeout, env: safeEnv() })
     if (!probe.error && probe.status === 0) return candidate
   }
   return null
 }
 
-function fromGhCli(config) {
-  const executable = resolveGhExecutable(config)
+function fromGhCli(config, host, timeoutMs) {
+  const executable = resolveGhExecutable(config, timeoutMs)
   if (executable === null) return null
   // GH_PROMPT_DISABLED keeps a logged-out gh from asking anything, which would
   // otherwise hang the host waiting for a terminal that does not exist.
-  const result = run(executable, ['auth', 'token', '--hostname', 'github.com'], {
-    timeout: 10000,
+  const result = run(executable, ['auth', 'token', '--hostname', host], {
+    timeout: timeoutMs,
     env: { ...safeEnv(), GH_PROMPT_DISABLED: '1' },
   })
   if (result.error || result.status !== 0 || typeof result.stdout !== 'string') return null
@@ -160,7 +166,20 @@ export function scrub(value, token) {
 }
 
 function cacheKey(config) {
-  return `${config.apiBaseUrl}|${config.credentialsFile}|${config.gitExecutable}|${config.ghExecutable}`
+  const host = hostFromApiBase(config.apiBaseUrl)
+  const tokenSig = typeof config.token === 'string' && config.token !== ''
+    ? createHash('sha256').update(config.token).digest('hex').slice(0, 16)
+    : ''
+  return [
+    host,
+    config.apiBaseUrl,
+    config.credentialsFile,
+    tokenSig,
+    String(Boolean(config.useGitCredential)),
+    String(Boolean(config.useGhCli)),
+    config.gitExecutable,
+    config.ghExecutable,
+  ].join('|')
 }
 
 /**
@@ -171,33 +190,49 @@ export function resolveToken(config, options = {}) {
   const refresh = options.refresh === true
   const key = cacheKey(config)
   const now = Date.now()
-  if (!refresh) {
+  if (refresh) {
+    REJECTED.delete(key)
+  } else {
     const cached = CACHE.get(key)
     if (cached !== undefined && now - cached.at < config.tokenCacheSeconds * 1000) return cached.value
   }
+
+  const host = hostFromApiBase(config.apiBaseUrl)
+  const rejected = REJECTED.get(key)
+  const isRejected = (candidate) => rejected !== undefined && candidate === rejected.token
+  const gitTimeoutMs = Number.isFinite(options.gitTimeoutMs)
+    ? options.gitTimeoutMs
+    : (Number.isFinite(config.gitTimeoutMs) ? config.gitTimeoutMs : 15000)
+  const ghTimeoutMs = Number.isFinite(options.ghTimeoutMs)
+    ? options.ghTimeoutMs
+    : (Number.isFinite(config.ghTimeoutMs) ? config.ghTimeoutMs : 10000)
 
   const file = readCredentialsFile(config.credentialsFile) ?? {}
   const value = { token: '', source: 'none', login: '', detail: '' }
 
   const fromConfig = firstText(config.token)
-  if (fromConfig !== '') {
+  if (fromConfig !== '' && !isRejected(fromConfig)) {
     value.token = fromConfig
     value.source = 'plugin-config'
     value.detail = 'token set in the plugin config (cordis.patch.yml)'
   }
 
   if (value.token === '') {
-    const envToken = firstText(process.env['GITHUB_TOKEN'], process.env['GH_TOKEN'])
-    if (envToken !== '') {
+    const envToken = host === 'github.com'
+      ? firstText(process.env['GITHUB_TOKEN'], process.env['GH_TOKEN'])
+      : firstText(process.env['GH_ENTERPRISE_TOKEN'], process.env['GITHUB_TOKEN'], process.env['GH_TOKEN'])
+    if (envToken !== '' && !isRejected(envToken)) {
       value.token = envToken
       value.source = 'env'
-      value.detail = 'GITHUB_TOKEN / GH_TOKEN environment variable'
+      value.detail = host === 'github.com'
+        ? 'GITHUB_TOKEN / GH_TOKEN environment variable'
+        : 'GH_ENTERPRISE_TOKEN / GITHUB_TOKEN / GH_TOKEN environment variable'
     }
   }
 
   if (value.token === '') {
     const fileToken = firstText(file.token, file.github_token, file.access_token)
-    if (fileToken !== '') {
+    if (fileToken !== '' && !isRejected(fileToken)) {
       value.token = fileToken
       value.source = 'credentials-file'
       value.login = firstText(file.login, file.user, '')
@@ -206,18 +241,18 @@ export function resolveToken(config, options = {}) {
   }
 
   if (value.token === '' && config.useGitCredential) {
-    const stored = fromGitCredential(config)
-    if (stored !== null) {
+    const stored = fromGitCredential(config, host, gitTimeoutMs)
+    if (stored !== null && !isRejected(stored.token)) {
       value.token = stored.token
       value.source = 'git-credential'
       value.login = stored.login
-      value.detail = 'stored by Git Credential Manager for github.com (browser login)'
+      value.detail = `stored by Git Credential Manager for ${host} (browser login)`
     }
   }
 
   if (value.token === '' && config.useGhCli) {
-    const stored = fromGhCli(config)
-    if (stored !== null) {
+    const stored = fromGhCli(config, host, ghTimeoutMs)
+    if (stored !== null && !isRejected(stored.token)) {
       value.token = stored.token
       value.source = 'gh-cli'
       value.detail = 'gh auth token'
@@ -225,25 +260,44 @@ export function resolveToken(config, options = {}) {
     }
   }
 
-  if (value.token !== '') value.token = value.token.trim()
+  if (value.token !== '') {
+    value.token = value.token.trim()
+    REJECTED.delete(key)
+    CACHE.set(key, { at: now, value })
+    return value
+  }
+
+  if (rejected !== undefined) {
+    // Do not cache the invalid placeholder for tokenCacheSeconds: as soon as
+    // the user writes a fresh token to credentials.json or refreshes gh, the
+    // very next call will see a different value and recover immediately.
+    return { token: '', source: 'invalid', login: '', detail: rejected.reason }
+  }
+
   CACHE.set(key, { at: now, value })
   return value
 }
 
 /**
- * Mark the cached token as unusable after GitHub rejected it.
+ * Drop the cached token after GitHub rejected it (401).
  *
- * Without this, an expired token is re-read from every source on every call and
- * fails the same way each time. With it, the next resolveToken() retries the
- * sources once (the user may have just fixed credentials.json) and then falls
- * back to anonymous mode, so reads keep working instead of every tool erroring.
+ * Deleting the cache entry lets a newly rotated token take effect on the very
+ * next call without waiting for tokenCacheSeconds. Recording the specific
+ * rejected token value prevents the exact same dead token from looping 401s
+ * while still allowing anonymous public reads.
  */
-export function invalidateToken(config, reason = '') {
+export function invalidateToken(config, reason = '', badToken = '') {
   const key = cacheKey(config)
-  CACHE.set(key, { at: Date.now(), value: { token: '', source: 'invalid', login: '', detail: reason } })
+  const cached = CACHE.get(key)
+  const rejectedToken = firstText(badToken, cached?.value?.token)
+  CACHE.delete(key)
+  if (rejectedToken !== '') {
+    REJECTED.set(key, { token: rejectedToken, reason })
+  }
 }
 
 /** Drop the cache so the next call re-reads every source. */
 export function clearTokenCache() {
   CACHE.clear()
+  REJECTED.clear()
 }

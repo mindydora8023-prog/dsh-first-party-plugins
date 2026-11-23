@@ -83,10 +83,18 @@ function str(value) {
   return typeof value === 'string' ? value.slice(0, STR_LIMIT) : '';
 }
 
-/** Keep only a trimmed absolute http(s) URL; anything else becomes ''. */
+/** Keep only a trimmed valid absolute http(s) URL with non-empty hostname; anything else becomes ''. */
 function httpUrl(value) {
   const text = typeof value === 'string' ? value.trim().slice(0, STR_LIMIT) : '';
-  return /^https?:\/\/[^\s]+$/i.test(text) ? text : '';
+  if (!text || /\s/.test(text)) return '';
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    if (!parsed.hostname) return '';
+    return text;
+  } catch {
+    return '';
+  }
 }
 
 function objectAt(value) {

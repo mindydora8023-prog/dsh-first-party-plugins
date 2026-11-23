@@ -3,59 +3,157 @@
  *
  * A .docx is a ZIP whose `word/document.xml` holds the body. This module reads
  * only that part and extracts:
- *   - main-body paragraphs, in document order;
- *   - table rows, each rendered as cells separated by " | ".
+ *   - main-body paragraphs, in document order (depth-tracked, skipping mc:Fallback);
+ *   - table rows, each rendered as a Markdown table.
  *
- * It is NOT a full Word layout engine: no styles, headers/footers, footnotes,
- * comments, images, tracked-change resolution, or legacy binary .doc. Those are
- * out of scope and are reported rather than silently ignored where it matters.
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
-import { readZipEntry, looksLikeZip } from './zip.js'
+import { Buffer } from 'node:buffer'
+import { looksLikeZip } from './zip.js'
 import { headingPrefix, markdownTable } from './md.js'
+import { attr, parseRels, readZipText, truncateUtf8, unescapeXml } from './ooxml.js'
 
-const XML_ENTITIES = {
-  '&amp;': '&',
-  '&lt;': '<',
-  '&gt;': '>',
-  '&quot;': '"',
-  '&apos;': "'",
+export { unescapeXml }
+
+/** True when `ch` can terminate an XML tag name. */
+function isTagBoundary(ch) {
+  return ch === '>' || ch === '/' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
 }
 
-/** Map one numeric character reference to a character; out-of-range -> U+FFFD. */
-function codePointChar(codePoint) {
-  return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
-    ? String.fromCodePoint(codePoint)
-    : '\uFFFD'
+/**
+ * Strip all occurrences of a possibly-nested element (such as `mc:Fallback`)
+ * so alternate DrawingML/VML markup is not duplicated.
+ */
+function stripElement(xml, tagName) {
+  const openToken = `<${tagName}`
+  const closeToken = `</${tagName}>`
+  if (!xml.includes(openToken)) return xml
+  let out = ''
+  let pos = 0
+  while (pos < xml.length) {
+    const start = xml.indexOf(openToken, pos)
+    if (start === -1) {
+      out += xml.slice(pos)
+      break
+    }
+    const after = xml[start + openToken.length]
+    if (after !== undefined && !isTagBoundary(after)) {
+      out += xml.slice(pos, start + openToken.length)
+      pos = start + openToken.length
+      continue
+    }
+    out += xml.slice(pos, start)
+    const openEnd = xml.indexOf('>', start)
+    if (openEnd === -1) break
+    if (xml[openEnd - 1] === '/') {
+      pos = openEnd + 1
+      continue
+    }
+    let depth = 1
+    let cur = openEnd + 1
+    while (cur < xml.length && depth > 0) {
+      const nextOpen = xml.indexOf(openToken, cur)
+      const nextClose = xml.indexOf(closeToken, cur)
+      if (nextClose === -1) {
+        cur = xml.length
+        break
+      }
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        const ch = xml[nextOpen + openToken.length]
+        const oe = xml.indexOf('>', nextOpen)
+        if (oe === -1) { cur = xml.length; break }
+        if ((ch === undefined || isTagBoundary(ch)) && xml[oe - 1] !== '/') {
+          depth += 1
+        }
+        cur = oe + 1
+      } else {
+        depth -= 1
+        cur = nextClose + closeToken.length
+      }
+    }
+    pos = cur
+  }
+  return out
 }
 
-/** Decode XML entities, including numeric character references. */
-export function unescapeXml(text) {
-  return text
-    .replace(/&(amp|lt|gt|quot|apos);/g, (m) => XML_ENTITIES[m])
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => codePointChar(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => codePointChar(parseInt(dec, 10)))
+/**
+ * Find the end index (past closing tag) of a balanced XML element whose opening
+ * tag starts at `openStart` (with `openEnd` pointing at its `>`).
+ */
+function findBalancedClose(xml, tagName, openEnd) {
+  const openToken = `<${tagName}`
+  const closeToken = `</${tagName}>`
+  let depth = 1
+  let cur = openEnd + 1
+  while (cur < xml.length && depth > 0) {
+    const nextOpen = xml.indexOf(openToken, cur)
+    const nextClose = xml.indexOf(closeToken, cur)
+    if (nextClose === -1) return { innerEnd: xml.length, afterClose: xml.length }
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      const ch = xml[nextOpen + openToken.length]
+      const oe = xml.indexOf('>', nextOpen)
+      if (oe === -1) return { innerEnd: xml.length, afterClose: xml.length }
+      if ((ch === undefined || isTagBoundary(ch)) && xml[oe - 1] !== '/') {
+        depth += 1
+      }
+      cur = oe + 1
+    } else {
+      depth -= 1
+      if (depth === 0) return { innerEnd: nextClose, afterClose: nextClose + closeToken.length }
+      cur = nextClose + closeToken.length
+    }
+  }
+  return { innerEnd: xml.length, afterClose: xml.length }
+}
+
+/**
+ * Extract top-level balanced occurrences of `tagName` inside `xml`.
+ * @param {string} xml
+ * @param {string} tagName
+ * @returns {string[]} inner XML of each top-level occurrence
+ */
+function extractTopLevelElements(xml, tagName) {
+  const results = []
+  const openToken = `<${tagName}`
+  let pos = 0
+  while (pos < xml.length) {
+    const start = xml.indexOf(openToken, pos)
+    if (start === -1) break
+    const after = xml[start + openToken.length]
+    if (after !== undefined && !isTagBoundary(after)) {
+      pos = start + openToken.length
+      continue
+    }
+    const openEnd = xml.indexOf('>', start)
+    if (openEnd === -1) break
+    if (xml[openEnd - 1] === '/') {
+      pos = openEnd + 1
+      continue
+    }
+    const { innerEnd, afterClose } = findBalancedClose(xml, tagName, openEnd)
+    results.push(xml.slice(openEnd + 1, innerEnd))
+    pos = afterClose
+  }
+  return results
 }
 
 /**
  * Extract the visible text of one `w:p` fragment.
- *
- * Tabs and breaks keep their position. A hyperlink is written as Markdown
- * `[text](url)` when the relationship target is known, which is the form a
- * model can follow without a second pass over document.xml.rels.
+ * Tabs and breaks keep their position; hyperlinks render as `[text](url)`.
  */
 function paragraphText(fragment, links) {
   let out = ''
-  const runRe = /<(w:t)\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>|<w:hyperlink\b([^>]*)>([\s\S]*?)<\/w:hyperlink>/g
+  const runRe = /<(w:t)(?=[\s>])[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>|<w:hyperlink\b([^>]*)>([\s\S]*?)<\/w:hyperlink>/g
   let m
   while ((m = runRe.exec(fragment)) !== null) {
     if (m[1] === 'w:t') out += unescapeXml(m[2])
     else if (m[0].startsWith('<w:tab')) out += '\t'
     else if (m[0].startsWith('<w:br')) out += '\n'
     else {
-      const rid = /r:id="([^"]*)"/.exec(m[3])
+      const rid = attr(m[3], 'r:id')
       const label = paragraphText(m[4], links).replace(/\s+/g, ' ').trim()
-      const href = rid === null ? '' : links.get(rid[1]) ?? ''
+      const href = rid === undefined ? '' : links.get(rid) ?? ''
       if (label === '') continue
       out += href === '' ? label : `[${label}](${href})`
     }
@@ -66,54 +164,42 @@ function paragraphText(fragment, links) {
 /** Map `rId` to a hyperlink target from word/_rels/document.xml.rels. */
 export function parseHyperlinkRels(xml) {
   const links = new Map()
-  if (typeof xml !== 'string' || xml.length === 0) return links
-  const relRe = /<Relationship\b([^>]*?)\/?>/g
-  let m
-  while ((m = relRe.exec(xml)) !== null) {
-    const tag = m[1]
-    if (!/Type="[^"]*\/hyperlink"/.test(tag)) continue
-    const id = /Id="([^"]*)"/.exec(tag)
-    const target = /Target="([^"]*)"/.exec(tag)
-    if (id !== null && target !== null) links.set(id[1], unescapeXml(target[1]))
+  for (const rel of parseRels(xml)) {
+    if (/\/hyperlink$/i.test(rel.type) || rel.type.includes('/hyperlink')) {
+      links.set(rel.id, rel.target)
+    }
   }
   return links
 }
 
-/**
- * Heading level of one paragraph, or 0 when it is body text.
- *
- * Word stores this two ways: an outline level on the paragraph, or a style
- * whose name is `HeadingN` / `heading N`. Both are read; neither invents a
- * level the document did not declare.
- */
+/** Heading level of one paragraph (1..9), or 0 for body text. */
 function headingLevel(fragment) {
-  const outline = /<w:outlineLvl\b[^>]*w:val="(\d+)"/.exec(fragment)
+  const outline = /<w:outlineLvl\b([^>]*?)\/?>/.exec(fragment)
   if (outline !== null) {
-    const level = Number(outline[1]) + 1
-    if (level >= 1 && level <= 9) return level
+    const val = attr(outline[1], 'w:val')
+    const level = Number(val) + 1
+    if (Number.isInteger(level) && level >= 1 && level <= 9) return level
   }
-  const style = /<w:pStyle\b[^>]*w:val="([^"]*)"/.exec(fragment)
+  const style = /<w:pStyle\b([^>]*?)\/?>/.exec(fragment)
   if (style === null) return 0
-  const named = /^heading\s*(\d)$/i.exec(style[1].replace(/([a-z])(\d)/i, '$1 $2'))
+  const val = attr(style[1], 'w:val') ?? ''
+  const named = /^heading\s*(\d)$/i.exec(val.replace(/([a-z])(\d)/i, '$1 $2'))
   if (named === null) return 0
   const level = Number(named[1])
   return level >= 1 && level <= 9 ? level : 0
 }
 
-/** Turn one `w:tbl` fragment into rows of cell strings. */
-function tableRows(fragment, links) {
+/** Turn one top-level `w:tbl` inner XML into rows of cell strings (depth-safe). */
+function tableRows(tblInner, links) {
   const rows = []
-  const trRe = /<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g
-  let tr
-  while ((tr = trRe.exec(fragment)) !== null) {
+  for (const trInner of extractTopLevelElements(tblInner, 'w:tr')) {
     const cells = []
-    const tcRe = /<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g
-    let tc
-    while ((tc = tcRe.exec(tr[1])) !== null) {
+    for (const tcInner of extractTopLevelElements(trInner, 'w:tc')) {
       const paras = []
-      const pRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g
+      // Extract all paragraphs in cell order (including any nested table cells flattened cleanly).
+      const pRe = /<w:p(?=[\s>])[^>]*>([\s\S]*?)<\/w:p>/g
       let p
-      while ((p = pRe.exec(tc[1])) !== null) {
+      while ((p = pRe.exec(tcInner)) !== null) {
         const text = paragraphText(p[1], links)
         if (text.trim() !== '') paras.push(text)
       }
@@ -125,42 +211,73 @@ function tableRows(fragment, links) {
 }
 
 /**
- * Parse `word/document.xml` into ordered blocks.
+ * Parse `word/document.xml` into ordered top-level blocks (paragraphs and tables).
+ * Skips `mc:Fallback` alternate markup and uses depth-tracked `<w:tbl>`/`<w:p>` scanning.
+ *
  * @param {string} xml
  * @param {Map<string,string>} [links] hyperlink rId -> target
  * @returns {Array<{kind:'para', text:string, level:number} | {kind:'table', rows:string[][]}>}
  */
 export function parseDocumentXml(xml, links = new Map()) {
-  // Isolate the body so headers/footers or settings that share tags do not leak in.
-  const bodyStart = xml.indexOf('<w:body')
-  const body = bodyStart >= 0 ? xml.slice(bodyStart) : xml
-  const blocks = []
-  // Split on tables; text between them is paragraph territory.
-  const tblRe = /<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>/g
-  let last = 0
-  let t
-  const flushParagraphs = (segment) => {
-    const pRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g
-    let p
-    while ((p = pRe.exec(segment)) !== null) {
-      const text = paragraphText(p[1], links)
-      if (text.trim() === '') continue
-      blocks.push({ kind: 'para', text, level: headingLevel(p[1]) })
+  const clean = stripElement(String(xml ?? ''), 'mc:Fallback')
+  const bodyStart = clean.indexOf('<w:body')
+  let body = clean
+  if (bodyStart >= 0) {
+    const openEnd = clean.indexOf('>', bodyStart)
+    if (openEnd >= 0) {
+      const bodyEnd = clean.indexOf('</w:body>', openEnd + 1)
+      body = bodyEnd >= 0 ? clean.slice(openEnd + 1, bodyEnd) : clean.slice(openEnd + 1)
     }
   }
-  while ((t = tblRe.exec(body)) !== null) {
-    flushParagraphs(body.slice(last, t.index))
-    blocks.push({ kind: 'table', rows: tableRows(t[0], links) })
-    last = t.index + t[0].length
+
+  const blocks = []
+  let pos = 0
+  while (pos < body.length) {
+    const nextTbl = body.indexOf('<w:tbl', pos)
+    const nextP = body.indexOf('<w:p', pos)
+    if (nextTbl === -1 && nextP === -1) break
+
+    let tagName
+    let start
+    if (nextTbl !== -1 && (nextP === -1 || nextTbl < nextP)) {
+      tagName = 'w:tbl'
+      start = nextTbl
+    } else {
+      tagName = 'w:p'
+      start = nextP
+    }
+
+    const after = body[start + tagName.length + 1]
+    if (after !== undefined && !isTagBoundary(after)) {
+      pos = start + tagName.length + 1
+      continue
+    }
+    const openEnd = body.indexOf('>', start)
+    if (openEnd === -1) break
+    if (body[openEnd - 1] === '/') {
+      pos = openEnd + 1
+      continue
+    }
+
+    const { innerEnd, afterClose } = findBalancedClose(body, tagName, openEnd)
+    const inner = body.slice(openEnd + 1, innerEnd)
+    if (tagName === 'w:tbl') {
+      blocks.push({ kind: 'table', rows: tableRows(inner, links) })
+    } else {
+      const text = paragraphText(inner, links)
+      if (text.trim() !== '') {
+        blocks.push({ kind: 'para', text, level: headingLevel(inner) })
+      }
+    }
+    pos = afterClose
   }
-  flushParagraphs(body.slice(last))
   return blocks
 }
 
 /**
  * Read a DOCX buffer into a bounded, model-facing text window.
  * @param {Buffer} buffer
- * @param {{offset:number, limit:number, hasHeader?:boolean, maxCellLength?:number, maxBytes?:number}} req
+ * @param {{offset:number, limit:number, hasHeader?:boolean, maxCellLength?:number, maxBytes?:number, scanMaxBytes?:number}} req
  *   `offset`/`limit` count output blocks (a paragraph is one block; a table is one block).
  * @returns {{text:string, returned:number, totalBlocks:number, truncatedByBytes:boolean, warnings:string[]}}
  */
@@ -172,21 +289,18 @@ export function readDocx(buffer, req) {
         + 'convert to .docx first.',
     )
   }
-  let xmlBuf
+  const zipOpts = req.scanMaxBytes !== undefined ? { maxBytes: req.scanMaxBytes } : {}
+  let xmlStr
   try {
-    xmlBuf = readZipEntry(buffer, 'word/document.xml')
+    xmlStr = readZipText(buffer, 'word/document.xml', zipOpts)
   } catch (error) {
     throw new Error(`not a readable DOCX: ${error?.message ?? String(error)}`)
   }
   let blocks
   try {
-    let links = new Map()
-    try {
-      links = parseHyperlinkRels(readZipEntry(buffer, 'word/_rels/document.xml.rels').toString('utf8'))
-    } catch {
-      links = new Map()
-    }
-    blocks = parseDocumentXml(xmlBuf.toString('utf8'), links)
+    const relsStr = readZipText(buffer, 'word/_rels/document.xml.rels', { ...zipOpts, optional: true })
+    const links = relsStr !== null ? parseHyperlinkRels(relsStr) : new Map()
+    blocks = parseDocumentXml(xmlStr, links)
   } catch (error) {
     throw new Error(`not a readable DOCX: ${error?.message ?? String(error)}`)
   }
@@ -208,10 +322,20 @@ export function readDocx(buffer, req) {
     } else {
       rendered = markdownTable(block.rows, maxCellLength)
     }
-    const size = Buffer.byteLength(rendered, 'utf8') + 1
-    if (bytes + size > maxBytes) { truncatedByBytes = true; break }
+    const size = Buffer.byteLength(rendered, 'utf8') + 2
+    if (bytes + size > maxBytes) {
+      if (returned === 0) {
+        // Never return 0 blocks when at least one block exists (prevents infinite pagination loops).
+        const notice = '\n... (block truncated to fit output cap)'
+        const budget = Math.max(64, maxBytes - bytes - Buffer.byteLength(notice, 'utf8') - 16)
+        lines.push(`${truncateUtf8(rendered, budget)}${notice}`)
+        returned += 1
+      }
+      truncatedByBytes = true
+      break
+    }
     bytes += size
-    lines.push(block.kind === 'para' ? rendered : rendered)
+    lines.push(rendered)
     returned += 1
   }
   const lastBlock = start + returned

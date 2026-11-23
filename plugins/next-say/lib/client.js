@@ -1,16 +1,9 @@
 /**
  * Browser half of dsh-plugin-next-say.
  *
- * Registers ONE headless entry into `conversation.input.overlay` -- the slot that
- * renders INSIDE the composer card -- plus a page in Settings. The entry draws no
- * element of its own: it paints ghost text over the editor (lib/ghost.js) and
- * keeps the Tab/Escape handling, which goes through the composer's own
- * `insertText` so a concurrent edit can never be overwritten. Tab accepts the
- * whole remainder; Ctrl/Cmd+Right accepts only the next word (Copilot / Continue).
- *
- * Built file. Edit `client/client.template.js` and run tools/build-client.py;
- * `lib/locales.js`, `lib/match.js` and `lib/ghost.js` are inlined there so there
- * is exactly one copy of each in the plugin.
+ * Built by `node ../tools/build-client.mjs next-say` from `client/bundle.json`.
+ * Do not edit `lib/client.js` by hand; edit the modular sources under `client/`
+ * and `lib/`.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-plugin-next-say',
@@ -24,162 +17,244 @@ window.__ModuleLoader__.load({
     /** API prefix served by the Host half. */
     const API = '/next-say';
 
-        const zh = {
-      "title": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      "idle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      "tab": "Tab",
-      "accept": "\u91c7\u7eb3",
-      "reroll": "\u6362\u4e00\u6761",
-      "dismiss": "\u5ffd\u7565",
-      "thinking": "\u6b63\u5728\u60f3\u4e0b\u4e00\u53e5\u2026",
-      "manual": "\u9884\u6d4b",
-      "manualPredict": "\u9884\u6d4b\u4e0b\u4e00\u53e5",
-      "manualHint": "\u70b9\u51fb\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u5efa\u8bae\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
-      "manualReady": "\u5efa\u8bae\u5df2\u663e\u793a\u5728\u8f93\u5165\u6846\uff1bTab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u53d1\u9001\u3002",
-      "manualPaused": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u6682\u505c\u7ed3\u675f\u540e\u53ef\u7ee7\u7eed\u3002",
-      "manualInputBusy": "\u8f93\u5165\u6846\u6b63\u5728\u5904\u7406\u6d88\u606f\u6216\u547d\u4ee4\uff0c\u8bf7\u7a0d\u5019\u3002",
-      "manualRunning": "\u7b49\u5f85\u5f53\u524d\u56de\u5408\u7ed3\u675f\u540e\u518d\u9884\u6d4b\u3002",
-      "manualDraft": "\u6e05\u7a7a\u8349\u7a3f\u540e\u53ef\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u8f93\u5165\u65f6\u4f7f\u7528\u5386\u53f2\u8865\u5168\u3002",
-      "manualNoResult": "\u8fd9\u6b21\u6ca1\u6709\u751f\u6210\u65b0\u7684\u5efa\u8bae\uff0c\u53ef\u4ee5\u518d\u6b21\u9884\u6d4b\u3002",
-      "manualNoRoute": "\u5148\u5728\u4f1a\u8bdd\u91cc\u5b8c\u6210\u4e00\u8f6e\uff0c\u6216\u5728\u8bbe\u7f6e\u4e2d\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\u3002",
-      "manualDisabled": "\u4e0b\u4e00\u53e5\u5efa\u8bae\u5df2\u5173\u95ed\u3002",
-      "noHistory": "\u8fd8\u6ca1\u6709\u53ef\u53c2\u8003\u7684\u5bf9\u8bdd\uff0c\u8bf7\u5148\u53d1\u9001\u4e00\u6761\u6d88\u606f\u3002",
-      "timeout": "\u9884\u6d4b\u8d85\u65f6\uff0c\u53ef\u4ee5\u624b\u52a8\u91cd\u8bd5\u3002",
-      "manualBusy": "\u9884\u6d4b\u4e2d\u2026",
-      "paused": "\u5df2\u6682\u505c",
-      "pausedHint": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
-      "empty": "\u6682\u65e0\u5efa\u8bae",
-      "failed": "\u6ca1\u9884\u6d4b\u51fa\u6765",
-      "hintTab": "Tab \u586b\u5165\u6574\u53e5\uff1bCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff1b\u90fd\u4e0d\u4f1a\u53d1\u9001",
-      "tabAccept": "Tab \u91c7\u7eb3",
-      "settingsNav": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      "settingsTitle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
-      "settingsIntro": "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u6253\u5b57\u4ecd\u662f\u9884\u6d4b\u5f00\u5934\u65f6\u7070\u5b57\u4f1a\u8ddf\u7740\u8d70\u3002Tab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
-      "settingsEnabled": "\u542f\u7528\u5efa\u8bae",
-      "settingsEnabledHint": "\u5173\u95ed\u540e\u65e2\u4e0d\u518d\u9884\u6d4b\uff0c\u4e5f\u4e0d\u518d\u663e\u793a\u5386\u53f2\u8865\u5168\u3002",
-      "settingsMode": "\u9884\u6d4b\u65f6\u673a",
-      "settingsModeHint": "\u81ea\u52a8\uff1a\u6bcf\u8f6e\u56de\u7b54\u7ed3\u675f\u540e\u9884\u6d4b\uff0c\u5931\u8d25\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\u3002\u624b\u52a8\uff1a\u70b9\u51fb\u8f93\u5165\u6846\u4e0b\u65b9\u7684\u300c\u9884\u6d4b\u4e0b\u4e00\u53e5\u300d\u624d\u8c03\u7528\u6a21\u578b\u3002\u6bcf\u6b21\u8c03\u7528\u90fd\u53ef\u80fd\u8ba1\u8d39\u3002",
-      "settingsModeAuto": "\u81ea\u52a8",
-      "settingsModeManual": "\u4ec5\u624b\u52a8",
-      "settingsMaxChars": "\u5efa\u8bae\u5b57\u6570\u4e0a\u9650",
-      "settingsMaxCharsHint": "\u5efa\u8bae\u6700\u957f\u591a\u5c11\u4e2a\u5b57\u7b26\u3002\u4e2d\u6587\u6309\u5b57\uff0c\u82f1\u6587\u6309\u5b57\u7b26\u3002",
-      "settingsContextMessages": "\u53c2\u8003\u6d88\u606f\u6761\u6570",
-      "settingsContextMessagesHint": "\u9884\u6d4b\u65f6\u6700\u591a\u8bfb\u53d6\u6700\u8fd1\u591a\u5c11\u6761\u6d88\u606f\u3002",
-      "settingsContextChars": "\u4e0a\u4e0b\u6587\u9884\u7b97",
-      "settingsContextCharsHint": "\u8fd9\u4e9b\u6d88\u606f\u5408\u8ba1\u6700\u591a\u591a\u5c11\u4e2a\u5b57\u7b26\u3002",
-      "settingsTimeout": "\u8d85\u65f6\uff08\u6beb\u79d2\uff09",
-      "settingsTimeoutHint": "\u8d85\u65f6\u540e\u505c\u6b62\u7b49\u5f85\u5e76\u4e22\u5f03\u8fdf\u5230\u7ed3\u679c\u3002\u81ea\u52a8\u6a21\u5f0f\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\uff1b\u624b\u52a8\u6a21\u5f0f\u663e\u793a\u539f\u56e0\uff0c\u7531\u4f60\u518d\u6b21\u70b9\u51fb\u3002",
-      "settingsHistory": "\u5386\u53f2\u524d\u7f00\u8865\u5168",
-      "settingsHistoryHint": "\u8f93\u5165\u65f6\u7528\u672c\u4f1a\u8bdd\u5df2\u53d1\u8fc7\u7684\u6d88\u606f\u505a\u7070\u5b57\u8865\u5168\uff0c\u4e0d\u4ea7\u751f\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u3002",
-      "settingsHistoryMinChars": "\u6700\u5c11\u8f93\u5165\u5b57\u6570",
-      "settingsHistoryMinCharsHint": "\u8f93\u5165\u5230\u8fd9\u4e48\u591a\u4e2a\u5b57\u624d\u5f00\u59cb\u8865\u5168\u3002",
-      "settingsProvider": "\u9884\u6d4b\u670d\u52a1\u5546",
-      "settingsProviderHint": "\u9ed8\u8ba4\u4f7f\u7528\u5f53\u524d\u4f1a\u8bdd\u4e0a\u6b21\u8c03\u7528\u7684\u6a21\u578b\u3002\u8981\u5355\u72ec\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\uff0c\u8bf7\u586b\u5199\u670d\u52a1\u5546 ID \u548c\u6a21\u578b ID\u3002",
-      "settingsSaveRoute": "\u4fdd\u5b58\u9884\u6d4b\u6a21\u578b",
-      "settingsRouteHint": "\u4e24\u9879\u540c\u65f6\u7559\u7a7a\u5e76\u4fdd\u5b58\uff0c\u5373\u53ef\u6062\u590d\u8ddf\u968f\u4f1a\u8bdd\u3002",
-      "settingsRouteIncomplete": "\u8bf7\u540c\u65f6\u586b\u5199\u6216\u6e05\u7a7a\u670d\u52a1\u5546\u548c\u6a21\u578b\u3002",
-      "settingsInherit": "\u8ddf\u968f\u4f1a\u8bdd",
-      "settingsModel": "\u9884\u6d4b\u6a21\u578b",
-      "settingsModelHint": "\u586b\u5199\u8981\u5355\u72ec\u7528\u4e8e\u9884\u6d4b\u7684\u6a21\u578b ID\u3002",
-      "settingsPause": "\u6682\u505c\u5341\u5206\u949f",
-      "settingsPauseHint": "\u6682\u505c\u671f\u95f4\u4e0d\u53d1\u8d77\u4efb\u4f55\u9884\u6d4b\u8c03\u7528\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
-      "settingsResume": "\u6062\u590d\u9884\u6d4b",
-      "settingsResumeHint": "\u5f53\u524d\u5904\u4e8e\u6682\u505c\u72b6\u6001\uff0c\u70b9\u6b64\u7acb\u5373\u6062\u590d\u3002",
-      "settingsReset": "\u6062\u590d\u9ed8\u8ba4",
-      "settingsResetHint": "\u628a\u6240\u6709\u8bbe\u7f6e\u6062\u590d\u4e3a\u9ed8\u8ba4\u503c\u3002",
-      "settingsSave": "\u4fdd\u5b58",
-      "settingsUnsaved": "\u6709\u672a\u4fdd\u5b58\u7684\u7f16\u8f91",
-      "settingsUncertain": "\u4fdd\u5b58\u7ed3\u679c\u5f85\u6838\u5bf9\uff1b\u540e\u7eed\u4fdd\u5b58\u5df2\u6682\u505c\u3002\u8bf7\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e\u540e\u518d\u64cd\u4f5c\u3002",
-      "settingsReload": "\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e",
-      "settingsReloading": "\u6b63\u5728\u8bfb\u53d6\u8bbe\u7f6e\u2026",
-      "settingsEditHint": "\u6570\u503c\u7f16\u8f91\u5b8c\u6210\u540e\u79fb\u5f00\u7126\u70b9\u6216\u6309 Enter \u4fdd\u5b58\uff1bEsc \u64a4\u9500\u3002\u9884\u6d4b\u670d\u52a1\u5546\u548c\u6a21\u578b\u4f7f\u7528\u4e0b\u65b9\u6309\u94ae\u4e00\u8d77\u4fdd\u5b58\u3002",
-      "settingsSaved": "\u5df2\u4fdd\u5b58",
-      "settingsSaving": "\u6b63\u5728\u4fdd\u5b58\u2026",
-      "settingsFailed": "\u4fdd\u5b58\u5931\u8d25",
-      "settingsLoadFailed": "\u8bfb\u53d6\u8bbe\u7f6e\u5931\u8d25\uff0c\u5f53\u524d\u663e\u793a\u7684\u662f\u9ed8\u8ba4\u503c\u3002",
-      "costWarning": "\u6bcf\u6b21\u81ea\u52a8\u9884\u6d4b\u90fd\u662f\u4e00\u6b21\u771f\u5b9e\u8ba1\u8d39\u7684\u6a21\u578b\u8c03\u7528\u3002",
-      "never": "\u4ece\u4e0d",
+        // Generated by tools/build-client.mjs from client/locales.json. Do not edit by hand.
+    // Pure ASCII: non-ASCII characters are \uXXXX escaped.
+    const LOCALES = {
+      "zh": {
+        "title": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+        "idle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+        "tab": "Tab",
+        "accept": "\u91c7\u7eb3",
+        "reroll": "\u6362\u4e00\u6761",
+        "dismiss": "\u5ffd\u7565",
+        "thinking": "\u6b63\u5728\u60f3\u4e0b\u4e00\u53e5\u2026",
+        "manual": "\u9884\u6d4b",
+        "manualPredict": "\u9884\u6d4b\u4e0b\u4e00\u53e5",
+        "manualHint": "\u70b9\u51fb\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u5efa\u8bae\u53ea\u586b\u5165\u8349\u7a3f\uff0c\u4e0d\u4f1a\u53d1\u9001\u3002",
+        "manualReady": "\u5efa\u8bae\u5df2\u663e\u793a\u5728\u8f93\u5165\u6846\uff1bTab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u53d1\u9001\u3002",
+        "manualPaused": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u6682\u505c\u7ed3\u675f\u540e\u53ef\u7ee7\u7eed\u3002",
+        "manualBudget": "\u5df2\u8fbe\u5230\u4eca\u65e5\u9884\u6d4b\u8c03\u7528\u4e0a\u9650\uff0c\u660e\u5929\uff08UTC\uff09\u81ea\u52a8\u6062\u590d\u6216\u53ef\u5728\u8bbe\u7f6e\u4e2d\u8c03\u9ad8\u4e0a\u9650\u3002",
+        "manualInputBusy": "\u8f93\u5165\u6846\u6b63\u5728\u5904\u7406\u6d88\u606f\u6216\u547d\u4ee4\uff0c\u8bf7\u7a0d\u5019\u3002",
+        "manualRunning": "\u7b49\u5f85\u5f53\u524d\u56de\u5408\u7ed3\u675f\u540e\u518d\u9884\u6d4b\u3002",
+        "manualDraft": "\u6e05\u7a7a\u8349\u7a3f\u540e\u53ef\u9884\u6d4b\u4e0b\u4e00\u53e5\uff1b\u8f93\u5165\u65f6\u4f7f\u7528\u5386\u53f2\u8865\u5168\u3002",
+        "manualNoResult": "\u8fd9\u6b21\u6ca1\u6709\u751f\u6210\u65b0\u7684\u5efa\u8bae\uff0c\u53ef\u4ee5\u518d\u6b21\u9884\u6d4b\u3002",
+        "manualNoRoute": "\u5148\u5728\u4f1a\u8bdd\u91cc\u5b8c\u6210\u4e00\u8f6e\uff0c\u6216\u5728\u8bbe\u7f6e\u4e2d\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\u3002",
+        "manualDisabled": "\u4e0b\u4e00\u53e5\u5efa\u8bae\u5df2\u5173\u95ed\u3002",
+        "noHistory": "\u8fd8\u6ca1\u6709\u53ef\u53c2\u8003\u7684\u5bf9\u8bdd\uff0c\u8bf7\u5148\u53d1\u9001\u4e00\u6761\u6d88\u606f\u3002",
+        "timeout": "\u9884\u6d4b\u8d85\u65f6\uff0c\u53ef\u4ee5\u624b\u52a8\u91cd\u8bd5\u3002",
+        "manualBusy": "\u9884\u6d4b\u4e2d\u2026",
+        "paused": "\u5df2\u6682\u505c",
+        "pausedHint": "\u9884\u6d4b\u5df2\u6682\u505c\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
+        "empty": "\u6682\u65e0\u5efa\u8bae",
+        "failed": "\u6ca1\u9884\u6d4b\u51fa\u6765",
+        "hintTab": "Tab \u586b\u5165\u6574\u53e5\uff1bCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff1b\u90fd\u4e0d\u4f1a\u53d1\u9001",
+        "tabAccept": "Tab \u91c7\u7eb3",
+        "settingsNav": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+        "settingsTitle": "\u4e0b\u4e00\u53e5\u5efa\u8bae",
+        "settingsIntro": "\u56de\u5408\u7ed3\u675f\u540e\u9884\u6d4b\u4f60\u7684\u4e0b\u4e00\u53e5\u8bdd\uff1b\u8f93\u5165\u8349\u7a3f\u65f6\u7528\u672c\u5730\u5386\u53f2\u505a\u524d\u7f00\u8865\u5168\u3002\u6253\u5b57\u4ecd\u662f\u9884\u6d4b\u5f00\u5934\u65f6\u7070\u5b57\u4f1a\u8ddf\u7740\u8d70\u3002Tab \u586b\u5165\u6574\u53e5\uff0cCtrl+\u53f3\u65b9\u5411\u952e\u53ea\u586b\u4e0b\u4e00\u4e2a\u8bcd\uff0c\u90fd\u4e0d\u4f1a\u81ea\u52a8\u53d1\u9001\u3002",
+        "settingsEnabled": "\u542f\u7528\u5efa\u8bae",
+        "settingsEnabledHint": "\u5173\u95ed\u540e\u65e2\u4e0d\u518d\u9884\u6d4b\uff0c\u4e5f\u4e0d\u518d\u663e\u793a\u5386\u53f2\u8865\u5168\u3002",
+        "settingsMode": "\u9884\u6d4b\u65f6\u673a",
+        "settingsModeHint": "\u81ea\u52a8\uff1a\u6bcf\u8f6e\u56de\u7b54\u7ed3\u675f\u540e\u9884\u6d4b\uff0c\u5931\u8d25\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\u3002\u624b\u52a8\uff1a\u70b9\u51fb\u8f93\u5165\u6846\u4e0b\u65b9\u7684\u300c\u9884\u6d4b\u4e0b\u4e00\u53e5\u300d\u624d\u8c03\u7528\u6a21\u578b\u3002\u6bcf\u6b21\u8c03\u7528\u90fd\u53ef\u80fd\u8ba1\u8d39\u3002",
+        "settingsModeAuto": "\u81ea\u52a8",
+        "settingsModeManual": "\u4ec5\u624b\u52a8",
+        "settingsMaxChars": "\u5efa\u8bae\u5b57\u6570\u4e0a\u9650",
+        "settingsMaxCharsHint": "\u5efa\u8bae\u6700\u957f\u591a\u5c11\u4e2a\u5b57\u7b26\u3002\u4e2d\u6587\u6309\u5b57\uff0c\u82f1\u6587\u6309\u5b57\u7b26\u3002",
+        "settingsContextMessages": "\u53c2\u8003\u6d88\u606f\u6761\u6570",
+        "settingsContextMessagesHint": "\u9884\u6d4b\u65f6\u6700\u591a\u8bfb\u53d6\u6700\u8fd1\u591a\u5c11\u6761\u6d88\u606f\u3002",
+        "settingsContextChars": "\u4e0a\u4e0b\u6587\u9884\u7b97",
+        "settingsContextCharsHint": "\u8fd9\u4e9b\u6d88\u606f\u5408\u8ba1\u6700\u591a\u591a\u5c11\u4e2a\u5b57\u7b26\u3002",
+        "settingsTimeout": "\u8d85\u65f6\uff08\u6beb\u79d2\uff09",
+        "settingsTimeoutHint": "\u8d85\u65f6\u540e\u505c\u6b62\u7b49\u5f85\u5e76\u4e22\u5f03\u8fdf\u5230\u7ed3\u679c\u3002\u81ea\u52a8\u6a21\u5f0f\u6700\u591a\u91cd\u8bd5\u4e00\u6b21\uff1b\u624b\u52a8\u6a21\u5f0f\u663e\u793a\u539f\u56e0\uff0c\u7531\u4f60\u518d\u6b21\u70b9\u51fb\u3002",
+        "settingsHistory": "\u5386\u53f2\u524d\u7f00\u8865\u5168",
+        "settingsHistoryHint": "\u8f93\u5165\u65f6\u7528\u672c\u4f1a\u8bdd\u5df2\u53d1\u8fc7\u7684\u6d88\u606f\u505a\u7070\u5b57\u8865\u5168\uff0c\u4e0d\u4ea7\u751f\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u3002",
+        "settingsHistoryMinChars": "\u6700\u5c11\u8f93\u5165\u5b57\u6570",
+        "settingsHistoryMinCharsHint": "\u8f93\u5165\u5230\u8fd9\u4e48\u591a\u4e2a\u5b57\u624d\u5f00\u59cb\u8865\u5168\u3002",
+        "settingsProvider": "\u9884\u6d4b\u670d\u52a1\u5546",
+        "settingsProviderHint": "\u9ed8\u8ba4\u4f7f\u7528\u5f53\u524d\u4f1a\u8bdd\u4e0a\u6b21\u8c03\u7528\u7684\u6a21\u578b\u3002\u8981\u5355\u72ec\u6307\u5b9a\u9884\u6d4b\u6a21\u578b\uff0c\u8bf7\u586b\u5199\u670d\u52a1\u5546 ID \u548c\u6a21\u578b ID\u3002",
+        "settingsSaveRoute": "\u4fdd\u5b58\u9884\u6d4b\u6a21\u578b",
+        "settingsRouteHint": "\u4e24\u9879\u540c\u65f6\u7559\u7a7a\u5e76\u4fdd\u5b58\uff0c\u5373\u53ef\u6062\u590d\u8ddf\u968f\u4f1a\u8bdd\u3002",
+        "settingsRouteIncomplete": "\u8bf7\u540c\u65f6\u586b\u5199\u6216\u6e05\u7a7a\u670d\u52a1\u5546\u548c\u6a21\u578b\u3002",
+        "settingsInherit": "\u8ddf\u968f\u4f1a\u8bdd",
+        "settingsModel": "\u9884\u6d4b\u6a21\u578b",
+        "settingsModelHint": "\u586b\u5199\u8981\u5355\u72ec\u7528\u4e8e\u9884\u6d4b\u7684\u6a21\u578b ID\u3002",
+        "settingsPause": "\u6682\u505c\u5341\u5206\u949f",
+        "settingsPauseHint": "\u6682\u505c\u671f\u95f4\u4e0d\u53d1\u8d77\u4efb\u4f55\u9884\u6d4b\u8c03\u7528\uff0c\u5230\u70b9\u81ea\u52a8\u6062\u590d\u3002",
+        "settingsResume": "\u6062\u590d\u9884\u6d4b",
+        "settingsResumeHint": "\u5f53\u524d\u5904\u4e8e\u6682\u505c\u72b6\u6001\uff0c\u70b9\u6b64\u7acb\u5373\u6062\u590d\u3002",
+        "settingsReset": "\u6062\u590d\u9ed8\u8ba4",
+        "settingsResetHint": "\u628a\u6240\u6709\u8bbe\u7f6e\u6062\u590d\u4e3a\u9ed8\u8ba4\u503c\u3002",
+        "settingsSave": "\u4fdd\u5b58",
+        "settingsUnsaved": "\u6709\u672a\u4fdd\u5b58\u7684\u7f16\u8f91",
+        "settingsUncertain": "\u4fdd\u5b58\u7ed3\u679c\u5f85\u6838\u5bf9\uff1b\u540e\u7eed\u4fdd\u5b58\u5df2\u6682\u505c\u3002\u8bf7\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e\u540e\u518d\u64cd\u4f5c\u3002",
+        "settingsReload": "\u91cd\u65b0\u8bfb\u53d6\u8bbe\u7f6e",
+        "settingsReloading": "\u6b63\u5728\u8bfb\u53d6\u8bbe\u7f6e\u2026",
+        "settingsEditHint": "\u6570\u503c\u7f16\u8f91\u5b8c\u6210\u540e\u79fb\u5f00\u7126\u70b9\u6216\u6309 Enter \u4fdd\u5b58\uff1bEsc \u64a4\u9500\u3002\u9884\u6d4b\u670d\u52a1\u5546\u548c\u6a21\u578b\u4f7f\u7528\u4e0b\u65b9\u6309\u94ae\u4e00\u8d77\u4fdd\u5b58\u3002",
+        "settingsSaved": "\u5df2\u4fdd\u5b58",
+        "settingsSaving": "\u6b63\u5728\u4fdd\u5b58\u2026",
+        "settingsFailed": "\u4fdd\u5b58\u5931\u8d25",
+        "settingsLoadFailed": "\u8bfb\u53d6\u8bbe\u7f6e\u5931\u8d25\uff0c\u5f53\u524d\u663e\u793a\u7684\u662f\u9ed8\u8ba4\u503c\u3002",
+        "costWarning": "\u6bcf\u6b21\u81ea\u52a8\u9884\u6d4b\u90fd\u662f\u4e00\u6b21\u771f\u5b9e\u8ba1\u8d39\u7684\u6a21\u578b\u8c03\u7528\u3002",
+        "never": "\u4ece\u4e0d",
+      },
+      "en": {
+        "title": "Next-say suggestions",
+        "idle": "Next-say",
+        "tab": "Tab",
+        "accept": "Accept",
+        "reroll": "Another",
+        "dismiss": "Dismiss",
+        "thinking": "Thinking of your next message\u2026",
+        "manual": "Predict",
+        "manualPredict": "Predict next message",
+        "manualHint": "Predict your next message. Suggestions only fill the draft; they never send.",
+        "manualReady": "Suggestion shown in the editor. Tab fills all of it; Ctrl/Cmd+Right fills the next word. Neither sends.",
+        "manualPaused": "Predictions are paused until the pause expires.",
+        "manualBudget": "Daily prediction call limit reached. Resets at UTC midnight or raise the limit in settings.",
+        "manualInputBusy": "The editor is processing a message or command. Please wait.",
+        "manualRunning": "Wait for the current turn to finish before predicting.",
+        "manualDraft": "Clear the draft to predict. Typing uses history completion.",
+        "manualNoResult": "No new suggestion this time. You can predict again.",
+        "manualNoRoute": "Finish a turn in this session or choose a prediction model in settings.",
+        "manualDisabled": "Next-say suggestions are disabled.",
+        "noHistory": "No conversation to reference yet. Send a message first.",
+        "timeout": "The prediction timed out. You can retry manually.",
+        "manualBusy": "Predicting\u2026",
+        "paused": "Paused",
+        "pausedHint": "Predictions are paused and resume automatically.",
+        "empty": "No suggestion yet",
+        "failed": "Could not predict",
+        "hintTab": "Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word; neither sends",
+        "tabAccept": "Tab accept",
+        "settingsNav": "Next-say",
+        "settingsTitle": "Next-say suggestions",
+        "settingsIntro": "Predicts your next message after each finished turn, and completes a draft from local history. Typing a matching prefix keeps the rest visible. Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word. Neither sends.",
+        "settingsEnabled": "Enable suggestions",
+        "settingsEnabledHint": "Turning this off stops both model predictions and history completion.",
+        "settingsMode": "When to predict",
+        "settingsModeHint": "Auto predicts after a finished turn, with at most one retry after failure. Manual calls the model only when you click Predict next message below the editor. Each call may be billed.",
+        "settingsModeAuto": "Automatic",
+        "settingsModeManual": "Manual only",
+        "settingsMaxChars": "Suggestion length",
+        "settingsMaxCharsHint": "Longest suggested message, in characters.",
+        "settingsContextMessages": "Messages considered",
+        "settingsContextMessagesHint": "How many recent messages a prediction may read.",
+        "settingsContextChars": "Context budget",
+        "settingsContextCharsHint": "Character cap across those messages.",
+        "settingsTimeout": "Timeout (ms)",
+        "settingsTimeoutHint": "A timeout stops waiting and discards late results. Auto mode retries at most once; manual mode shows the reason and waits for another click.",
+        "settingsHistory": "History completion",
+        "settingsHistoryHint": "Completes from messages already sent in this conversation. Makes no model call.",
+        "settingsHistoryMinChars": "Minimum draft length",
+        "settingsHistoryMinCharsHint": "How many characters to type before completion starts.",
+        "settingsProvider": "Prediction provider",
+        "settingsProviderHint": "Predictions use the model last called in this session. Enter both IDs to choose a separate model.",
+        "settingsSaveRoute": "Save prediction model",
+        "settingsRouteHint": "Clear both fields and save to follow the session model again.",
+        "settingsRouteIncomplete": "Fill in both fields or clear them both.",
+        "settingsInherit": "Follow session",
+        "settingsModel": "Prediction model",
+        "settingsModelHint": "Enter the ID of the model to use for predictions.",
+        "settingsPause": "Pause for ten minutes",
+        "settingsPauseHint": "No prediction call is made while paused; it resumes automatically.",
+        "settingsResume": "Resume predictions",
+        "settingsResumeHint": "Predictions are paused right now; press to resume immediately.",
+        "settingsReset": "Reset to defaults",
+        "settingsResetHint": "Restore every setting to its default value.",
+        "settingsSave": "Save",
+        "settingsUnsaved": "Unsaved edits",
+        "settingsUncertain": "The save outcome needs checking. Further saves are paused; reload the settings before continuing.",
+        "settingsReload": "Reload settings",
+        "settingsReloading": "Reading settings...",
+        "settingsEditHint": "Finish numeric edits by leaving the field or pressing Enter; Escape cancels. Save the prediction provider and model together with the button below.",
+        "settingsSaved": "Saved",
+        "settingsSaving": "Saving\u2026",
+        "settingsFailed": "Could not save",
+        "settingsLoadFailed": "Could not read the settings; showing defaults.",
+        "costWarning": "Every automatic prediction is a real, billed model call.",
+        "never": "Never",
+      },
     };
 
-    const en = {
-      "title": "Next-say suggestions",
-      "idle": "Next-say",
-      "tab": "Tab",
-      "accept": "Accept",
-      "reroll": "Another",
-      "dismiss": "Dismiss",
-      "thinking": "Thinking of your next message\u2026",
-      "manual": "Predict",
-      "manualPredict": "Predict next message",
-      "manualHint": "Predict your next message. Suggestions only fill the draft; they never send.",
-      "manualReady": "Suggestion shown in the editor. Tab fills all of it; Ctrl/Cmd+Right fills the next word. Neither sends.",
-      "manualPaused": "Predictions are paused until the pause expires.",
-      "manualInputBusy": "The editor is processing a message or command. Please wait.",
-      "manualRunning": "Wait for the current turn to finish before predicting.",
-      "manualDraft": "Clear the draft to predict. Typing uses history completion.",
-      "manualNoResult": "No new suggestion this time. You can predict again.",
-      "manualNoRoute": "Finish a turn in this session or choose a prediction model in settings.",
-      "manualDisabled": "Next-say suggestions are disabled.",
-      "noHistory": "No conversation to reference yet. Send a message first.",
-      "timeout": "The prediction timed out. You can retry manually.",
-      "manualBusy": "Predicting\u2026",
-      "paused": "Paused",
-      "pausedHint": "Predictions are paused and resume automatically.",
-      "empty": "No suggestion yet",
-      "failed": "Could not predict",
-      "hintTab": "Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word; neither sends",
-      "tabAccept": "Tab accept",
-      "settingsNav": "Next-say",
-      "settingsTitle": "Next-say suggestions",
-      "settingsIntro": "Predicts your next message after each finished turn, and completes a draft from local history. Typing a matching prefix keeps the rest visible. Tab fills the whole suggestion; Ctrl/Cmd+Right fills the next word. Neither sends.",
-      "settingsEnabled": "Enable suggestions",
-      "settingsEnabledHint": "Turning this off stops both model predictions and history completion.",
-      "settingsMode": "When to predict",
-      "settingsModeHint": "Auto predicts after a finished turn, with at most one retry after failure. Manual calls the model only when you click Predict next message below the editor. Each call may be billed.",
-      "settingsModeAuto": "Automatic",
-      "settingsModeManual": "Manual only",
-      "settingsMaxChars": "Suggestion length",
-      "settingsMaxCharsHint": "Longest suggested message, in characters.",
-      "settingsContextMessages": "Messages considered",
-      "settingsContextMessagesHint": "How many recent messages a prediction may read.",
-      "settingsContextChars": "Context budget",
-      "settingsContextCharsHint": "Character cap across those messages.",
-      "settingsTimeout": "Timeout (ms)",
-      "settingsTimeoutHint": "A timeout stops waiting and discards late results. Auto mode retries at most once; manual mode shows the reason and waits for another click.",
-      "settingsHistory": "History completion",
-      "settingsHistoryHint": "Completes from messages already sent in this conversation. Makes no model call.",
-      "settingsHistoryMinChars": "Minimum draft length",
-      "settingsHistoryMinCharsHint": "How many characters to type before completion starts.",
-      "settingsProvider": "Prediction provider",
-      "settingsProviderHint": "Predictions use the model last called in this session. Enter both IDs to choose a separate model.",
-      "settingsSaveRoute": "Save prediction model",
-      "settingsRouteHint": "Clear both fields and save to follow the session model again.",
-      "settingsRouteIncomplete": "Fill in both fields or clear them both.",
-      "settingsInherit": "Follow session",
-      "settingsModel": "Prediction model",
-      "settingsModelHint": "Enter the ID of the model to use for predictions.",
-      "settingsPause": "Pause for ten minutes",
-      "settingsPauseHint": "No prediction call is made while paused; it resumes automatically.",
-      "settingsResume": "Resume predictions",
-      "settingsResumeHint": "Predictions are paused right now; press to resume immediately.",
-      "settingsReset": "Reset to defaults",
-      "settingsResetHint": "Restore every setting to its default value.",
-      "settingsSave": "Save",
-      "settingsUnsaved": "Unsaved edits",
-      "settingsUncertain": "The save outcome needs checking. Further saves are paused; reload the settings before continuing.",
-      "settingsReload": "Reload settings",
-      "settingsReloading": "Reading settings...",
-      "settingsEditHint": "Finish numeric edits by leaving the field or pressing Enter; Escape cancels. Save the prediction provider and model together with the button below.",
-      "settingsSaved": "Saved",
-      "settingsSaving": "Saving\u2026",
-      "settingsFailed": "Could not save",
-      "settingsLoadFailed": "Could not read the settings; showing defaults.",
-      "costWarning": "Every automatic prediction is a real, billed model call.",
-      "never": "Never",
-    };
+    const zh = LOCALES.zh;
+    const en = LOCALES.en;
 
-    const LOCALES = { zh, en };
-    const KEY_COUNT = 74;
+        const SCHEMA_VERSION = 1;
+
+    /** Defaults, and the clamp table for every numeric field. */
+    const DEFAULTS = Object.freeze({
+      enabled: true,
+      /** 'auto' (one prediction per finished turn) or 'manual'. */
+      mode: 'auto',
+      /** Blank uses the model from the session's last request. */
+      provider: '',
+      model: '',
+      /** Character limit for the suggested message itself; also sets the token net. */
+      maxSuggestionChars: 120,
+      /** How many recent messages the auxiliary call may read. */
+      contextMessages: 8,
+      /** Character budget across those messages. */
+      contextChars: 6000,
+      /** Wall clock for one prediction, including the adapter's own retries. */
+      timeoutMs: 12000,
+      /** Local history prefix completion while typing; costs nothing. */
+      historyEnabled: true,
+      /** Shortest draft that may produce a history completion. */
+      historyMinChars: 2,
+      /** Pause everything for this long when the user asks for a break. */
+      pausedUntil: 0,
+      /** Max model calls per UTC day; 0 means unlimited. */
+      dailyCallBudget: 0,
+    });
+
+    /** Alias consumed by the client half and its tests. */
+    const DEFAULT_SETTINGS = DEFAULTS;
+
+    /** Per-field bounds. A value outside its range is clamped, never rejected. */
+    const RANGES = Object.freeze({
+      maxSuggestionChars: [20, 400],
+      contextMessages: [2, 20],
+      contextChars: [1000, 20000],
+      timeoutMs: [2000, 60000],
+      historyMinChars: [1, 8],
+      pausedUntil: [0, Number.MAX_SAFE_INTEGER],
+      dailyCallBudget: [0, 100000],
+    });
+
+    /**
+     * Coerce one numeric field against a `[min, max]` range.
+     * Empty values (`''`, `null`, `undefined`, whitespace) fall back instead of
+     * becoming `0`, which would clamp to an unusable minimum.
+     */
+    function clampNumber(value, range, fallback) {
+      if (value === null || value === undefined) return fallback;
+      if (typeof value === 'string' && value.trim() === '') return fallback;
+      if (Array.isArray(value) || typeof value === 'object' || typeof value === 'boolean') return fallback;
+      const number = Number(value);
+      if (!Number.isFinite(number)) return fallback;
+      const rounded = Math.floor(number);
+      if (range === undefined) return rounded;
+      if (rounded < range[0]) return range[0];
+      if (rounded > range[1]) return range[1];
+      return rounded;
+    }
+
+    /** Clamp a named numeric setting to its schema range. */
+    function clampTo(key, value) {
+      return clampNumber(value, RANGES[key], DEFAULT_SETTINGS[key]);
+    }
+
+    /** Whether the user asked for a pause that has not expired yet. */
+    function isPaused(settings, now = Date.now()) {
+      const until = Number(settings && settings.pausedUntil);
+      return Number.isFinite(until) && until > now;
+    }
+
+    /** The absolute time a fresh pause should end at. */
+    function pauseUntil(now, minutes = 10) {
+      const span = (Number.isFinite(minutes) && minutes > 0 ? minutes : 10) * 60 * 1000;
+      return Math.floor(now + span);
+    }
 
         /** Full-width and ASCII variants are unified before matching, never for display. */
     const NORMALIZE_STRIP = /[\s\u3000]+/g;
@@ -202,11 +277,8 @@ window.__ModuleLoader__.load({
      * must not break a match. The returned string is only ever used for comparison;
      * the text shown to the user is always the candidate's original bytes.
      */
-    function normalizeForMatch(text) {
-      const key = String(text ?? '');
-      const hit = NORMALIZE_CACHE.get(key);
-      if (hit !== undefined) return hit;
-      const value = key
+    function normalizeRaw(key) {
+      return key
         .toLowerCase()
         .replace(NORMALIZE_STRIP, '')
         .replace(/[\u2018\u2019\u201c\u201d]/g, '"')
@@ -217,12 +289,27 @@ window.__ModuleLoader__.load({
         .replace(/\uff1f/g, '?')
         .replace(/\uff01/g, '!')
         .replace(/[\uff01-\uff5e]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+    }
+
+    function normalizeForMatch(text) {
+      const key = String(text ?? '');
+      // Short strings (1-2 chars, including per-character cursor walks) must bypass
+      // the cache so they never evict full history entries.
+      if (key.length <= 2) return normalizeRaw(key);
+      const hit = NORMALIZE_CACHE.get(key);
+      if (hit !== undefined) return hit;
+      const value = normalizeRaw(key);
       if (NORMALIZE_CACHE.size >= NORMALIZE_CACHE_LIMIT) {
         const oldest = NORMALIZE_CACHE.keys().next().value;
         if (oldest !== undefined) NORMALIZE_CACHE.delete(oldest);
       }
       NORMALIZE_CACHE.set(key, value);
       return value;
+    }
+
+    /** Diagnostic hook for tests verifying short-string bypass does not thrash the cache. */
+    function normalizeCacheSize() {
+      return NORMALIZE_CACHE.size;
     }
 
     /**
@@ -335,7 +422,7 @@ window.__ModuleLoader__.load({
       let position = 0;
       for (const char of full) {
         if (consumed >= query.length) break;
-        consumed += normalizeForMatch(char).length;
+        consumed += normalizeRaw(char).length;
         position += char.length;
       }
       if (consumed !== query.length) return null;
@@ -388,7 +475,7 @@ window.__ModuleLoader__.load({
         let position = 0;
         for (const char of item.text) {
           if (consumed >= query.length) break;
-          consumed += normalizeForMatch(char).length;
+          consumed += normalizeRaw(char).length;
           position += char.length;
         }
         // Case folding can expand one character (for example U+0130). Matching only
@@ -487,7 +574,16 @@ window.__ModuleLoader__.load({
       node.style.display = 'none';
     }
 
+    function cancelScheduledMove(state) {
+      if (state.rafId === null) return;
+      if (typeof state.win?.cancelAnimationFrame === 'function') {
+        state.win.cancelAnimationFrame(state.rafId);
+      }
+      state.rafId = null;
+    }
+
     function releaseState(state) {
+      cancelScheduledMove(state);
       restorePlaceholder(state);
       state.observer?.disconnect();
       state.observer = null;
@@ -559,6 +655,9 @@ window.__ModuleLoader__.load({
     function paintGhost(doc, sessionId, text, options = {}) {
       if (doc == null) return;
       const key = sessionKey(sessionId);
+      // Short-circuit empty clears before any DOM lookup or resource allocation
+      // when this session has never painted a ghost layer.
+      if (text === '' && ghostDocuments.get(doc)?.sessions.get(key) === undefined) return;
       const editor = findEditor(doc, key);
       if (editor?.parentElement == null) {
         clearGhost(doc, key);
@@ -584,24 +683,41 @@ window.__ModuleLoader__.load({
         layer.dataset.session = key;
         layer.dataset.shown = '0';
         state = { key, layer, editor: null, observer: null, win: doc.defaultView ?? null,
-          onMove: null, placeholder: null, placeholderWas: '' };
+          onMove: null, rafId: null, placeholder: null, placeholderWas: '' };
         state.onMove = () => {
-          if (ghostDocuments.get(doc)?.sessions.get(key) === state) place(doc, state);
+          if (ghostDocuments.get(doc)?.sessions.get(key) !== state) return;
+          if (state.layer.dataset.shown !== '1') return;
+          const raf = state.win?.requestAnimationFrame;
+          if (typeof raf === 'function') {
+            if (state.rafId !== null) return;
+            state.rafId = raf(() => {
+              state.rafId = null;
+              if (ghostDocuments.get(doc)?.sessions.get(key) === state && state.layer.dataset.shown === '1') {
+                place(doc, state);
+              }
+            });
+            return;
+          }
+          place(doc, state);
         };
         owner.sessions.set(key, state);
         state.win?.addEventListener('resize', state.onMove, true);
         state.win?.addEventListener('scroll', state.onMove, true);
       }
       ensureStyle(doc, owner);
-      if (!place(doc, state)) return;
-      lastGhost = state;
-      const node = state.layer;
-      clearChildren(node);
       if (text === '') {
+        cancelScheduledMove(state);
+        lastGhost = state;
+        const node = state.layer;
+        clearChildren(node);
         node.dataset.shown = '0';
         restorePlaceholder(state);
         return;
       }
+      if (!place(doc, state)) return;
+      lastGhost = state;
+      const node = state.layer;
+      clearChildren(node);
       const prefix = typeof options.prefix === 'string' ? options.prefix : '';
       if (prefix !== '') {
         const spacer = doc.createElement('span');
@@ -629,86 +745,79 @@ window.__ModuleLoader__.load({
       return state == null ? null : { shown: state.layer.dataset.shown === '1', session: state.key };
     }
 
-    /* --------------------------------------------------------------- helpers */
+        const SETTINGS_TIMEOUT_MS = 10000;
 
-    const DEFAULT_SETTINGS = {
-      enabled: true,
-      mode: 'auto',
-      provider: '',
-      model: '',
-      maxSuggestionChars: 120,
-      contextMessages: 8,
-      contextChars: 6000,
-      timeoutMs: 12000,
-      historyEnabled: true,
-      historyMinChars: 2,
-      pausedUntil: 0,
-    };
-
-    const RANGES = {
-      maxSuggestionChars: [20, 400],
-      contextMessages: [2, 20],
-      contextChars: [1000, 20000],
-      timeoutMs: [2000, 60000],
-      historyMinChars: [1, 8],
-    };
-
-    function isPaused(settings, now) {
-      const until = Number(settings && settings.pausedUntil);
-      return Number.isFinite(until) && until > (now || Date.now());
-    }
-
-    async function getJson(path, signal) {
-      const response = await fetch(API + path, {
+    async function fetchJsonRaw(path, options, signal) {
+      const init = {
         credentials: 'same-origin',
+        ...(options.method ? { method: options.method } : {}),
+        ...(options.headers ? { headers: options.headers } : {}),
+        ...(options.body !== undefined ? { body: options.body } : {}),
         ...(signal === undefined ? {} : { signal }),
-      });
+      };
+      const response = await fetch(API + path, init);
       const body = await response.json();
-      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
+      if (response.ok === false) {
+        throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
+      }
       return body;
     }
 
-    async function postJson(path, payload, signal) {
-      const response = await fetch(API + path, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        ...(signal === undefined ? {} : { signal }),
-      });
-      const body = await response.json();
-      if (response.ok === false) throw Object.assign(new Error('request failed (' + response.status + ')'), { status: response.status });
-      return body;
-    }
-
-    /** Bound read-only HTTP waits even when a carrier ignores cancellation. */
-    async function getJsonBounded(path, signal) {
+    /**
+     * Bound a JSON fetch by both wall-clock timeout and an optional external
+     * AbortSignal, attaching `.catch(() => {})` to both race branches so the loser
+     * can never trigger an UnhandledPromiseRejection.
+     */
+    async function fetchJsonBounded(path, options = {}) {
+      const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 10000;
+      const externalSignal = options.signal;
       const controller = new AbortController();
       let timer;
-      const cancel = () => { clearTimeout(timer); controller.abort(signal && signal.reason); };
       let onAbort;
-      signal?.addEventListener?.('abort', cancel, { once: true });
+      const makeTimeoutError = typeof options.timeoutError === 'function'
+        ? options.timeoutError
+        : () => new Error('read request timed out');
+      const cancelFromExternal = () => {
+        clearTimeout(timer);
+        controller.abort(externalSignal && externalSignal.reason);
+      };
+      externalSignal?.addEventListener?.('abort', cancelFromExternal, { once: true });
       try {
-        if (signal && signal.aborted) cancel();
+        if (externalSignal && externalSignal.aborted) cancelFromExternal();
         controller.signal.throwIfAborted();
         const interrupted = new Promise((resolve, reject) => {
           onAbort = () => reject(controller.signal.reason);
           controller.signal.addEventListener('abort', onAbort, { once: true });
         });
-        timer = setTimeout(() => controller.abort(new Error('read request timed out')), 10000);
-        return await Promise.race([getJson(path, controller.signal), interrupted]);
+        interrupted.catch(() => {});
+        timer = setTimeout(() => controller.abort(makeTimeoutError()), timeoutMs);
+        const work = fetchJsonRaw(path, options, controller.signal);
+        work.catch(() => {});
+        return await Promise.race([work, interrupted]);
       } finally {
         clearTimeout(timer);
         if (onAbort) controller.signal.removeEventListener('abort', onAbort);
-        signal?.removeEventListener?.('abort', cancel);
+        externalSignal?.removeEventListener?.('abort', cancelFromExternal);
       }
     }
 
+    function getJsonBounded(path, signal, timeoutMs = 10000) {
+      return fetchJsonBounded(path, { signal, timeoutMs });
+    }
+
+    function postJsonBounded(path, payload, signal, timeoutMs = 10000, timeoutError) {
+      return fetchJsonBounded(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+        timeoutMs,
+        timeoutError,
+      });
+    }
+
     /**
-     * Whether the caret is in the message editor.
-     *
-     * Tab must never be swallowed while the user is in another field (a search
-     * box, a settings input): that would break ordinary focus movement.
+     * Whether the caret is in the message editor for `sessionId`.
      */
     function inComposer(sessionId) {
       const active = document.activeElement;
@@ -719,7 +828,7 @@ window.__ModuleLoader__.load({
       return !conversation || conversation.getAttribute('data-conversation-session') === String(sessionId);
     }
 
-    /** Shared settings snapshot, so the row and the settings page agree. */
+    /** Shared settings snapshot, so the overlay and settings page stay in sync. */
     const settingsStore = {
       value: null,
       error: undefined,
@@ -743,7 +852,6 @@ window.__ModuleLoader__.load({
       },
     };
 
-    const SETTINGS_TIMEOUT_MS = 10000;
     let settingsLoad = null;
     let settingsRevision = 0;
     let settingsQueueEpoch = 0;
@@ -753,25 +861,12 @@ window.__ModuleLoader__.load({
       return Object.assign(new Error('settings require a fresh read'), { code: 'settings-uncertain' });
     }
 
-    async function settingsRequest(payload) {
-      const controller = new AbortController();
-      let timer;
-      try {
-        const work = payload === undefined
-          ? getJson('/settings', controller.signal)
-          : postJson('/settings', payload, controller.signal);
-        return await Promise.race([
-          work,
-          new Promise((resolve, reject) => {
-            timer = setTimeout(() => {
-              reject(Object.assign(new Error('settings request timed out'), { code: 'settings-timeout' }));
-              controller.abort();
-            }, SETTINGS_TIMEOUT_MS);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+    function settingsRequest(payload) {
+      const timeoutError = () => Object.assign(new Error('settings request timed out'), { code: 'settings-timeout' });
+      if (payload === undefined) {
+        return fetchJsonBounded('/settings', { timeoutMs: SETTINGS_TIMEOUT_MS, timeoutError });
       }
+      return postJsonBounded('/settings', payload, undefined, SETTINGS_TIMEOUT_MS, timeoutError);
     }
 
     function loadSettings() {
@@ -801,8 +896,6 @@ window.__ModuleLoader__.load({
     }
 
     function saveSettings(patch) {
-      // Serialize writes in user order. Cancelling an earlier HTTP request would
-      // not undo its server-side write, so latest-response filtering alone fails.
       settingsRevision += 1;
       const payload = { ...patch };
       const epoch = settingsQueueEpoch;
@@ -813,8 +906,6 @@ window.__ModuleLoader__.load({
           body = await settingsRequest(payload);
           if (!body || body.ok !== true || !body.settings) throw new Error('invalid settings response');
         } catch (error) {
-          // Only explicit pre-write HTTP rejections prove that no setting was
-          // changed. Disconnects, malformed replies and 5xx may follow a write.
           if (![400, 401, 403, 404, 405, 408, 413].includes(error && error.status)) {
             settingsStore.writeUncertain = true;
             settingsQueueEpoch += 1;
@@ -833,10 +924,7 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The user's own messages in this conversation, for local completion.
-     *
-     * Fetched per session and refreshed after each finished turn; a keystroke
-     * never hits the network.
+     * Bounded LRU of user-authored messages per session for zero-cost local completion.
      */
     function createHistoryCache() {
       const entries = new Map();
@@ -893,8 +981,6 @@ window.__ModuleLoader__.load({
           try {
             const body = await getJsonBounded('/history?sessionId=' + encodeURIComponent(sessionId), signal);
             if (!body || body.ok === false || !Array.isArray(body.items)) throw new Error('invalid history response');
-            // Identity matters as well as revision: eviction/clear must invalidate
-            // an old request even if the same session is opened again later.
             if (!(signal && signal.aborted) && entries.get(sessionId) === entry && entry.revision === revision) {
               store(sessionId, entry, body && body.items);
             }
@@ -909,8 +995,7 @@ window.__ModuleLoader__.load({
 
     const historyCache = createHistoryCache();
 
-    // Controls live in the allocated dock; their request owner remains the
-    // corresponding overlay component. Unmounting one session cannot affect another.
+    /** Pub-sub bridge between the headless overlay and the composer dock button. */
     const manualControls = {
       entries: new Map(),
       listeners: new Set(),
@@ -929,7 +1014,224 @@ window.__ModuleLoader__.load({
       },
     };
 
-    function ManualControl(props) {
+    /**
+     * Decide the next ArrowUp/ArrowDown history-recall action.
+     */
+    function historyRecallStep(items, current, draft, key) {
+      const list = Array.isArray(items) ? items : [];
+      if (list.length === 0) return null;
+      if (key !== 'ArrowUp' && key !== 'ArrowDown') return null;
+      const recalling = current && typeof current.text === 'string' ? current : null;
+      const text = typeof draft === 'string' ? draft : '';
+      const blank = text.trim() === '';
+      const onRecalled = recalling !== null && text === recalling.text;
+      if (!blank && !onRecalled) return null;
+      if (key === 'ArrowUp') {
+        const nextIndex = blank ? list.length - 1 : Math.max(0, (recalling ? recalling.index : list.length) - 1);
+        const next = list[nextIndex];
+        const value = next && typeof next.text === 'string' ? next.text : '';
+        return value !== '' ? { action: 'set', index: nextIndex, text: value } : null;
+      }
+      if (recalling === null) return null;
+      const nextIndex = recalling.index + 1;
+      if (nextIndex >= list.length) return { action: 'clear' };
+      const next = list[nextIndex];
+      return next && typeof next.text === 'string' ? { action: 'set', index: nextIndex, text: next.text } : null;
+    }
+
+        function useHistoryPool({
+      enabled,
+      paused,
+      settings,
+      blankDraft,
+      historyEpoch,
+      sessionId,
+      historyRef,
+      lastPoolFetch,
+      alive,
+      scope,
+      currentScope,
+      setHistoryEpoch,
+    }) {
+      // Retry while the user is typing and the pool is still empty, throttled so it
+      // cannot become a poll loop. Depends on `blankDraft` (boolean), NOT `draft`,
+      // so typing characters does not abort an in-flight `/history` request.
+      React.useEffect(() => {
+        if (!enabled || paused || settings === null || settings.historyEnabled !== true) return undefined;
+        if (blankDraft || historyRef.current.length > 0) return undefined;
+        const now = Date.now();
+        if (now - lastPoolFetch.current < 4000) return undefined;
+        lastPoolFetch.current = now;
+        const controller = new AbortController();
+        void historyCache.refresh(sessionId, controller.signal).then((items) => {
+          if (controller.signal.aborted || !alive.current || scope.current !== currentScope) return;
+          historyRef.current = items;
+          setHistoryEpoch((value) => value + 1);
+        });
+        return () => {
+          controller.abort();
+        };
+      }, [enabled, paused, settings, blankDraft, historyEpoch, sessionId]);
+    }
+
+    function useTurnPoller({
+      enabled,
+      paused,
+      sessionId,
+      settings,
+      running,
+      blankDraft,
+      suggestion,
+      busy,
+      inputReady,
+      budgetExhausted,
+      triedOnMount,
+      settledTurn,
+      alive,
+      scope,
+      currentScope,
+      predictRef,
+    }) {
+      // One attempt per composer mount, before any turn bookkeeping is involved.
+      React.useEffect(() => {
+        if (!enabled || paused || budgetExhausted) return undefined;
+        if (sessionId === undefined || sessionId === null || sessionId === '') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
+        if (running || !blankDraft) return undefined;
+        if (suggestion !== '' || busy) return undefined;
+        if (triedOnMount.current) return undefined;
+        const timer = setTimeout(() => {
+          if (!alive.current || scope.current !== currentScope) return;
+          triedOnMount.current = true;
+          void predictRef.current({ manual: false });
+        }, 1200);
+        return () => clearTimeout(timer);
+      }, [enabled, paused, budgetExhausted, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
+
+      // Poll the Host's turn feed rather than agent/status.
+      React.useEffect(() => {
+        if (!enabled || paused || budgetExhausted) return undefined;
+        if (sessionId === undefined || sessionId === null || sessionId === '') return undefined;
+        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
+        if (running || !blankDraft) return undefined;
+        if (suggestion !== '' || busy) return undefined;
+
+        let cancelled = false;
+        let timer;
+        let checking = false;
+        const controller = new AbortController();
+        const hidden = () => {
+          try { return document.visibilityState === 'hidden'; } catch { return false; }
+        };
+
+        const tick = async () => {
+          if (cancelled || !alive.current || hidden() || checking) return;
+          checking = true;
+          let turn = null;
+          let predicted = null;
+          let stopPolling = false;
+          try {
+            const body = await getJsonBounded('/turn?sessionId=' + encodeURIComponent(sessionId), controller.signal);
+            if (body && body.ok !== false) {
+              if (body.enabled === false || body.paused === true || (body.mode !== undefined && body.mode !== 'auto')) {
+                stopPolling = true;
+              } else {
+                turn = body.turn;
+                predicted = body.predicted === undefined ? null : body.predicted;
+              }
+            }
+          } catch {
+            // A Host that is briefly unreachable is not an error worth showing.
+          } finally {
+            checking = false;
+          }
+          if (stopPolling || cancelled || !alive.current || hidden() || scope.current !== currentScope) return;
+          const localSettled = settledTurn.current;
+          const alreadyDone = (predicted !== null && turn !== null && turn <= predicted)
+            || (localSettled !== null && turn !== null && turn <= localSettled);
+          if (turn === null || turn === undefined || alreadyDone) {
+            timer = setTimeout(tick, 2000);
+            return;
+          }
+          void predictRef.current({ manual: false, turn });
+        };
+
+        const onVisibility = () => {
+          if (cancelled) return;
+          clearTimeout(timer);
+          if (!hidden()) timer = setTimeout(tick, 0);
+        };
+        try { document.addEventListener('visibilitychange', onVisibility); } catch { /* non-DOM host */ }
+
+        if (!hidden()) timer = setTimeout(tick, 900);
+        return () => {
+          cancelled = true;
+          controller.abort();
+          clearTimeout(timer);
+          try { document.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
+        };
+      }, [enabled, paused, budgetExhausted, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
+    }
+
+    function useComposerKeys(state) {
+      const keyState = React.useRef(state);
+      keyState.current = state;
+
+      React.useEffect(() => {
+        if (typeof document === 'undefined') return undefined;
+        const onKeyDown = (event) => {
+          if (event.defaultPrevented || event.isComposing) return;
+          const s = keyState.current;
+          if (!s.enabled || s.paused || !s.inputReady || !s.live.current.inputReady) return;
+          if (s.scope.current !== s.currentScope) return;
+          if (!inComposer(s.sessionId)) return;
+
+          // 1. Suggestion keys: Tab (full), Ctrl/Cmd+Right (next word), Escape (dismiss).
+          if (s.modelText !== '' || s.local !== null) {
+            if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
+              if (s.acceptSuggested(false)) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+              return;
+            }
+            if (event.key === 'ArrowRight' && event.altKey !== true && event.shiftKey !== true && (event.ctrlKey === true || event.metaKey === true)) {
+              if (s.acceptSuggested(true)) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+              return;
+            }
+            if (event.key === 'Escape') {
+              s.dismiss();
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            return;
+          }
+
+          // 2. History recall: ArrowUp / ArrowDown when no suggestion is visible.
+          const inputs = s.inputActions;
+          if (!inputs || typeof inputs.setDraft !== 'function') return;
+          if (event.altKey === true || event.ctrlKey === true || event.metaKey === true || event.shiftKey === true) return;
+          const step = historyRecallStep(s.historyRef.current, s.recallRef.current, s.draft, event.key);
+          if (step === null) return;
+          if (step.action === 'clear') {
+            s.recallRef.current = null;
+            inputs.setDraft('');
+          } else {
+            s.recallRef.current = { index: step.index, text: step.text };
+            inputs.setDraft(step.text);
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => document.removeEventListener('keydown', onKeyDown, true);
+      }, []);
+    }
+
+        function ManualControl(props) {
       const sessionId = props.sessionId;
       const t = typeof props.t === 'function' ? props.t : (key) => zh[key] || key;
       const [, repaint] = React.useState(0);
@@ -944,7 +1246,6 @@ window.__ModuleLoader__.load({
       if (!entry || !entry.visible) return null;
       const onClick = async (event) => {
         const button = event.currentTarget;
-        // A stale callback must not call a controller replaced after session switch.
         if (!life.active || manualControls.entries.get(sessionId)?.owner !== entry.owner || !entry.ready) return;
         const ok = await entry.run();
         if (ok && life.active && manualControls.entries.get(sessionId)?.owner === entry.owner &&
@@ -965,82 +1266,54 @@ window.__ModuleLoader__.load({
           entry.busy ? t('thinking') : entry.message ? t(entry.message) : t('manualHint')));
     }
 
-    /**
-     * One suggestion row.
-     *
-     * Everything it renders comes from a slot prop or the plugin's own API: no
-     * other plugin's DOM, stylesheet or component is read, so a host redesign
-     * degrades this row instead of breaking it.
-     */
-    /**
-     * Guard wrapper for the slot entry.
-     *
-     * Hooks must run unconditionally, so the capability check lives here and the
-     * hook-using body is a separate component: calling `useInput()` on an
-     * undefined prop would throw, and a throwing slot entry is dropped silently
-     * (only a console line nobody sees).
-     */
+    /** Guard wrapper so missing slot props never throw inside hook calls. */
     function SuggestionRow(props) {
       const missing = ['useInput', 'useSession', 'inputActions'].filter(
         (name) => props[name] === undefined || props[name] === null,
       );
       if (missing.length > 0) {
-        // A missing prop means this slot is not the composer we expect. Returning
-        // null keeps the failure contained instead of throwing inside the slot.
         return null;
       }
       return h(GhostPainter, props);
     }
 
+    const MANUAL_REASON_KEYS = Object.freeze({
+      __proto__: null,
+      'no-history': 'noHistory',
+      'no-route': 'manualNoRoute',
+      timeout: 'timeout',
+      empty: 'manualNoResult',
+      truncated: 'manualNoResult',
+      duplicate: 'manualNoResult',
+      'repeats-draft': 'manualNoResult',
+      paused: 'manualPaused',
+      disabled: 'manualDisabled',
+      budget: 'manualBudget',
+    });
 
     function GhostPainter(props) {
-      const t = typeof props.t === 'function'
-        ? props.t
-        : (key) => (Object.prototype.hasOwnProperty.call(zh, key) ? zh[key] : key);
       const sessionId = props.sessionId;
       const useInput = props.useInput;
       const useSession = props.useSession;
       const inputActions = props.inputActions;
 
-      // Subscribe to the smallest slices that matter: the draft text and the
-      // submit phase.
       const draft = useInput((state) => (state && typeof state.draft === 'string' ? state.draft : ''));
       const phase = useInput((state) => (state ? state.phase : undefined));
       const running = useSession((session) => Boolean(session && session.running));
 
       const [settings, setSettings] = React.useState(settingsStore.value);
       const [suggestion, setSuggestion] = React.useState('');
-      const [source, setSource] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [manualMessage, setManualMessage] = React.useState('');
+      const [budgetExhausted, setBudgetExhausted] = React.useState(false);
 
-      /** Text the user dismissed or accepted; suppresses re-offering it. */
       const dismissed = React.useRef('');
       const accepted = React.useRef('');
       const historyRef = React.useRef([]);
-      /** Current position in the user-prompt history recall (ArrowUp/ArrowDown). */
       const recallRef = React.useRef(null);
-      /**
-       * The live draft, readable from callbacks (predict) without re-creating them
-       * on every keystroke.
-       *
-       * This ref has to be DECLARED and kept in sync: an earlier rewrite dropped
-       * the declaration while leaving the two reads in place, so `predict()`
-       * threw `ReferenceError: draftRef is not defined` before it ever reached
-       * the network. The throw was swallowed by its own try/catch, which is why
-       * the request never appeared and nothing was logged.
-       */
       const draftRef = React.useRef(draft);
       draftRef.current = draft;
-      /**
-       * Bumped whenever the history pool changes.
-       *
-       * `historyRef` is a ref on purpose (it must be readable from callbacks
-       * without re-subscribing), but a ref is invisible to `useMemo`. Without a
-       * version in the dependency list the completion was computed ONCE against
-       * an empty pool -- the first render -- and never again after the fetch
-       * landed, so history completion silently never appeared.
-       */
+
       const [historyEpoch, setHistoryEpoch] = React.useState(0);
       const [suppressionEpoch, setSuppressionEpoch] = React.useState(0);
       const alive = React.useRef(true);
@@ -1049,6 +1322,7 @@ window.__ModuleLoader__.load({
       const suggestionSession = React.useRef(sessionId);
       const lastPoolFetch = React.useRef(0);
       const triedOnMount = React.useRef(false);
+      const settledTurn = React.useRef(null);
       if (scope.current.sessionId !== sessionId) {
         scope.current = { sessionId };
         historyRef.current = [];
@@ -1057,6 +1331,7 @@ window.__ModuleLoader__.load({
         recallRef.current = null;
         lastPoolFetch.current = 0;
         triedOnMount.current = false;
+        settledTurn.current = null;
       }
       const currentScope = scope.current;
 
@@ -1080,13 +1355,17 @@ window.__ModuleLoader__.load({
         if (settingsStore.value === null) void loadSettings();
       }, []);
 
-      // A new session is a new conversation: clear everything that belonged to
-      // the old one instead of showing its suggestion under a different chat.
+      // Re-allow auto predictions when budget setting changes or a new turn runs.
+      React.useEffect(() => {
+        setBudgetExhausted(false);
+        settledTurn.current = null;
+      }, [sessionId, settings && settings.dailyCallBudget]);
+
+      // Clear per-session state and refresh history whenever the session changes.
       React.useEffect(() => {
         dismissed.current = '';
         accepted.current = '';
         setSuggestion('');
-        setSource('');
         setManualMessage('');
         setBusy(false);
         const controller = new AbortController();
@@ -1113,12 +1392,14 @@ window.__ModuleLoader__.load({
       const live = React.useRef(null);
       const [pauseEpoch, setPauseEpoch] = React.useState(0);
       live.current = { enabled, paused, inputReady, running, blankDraft };
+
       React.useEffect(() => {
         if (!paused) return undefined;
         const wait = Math.min(2147483647, Math.max(1, Number(settings.pausedUntil) - Date.now()));
         const timer = setTimeout(() => setPauseEpoch((value) => value + 1), wait);
         return () => clearTimeout(timer);
       }, [paused, settings && settings.pausedUntil, pauseEpoch]);
+
       React.useEffect(() => {
         if (enabled && !paused && !running && inputReady) return;
         if (inFlight.current !== null) {
@@ -1130,15 +1411,9 @@ window.__ModuleLoader__.load({
 
       /* ------------------------------------------------- local completion */
 
-      // Recomputed on every draft change: a pure function over the cached
-      // history, so this is a string scan, not a request.
       const local = React.useMemo(() => {
         if (!enabled || paused || !inputReady || settings === null || settings.historyEnabled !== true) return null;
         if (blankDraft || recallRef.current?.text === draft) return null;
-        // The draft the user dismissed must not be re-offered -- but only that
-        // exact draft. Any further edit produces a new draft and may complete
-        // again, which is what makes Escape a per-suggestion decision rather
-        // than a per-session kill switch.
         if (`${draft}\u0000local` === dismissed.current) return null;
         if (draft === accepted.current) return null;
         try {
@@ -1150,130 +1425,27 @@ window.__ModuleLoader__.load({
         } catch {
           return null;
         }
-        // `historyEpoch` is a dependency because the pool arrives asynchronously:
-        // a ref alone never invalidates this memo.
       }, [enabled, settings, blankDraft, draft, historyEpoch, sessionId, suppressionEpoch, paused, inputReady]);
 
       /* -------------------------------------------- history pool lifecycle */
 
-      // The pool is fetched once when the session changes, but that single fetch
-      // races the composer: an empty answer then leaves completion permanently
-      // dead, because nothing else refreshes it. Retry while the user is typing
-      // and the pool is still empty, throttled so it cannot become a poll loop.
-      React.useEffect(() => {
-        if (!enabled || paused || settings === null || settings.historyEnabled !== true) return undefined;
-        if (blankDraft || historyRef.current.length > 0) return undefined;
-        const now = Date.now();
-        if (now - lastPoolFetch.current < 4000) return undefined;
-        lastPoolFetch.current = now;
-        const controller = new AbortController();
-        void historyCache.refresh(sessionId, controller.signal).then((items) => {
-          if (controller.signal.aborted || !alive.current || scope.current !== currentScope) return;
-          historyRef.current = items;
-          setHistoryEpoch((value) => value + 1);
-        });
-        return () => {
-          controller.abort();
-        };
-      }, [enabled, paused, settings, blankDraft, draft, historyEpoch, sessionId]);
+      useHistoryPool({
+        enabled,
+        paused,
+        settings,
+        blankDraft,
+        historyEpoch,
+        sessionId,
+        historyRef,
+        lastPoolFetch,
+        alive,
+        scope,
+        currentScope,
+        setHistoryEpoch,
+      });
 
       /* ------------------------------------------- model prediction on turn */
 
-      // One attempt per composer mount, before any turn bookkeeping is involved.
-      //
-      // The turn feed is a derived signal and has already been wrong twice; this
-      // guarantees that an idle, empty composer gets offered a suggestion on load
-      // even if the feed says nothing. The Host still refuses to spend a second
-      // call for a turn it has already predicted, so this cannot double-bill a
-      // turn that was also predicted through the feed.
-      React.useEffect(() => {
-        if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
-        if (running || !blankDraft) return undefined;
-        if (suggestion !== '' || busy) return undefined;
-        if (triedOnMount.current) return undefined;
-        const timer = setTimeout(() => {
-          if (!alive.current || scope.current !== currentScope) return;
-          triedOnMount.current = true;
-          void predict({ manual: false });
-        }, 1200);
-        return () => clearTimeout(timer);
-        // `predict` is deliberately NOT a dependency: it is declared below this
-        // effect, so naming it in the array would read it during render (TDZ) and
-        // throw. The callback captured here is the one for this session, which is
-        // exactly what an effect that runs once wants.
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
-
-      // Poll the Host's turn feed rather than agent/status: status flips once
-      // per step, so a tool-calling turn looks like many finished turns.
-      React.useEffect(() => {
-        if (!enabled || paused || sessionId === undefined || sessionId === null || sessionId === '') return undefined;
-        if (settings === null || settings.mode !== 'auto' || !inputReady) return undefined;
-        if (running) return undefined;
-        if (!blankDraft) return undefined;
-        if (suggestion !== '' || busy) return undefined;
-
-        let cancelled = false;
-        let timer;
-        let checking = false;
-        const controller = new AbortController();
-        const hidden = () => {
-          try { return document.visibilityState === 'hidden'; } catch { return false; }
-        };
-
-        const tick = async () => {
-          if (cancelled || !alive.current || hidden() || checking) return;
-          checking = true;
-          let turn = null;
-          let predicted = null;
-          try {
-            // Read only: the Host marks a turn as spent inside /predict, so a
-            // cancelled tick (a re-render while this request was in flight) can no
-            // longer consume a turn that was never used.
-            const body = await getJsonBounded('/turn?sessionId=' + encodeURIComponent(sessionId), controller.signal);
-            if (body && body.ok !== false) {
-              if (body.enabled === false) return;
-              turn = body.turn;
-              predicted = body.predicted === undefined ? null : body.predicted;
-            }
-          } catch {
-            // A Host that is briefly unreachable is not an error worth showing.
-          } finally {
-            checking = false;
-          }
-          if (cancelled || !alive.current || hidden() || scope.current !== currentScope) return;
-          const alreadyDone = predicted !== null && turn !== null && turn <= predicted;
-          if (turn === null || turn === undefined || alreadyDone) {
-            timer = setTimeout(tick, 2000);
-            return;
-          }
-          void predict({ manual: false, turn });
-        };
-
-        // A hidden tab cannot show the ghost, so the 2s turn poll stops until
-        // the page is visible again. Becoming visible checks immediately.
-        const onVisibility = () => {
-          if (cancelled) return;
-          clearTimeout(timer);
-          if (!hidden()) timer = setTimeout(tick, 0);
-        };
-        try { document.addEventListener('visibilitychange', onVisibility); } catch { /* non-DOM host */ }
-
-        if (!hidden()) timer = setTimeout(tick, 900);
-        return () => {
-          cancelled = true;
-          controller.abort();
-          clearTimeout(timer);
-          try { document.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
-        };
-      }, [enabled, paused, sessionId, settings, running, blankDraft, suggestion, busy, inputReady]);
-
-      /**
-       * Ask the Host for a suggestion.
-       *
-       * `avoid` carries the current text so "another one" cannot come back with
-       * the same sentence dressed differently.
-       */
       const predict = React.useCallback(async (options) => {
         const manual = options && options.manual === true;
         if (!alive.current || scope.current !== currentScope) return;
@@ -1285,76 +1457,95 @@ window.__ModuleLoader__.load({
         inFlight.current = controller;
         setBusy(true);
         if (manual) setManualMessage('');
-        let onAbort;
-        const interrupted = new Promise((resolve, reject) => {
-          onAbort = () => reject(controller.signal.reason);
-          controller.signal.addEventListener('abort', onAbort, { once: true });
-        });
         const budget = Math.max(2000, Math.min(60000, Number(settingsStore.value?.timeoutMs) || 12000)) + 10000;
-        const deadline = setTimeout(() => controller.abort(Object.assign(new Error('prediction response timed out'), { code: 'client-timeout' })), budget);
         try {
-          const body = await Promise.race([postJson('/predict', {
-            sessionId,
-            manual,
-            // The turn this prediction is for, so the Host can claim it before
-            // spending a model call. Manual and reroll predictions have no turn.
-            ...(typeof (options && options.turn) === 'number' ? { turn: options.turn } : {}),
-            avoid: options && options.avoid ? options.avoid : '',
-            forceDifferent: Boolean(options && options.forceDifferent),
-            // The Host refuses a suggestion that repeats this, so the round trip
-            // does not even reach the screen.
-            draft: draftRef.current,
-          }, controller.signal), interrupted]);
+          const body = await postJsonBounded(
+            '/predict',
+            {
+              sessionId,
+              manual,
+              ...(typeof (options && options.turn) === 'number' ? { turn: options.turn } : {}),
+              avoid: options && options.avoid ? options.avoid : '',
+              forceDifferent: Boolean(options && options.forceDifferent),
+              draft: draftRef.current,
+            },
+            controller.signal,
+            budget,
+            () => Object.assign(new Error('prediction response timed out'), { code: 'client-timeout' }),
+          );
           if (!alive.current || controller.signal.aborted || scope.current !== currentScope || inFlight.current !== controller) return false;
           suggestionSession.current = sessionId;
           if (body && body.ok === true && typeof body.suggestion === 'string' && body.suggestion !== '') {
-            // A prediction that merely repeats what is already in the composer is
-            // worthless: accepting it would insert the sentence twice. This is
-            // not hypothetical -- it was observed on screen, because a prediction
-            // describes the user's NEXT message while the box may already hold
-            // that very text.
+            setBudgetExhausted(false);
             const trimmedDraft = draftRef.current.trim();
             const repeatsDraft = trimmedDraft !== '' && body.suggestion.trim() === trimmedDraft;
             if (repeatsDraft || body.suggestion === dismissed.current || body.suggestion === accepted.current) {
               if (manual) setManualMessage('manualNoResult');
-              else { setSuggestion(''); setSource(''); }
+              else setSuggestion('');
               return false;
             }
             setSuggestion(body.suggestion);
-            setSource('model');
             if (manual) setManualMessage('manualReady');
             const historySignal = currentScope.historyController.signal;
             void historyCache.refresh(sessionId, historySignal).then((items) => {
               if (!alive.current || historySignal.aborted || controller.signal.aborted || scope.current !== currentScope) return;
               historyRef.current = items;
-              // A finished turn adds the user's own message to the pool, which
-              // is exactly when a new completion becomes possible.
               setHistoryEpoch((value) => value + 1);
             });
             return true;
           }
+          if (body && body.reason === 'budget') {
+            if (typeof (options && options.turn) === 'number') {
+              settledTurn.current = Math.max(options.turn, settledTurn.current ?? -Infinity);
+            }
+            setBudgetExhausted(true);
+          }
           if (manual) {
-            const key = { __proto__: null, 'no-history': 'noHistory', 'no-route': 'manualNoRoute', timeout: 'timeout',
-              empty: 'manualNoResult', truncated: 'manualNoResult', 'repeats-draft': 'manualNoResult',
-              paused: 'manualPaused', disabled: 'manualDisabled' }[body && body.reason] || 'failed';
+            const key = MANUAL_REASON_KEYS[body && body.reason] || 'failed';
             setManualMessage(key);
-          } else { setSuggestion(''); setSource(''); }
+          } else {
+            setSuggestion('');
+          }
           return false;
         } catch (error) {
           if (!alive.current || scope.current !== currentScope || inFlight.current !== controller) return false;
-          if (controller.signal.aborted) {
+          if (error && error.code === 'client-timeout') {
+            if (manual) setManualMessage('timeout');
+          } else if (controller.signal.aborted) {
             if (manual && controller.signal.reason?.code === 'client-timeout') setManualMessage('timeout');
-          } else if (manual) setManualMessage('failed');
+          } else if (manual) {
+            setManualMessage('failed');
+          }
           return false;
         } finally {
-          clearTimeout(deadline);
-          controller.signal.removeEventListener('abort', onAbort);
           if (inFlight.current === controller) {
             inFlight.current = null;
             if (alive.current && scope.current === currentScope) setBusy(false);
           }
         }
       }, [sessionId]);
+
+      const predictRef = React.useRef(predict);
+      predictRef.current = predict;
+
+      useTurnPoller({
+        enabled,
+        paused,
+        sessionId,
+        settings,
+        running,
+        blankDraft,
+        suggestion,
+        busy,
+        inputReady,
+        budgetExhausted,
+        triedOnMount,
+        settledTurn,
+        alive,
+        scope,
+        currentScope,
+        predictRef,
+      });
 
       React.useEffect(() => {
         if (typeof sessionId !== 'string' || sessionId === '') return;
@@ -1371,27 +1562,16 @@ window.__ModuleLoader__.load({
 
       /* ------------------------------------------------------------ accept */
 
-      /**
-       * Fill the draft through the composer's own action.
-       *
-       * `captureInsertion()` returns the caret span with the draft revision it
-       * was measured at; `insertText` refuses the write when the revision moved,
-       * so text typed between reading and writing is never overwritten.
-       */
       const accept = React.useCallback((text, partial) => {
         if (text === '' || !inputActions || !live.current.enabled || live.current.paused || !live.current.inputReady) return false;
         try {
           const span = inputActions.captureInsertion();
           if (!inputActions.insertText(text, span)) return false;
-          // One word must leave the prediction in place. Clearing it here made
-          // the rest of the ghost disappear, which is the opposite of
-          // acceptNextWord. Only a full accept consumes the suggestion.
           if (partial === true) return true;
           accepted.current = draftRef.current + text;
           dismissed.current = '';
           setSuppressionEpoch((value) => value + 1);
           setSuggestion('');
-          setSource('');
           return true;
         } catch {
           return false;
@@ -1399,41 +1579,16 @@ window.__ModuleLoader__.load({
       }, [inputActions]);
 
       const dismiss = React.useCallback(() => {
-        // Remember WHAT was refused, not just "the draft": a dismissed model
-        // suggestion must not come back, but a dismissed completion only covers
-        // the exact draft it was offered for -- keep typing and it may offer
-        // again. Recording the raw draft here suppressed every later completion
-        // for the whole session.
         setSuppressionEpoch((value) => value + 1);
         dismissed.current = suggestionSession.current === sessionId && !running && suggestion !== '' && (blankDraft || suggestionRemainder(suggestion, draft) !== null)
           ? suggestion
           : `${draft}\u0000local`;
         setSuggestion('');
-        setSource('');
       }, [suggestion, draft, sessionId, blankDraft, running]);
 
       /* ------------------------------------------------------------ render */
 
-      // NOTE: no early `return` may appear above this point, and none may appear
-      // between two hook calls. `enabled` flips from false to true when the
-      // settings arrive; returning early on the false pass would make this
-      // component render FEWER hooks than the next pass, and React throws
-      // "Rendered more hooks than during the previous render". That crash is
-      // swallowed by the slot renderer -- the composer simply stayed empty with
-      // no visible error. The disabled case is handled inside the paint effect.
-
-      // Two sources, one paint rule (dsh-ghost-prompt / Copilot ghost text):
-      //   - a model prediction is the WHOLE next message. While the draft is
-      //     still a prefix of it, only the remainder stays visible; a divergent
-      //     draft hides it, and clearing the box brings the whole message back.
-      //     Hiding on the first keystroke made a usable prediction vanish the
-      //     moment the user started agreeing with it.
-      //   - a history completion supplies only the remainder of an earlier
-      //     message. It yields to a still-matching prediction so the two ghosts
-      //     never stack.
-      // Showing a completion's full text next to a draft it starts with looks
-      // like the draft being repeated, and accepting it would insert the
-      // sentence twice.
+      // No early return may appear above this point (stable React hook count).
       const recalling = !blankDraft && recallRef.current?.text === draft;
       const modelLive = suggestion !== '' && suggestionSession.current === sessionId && suggestion !== dismissed.current && !running && !recalling;
       const modelFollows = !modelLive || blankDraft ? null : suggestionRemainder(suggestion, draft);
@@ -1442,23 +1597,9 @@ window.__ModuleLoader__.load({
         : (blankDraft ? suggestion : (modelFollows === null ? '' : modelFollows));
       const localSuffix = modelText !== '' || local === null ? '' : local.suffix;
 
-      // What one paint should show.
-      //
-      // An empty composer paints the whole prediction at the origin. Any other
-      // suggestion is ONLY the remainder, preceded by the typed draft as
-      // invisible text so it starts exactly after it. Painting `draft +
-      // remainder` as visible text double-drew the user's own characters.
       const ghostText = modelText !== '' ? modelText : localSuffix;
       const ghostPrefix = ghostText !== '' && !blankDraft ? draft : '';
 
-      /**
-       * Insert exactly the remainder that is on screen.
-       *
-       * Tab takes all of it. A partial accept (Ctrl/Cmd+Right, same idea as
-       * Copilot acceptNextWord and Continue) takes one word and leaves the
-       * ghost continuing after the caret. A model remainder and a history
-       * suffix both go through this, so the two cannot drift.
-       */
       const acceptSuggested = React.useCallback((wordOnly) => {
         const offered = modelText !== '' ? modelText : localSuffix;
         if (offered === '') return false;
@@ -1467,133 +1608,59 @@ window.__ModuleLoader__.load({
         return accept(piece, piece.length < offered.length);
       }, [accept, modelText, localSuffix]);
 
-      // Keyboard: Tab accepts the whole remainder, Ctrl/Cmd+Right accepts the
-      // next word, Escape dismisses. Only from the composer, and only while a
-      // suggestion is actually on screen -- anywhere else Tab keeps its meaning.
-      React.useEffect(() => {
-        if (typeof document === 'undefined') return undefined;
-        const onKeyDown = (event) => {
-          if (event.defaultPrevented || event.isComposing) return;
-          if (!enabled || paused || !inputReady || !live.current.inputReady || scope.current !== currentScope) return;
-          if (modelText === '' && local === null) return;
-          if (!inComposer(sessionId)) return;
-          if (event.key === 'Tab' && event.shiftKey !== true && event.ctrlKey !== true && event.metaKey !== true && event.altKey !== true) {
-            if (acceptSuggested(false)) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-            return;
-          }
-          // Copilot / Continue: accept only the next word, leaving the caret
-          // where the rest of the ghost continues. Ctrl on Windows, Cmd on macOS.
-          if (event.key === 'ArrowRight' && event.altKey !== true && event.shiftKey !== true && (event.ctrlKey === true || event.metaKey === true)) {
-            if (acceptSuggested(true)) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-            return;
-          }
-          if (event.key === 'Escape') {
-            dismiss();
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        };
-        document.addEventListener('keydown', onKeyDown, true);
-        return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [acceptSuggested, dismiss, local, modelText, enabled, paused, inputReady, sessionId]);
+      useComposerKeys({
+        enabled,
+        paused,
+        inputReady,
+        sessionId,
+        modelText,
+        local,
+        draft,
+        inputActions,
+        acceptSuggested,
+        dismiss,
+        live,
+        scope,
+        currentScope,
+        historyRef,
+        recallRef,
+      });
 
-      // History recall: ArrowUp/ArrowDown walk the user's earlier prompts into
-      // the draft when the box is empty (or currently showing a recalled prompt).
-      // Uses the composer's own `setDraft`, which is the only way to replace the
-      // WHOLE draft (insertText only writes at the caret), so cycling works.
-      // The decision is a pure function so it is unit-tested without a DOM.
-      React.useEffect(() => {
-        if (typeof document === 'undefined') return undefined;
-        const inputs = inputActions;
-        if (!inputs || typeof inputs.setDraft !== 'function') return undefined;
-        const onKeyDown = (event) => {
-          if (event.defaultPrevented || event.isComposing) return;
-          if (!enabled || paused || !inputReady || !live.current.inputReady) return;
-          if (scope.current !== currentScope) return;
-          if (!inComposer(sessionId)) return;
-          if (event.altKey === true || event.ctrlKey === true || event.metaKey === true || event.shiftKey === true) return;
-          // A visible model/local suggestion owns the arrow keys; do not fight it.
-          if (modelText !== '' || local !== null) return;
-          const step = historyRecallStep(historyRef.current, recallRef.current, draft, event.key);
-          if (step === null) return;
-          if (step.action === 'clear') {
-            recallRef.current = null;
-            inputs.setDraft('');
-          } else {
-            recallRef.current = { index: step.index, text: step.text };
-            inputs.setDraft(step.text);
-          }
-          event.preventDefault();
-          event.stopPropagation();
-        };
-        document.addEventListener('keydown', onKeyDown, true);
-        return () => document.removeEventListener('keydown', onKeyDown, true);
-      }, [inputActions, enabled, paused, inputReady, blankDraft, draft, sessionId, modelText, local, historyEpoch]);
-
-      // A prediction belongs to ONE finished turn, so there are two different
-      // ways for it to stop applying:
-      //
-      //   typing   -> only HIDE it. The text is still the answer to "what might
-      //               you send next"; clearing the box must bring it back.
-      //   a turn   -> DISCARD it. Once a turn runs, that prediction describes a
-      //               moment that has passed, and leaving it in state made it
-      //               reappear after sending (it did: the stale sentence sat in an
-      //               empty composer while the agent was working).
-      //
-      // The render guard below handles the hiding; this effect handles the
-      // discarding, and it must key on `running` ALONE. Including `blankDraft`
-      // here deleted the suggestion the moment the user typed, so emptying the
-      // composer afterwards had nothing to restore.
+      // Typing hides a prediction; only a running turn discards it.
       React.useEffect(() => {
         if (suggestion === '') return;
         if (!running) return;
         setSuggestion('');
-        setSource('');
       }, [suggestion, running]);
 
-      // The suggestion is drawn INSIDE the composer card as ghost text, so this
-      // component renders no element of its own. It stays mounted to hold the
-      // state and keep the Tab/Escape listeners alive.
+      // Paint ghost text over the active composer editor.
       React.useEffect(() => {
-        if (typeof document === "undefined") return undefined;
+        if (typeof document === 'undefined') return undefined;
         if (!enabled || paused) {
           clearGhost(document, sessionId);
           return undefined;
         }
         if (!inputReady) {
-          paintGhost(document, sessionId, "");
+          paintGhost(document, sessionId, '');
           return undefined;
         }
-
-        if (ghostText === "") {
-          paintGhost(document, sessionId, "");
+        if (ghostText === '') {
+          paintGhost(document, sessionId, '');
           return undefined;
         }
-
-        // Text only: acceptance is Tab and dismissal is Escape. Buttons inside the
-        // composer pushed the text around and read as a stray widget.
         paintGhost(document, sessionId, ghostText, { prefix: ghostPrefix });
         return undefined;
       }, [enabled, paused, inputReady, sessionId, ghostText, ghostPrefix]);
 
-      // Leaving this session, or unmounting, must not leave stale ghost text
-      // floating over an empty composer.
+      // Leaving this session or unmounting clears its ghost layer cleanly.
       React.useEffect(() => () => {
-        if (typeof document !== "undefined") clearGhost(document, sessionId);
-      }, []);
+        if (typeof document !== 'undefined') clearGhost(document, sessionId);
+      }, [sessionId]);
 
       return null;
     }
 
-    /* ----------------------------------------------------------- settings */
-
-    const rowStyle = {
+        const rowStyle = {
       display: 'flex',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
@@ -1614,20 +1681,7 @@ window.__ModuleLoader__.load({
       font: 'inherit',
     };
 
-    function clampTo(key, value) {
-      const range = RANGES[key];
-      if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'object') return DEFAULT_SETTINGS[key];
-      if (typeof value === 'string' && value.trim() === '') return DEFAULT_SETTINGS[key];
-      const number = Number(value);
-      if (!Number.isFinite(number)) return DEFAULT_SETTINGS[key];
-      const rounded = Math.floor(number);
-      if (range === undefined) return rounded;
-      return Math.min(range[1], Math.max(range[0], rounded));
-    }
-
     function SettingsPage(props) {
-      // Same fallback as the ghost entry: a missing locale face must not turn the
-      // settings page into a blank panel.
       const t = typeof props.t === 'function'
         ? props.t
         : (key) => (Object.prototype.hasOwnProperty.call(zh, key) ? zh[key] : key);
@@ -1671,7 +1725,9 @@ window.__ModuleLoader__.load({
         if (!alive.current || revision !== saveRevision.current) return;
         setStatus(settingsStore.writeUncertain ? 'uncertain' : loaded ? 'saved' : 'failed');
       };
+
       const current = value || DEFAULT_SETTINGS;
+      const locked = settingsStore.writeUncertain === true;
       const editField = (key, text) => {
         editVersions.current = { ...editVersions.current, [key]: {} };
         editsRef.current = { ...editsRef.current, [key]: text };
@@ -1707,10 +1763,6 @@ window.__ModuleLoader__.load({
         if (await save({ provider: snapshot.provider.trim(), model: snapshot.model.trim() })) clearSavedEdits(snapshot, versions);
       };
       const paused = isPaused(current, now);
-      // The countdown is the only consumer of `now`. An open settings page that
-      // is not paused must not re-render once a second for as long as it stays
-      // mounted. The effect sits after `paused` so the interval tracks that
-      // boolean; other hooks stay above it and keep a stable order.
       React.useEffect(() => {
         if (!paused) return undefined;
         const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -1726,10 +1778,10 @@ window.__ModuleLoader__.load({
         type: 'number',
         min,
         max,
+        disabled: locked,
         'aria-label': t(label),
         style: inputStyle,
         value: fieldText(key),
-        // Preserve transient empty and out-of-range input until editing ends.
         onChange: (event) => editField(key, event.target.value),
         onBlur: () => { void commitNumber(key); },
         onKeyDown: (event) => {
@@ -1745,6 +1797,7 @@ window.__ModuleLoader__.load({
       });
       const select = (key, options) => h('select', {
         'aria-label': t('settingsMode'),
+        disabled: locked,
         style: inputStyle,
         value: current[key],
         onChange: (event) => { void save({ [key]: event.target.value }); },
@@ -1762,7 +1815,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsEnabled')), h('div', { style: hintStyle }, t('settingsEnabledHint'))),
-          h('input', { type: 'checkbox', 'aria-label': t('settingsEnabled'), checked: current.enabled === true, onChange: toggle('enabled') })),
+          h('input', { type: 'checkbox', disabled: locked, 'aria-label': t('settingsEnabled'), checked: current.enabled === true, onChange: toggle('enabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsMode')), h('div', { style: hintStyle }, t('settingsModeHint'))),
@@ -1789,7 +1842,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistory')), h('div', { style: hintStyle }, t('settingsHistoryHint'))),
-          h('input', { type: 'checkbox', 'aria-label': t('settingsHistory'), checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
+          h('input', { type: 'checkbox', disabled: locked, 'aria-label': t('settingsHistory'), checked: current.historyEnabled === true, onChange: toggle('historyEnabled') })),
 
         h('div', { style: rowStyle },
           h('div', null, h('div', { style: labelStyle }, t('settingsHistoryMinChars')), h('div', { style: hintStyle }, t('settingsHistoryMinCharsHint'))),
@@ -1803,9 +1856,12 @@ window.__ModuleLoader__.load({
             paused ? h('span', { style: hintStyle }, countdown) : null,
             h('button', {
               type: 'button',
-              style: { ...inputStyle, cursor: 'pointer' },
+              disabled: locked,
+              style: { ...inputStyle, cursor: locked ? 'default' : 'pointer' },
               onClick: () => {
-                void save({ pausedUntil: paused ? 0 : Math.floor(Date.now() + 10 * 60 * 1000) });
+                const freshNow = Date.now();
+                setNow(freshNow);
+                void save({ pausedUntil: paused ? 0 : pauseUntil(freshNow, 10) });
               },
             }, t(paused ? 'settingsResume' : 'settingsPause')))),
 
@@ -1813,6 +1869,7 @@ window.__ModuleLoader__.load({
           h('div', null, h('div', { style: labelStyle }, t('settingsProvider')), h('div', { style: hintStyle }, t('settingsProviderHint'))),
           h('input', {
             type: 'text',
+            disabled: locked,
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.provider === '' ? t('settingsInherit') : '',
             'aria-label': t('settingsProvider'),
@@ -1826,6 +1883,7 @@ window.__ModuleLoader__.load({
           h('div', null, h('div', { style: labelStyle }, t('settingsModel')), h('div', { style: hintStyle }, t('settingsModelHint'))),
           h('input', {
             type: 'text',
+            disabled: locked,
             style: { ...inputStyle, minWidth: 180 },
             placeholder: current.model === '' ? t('settingsInherit') : '',
             'aria-label': t('settingsModel'),
@@ -1839,8 +1897,8 @@ window.__ModuleLoader__.load({
           h('p', { id: 'next-say-route-hint', style: { ...hintStyle, margin: 0 } }, t(routeComplete ? 'settingsRouteHint' : 'settingsRouteIncomplete')),
           h('button', {
             type: 'button',
-            style: { ...inputStyle, cursor: routeChanged && routeComplete ? 'pointer' : 'default' },
-            disabled: !routeChanged || !routeComplete || settingsStore.writeUncertain,
+            style: { ...inputStyle, cursor: routeChanged && routeComplete && !locked ? 'pointer' : 'default' },
+            disabled: !routeChanged || !routeComplete || locked,
             'aria-describedby': 'next-say-route-hint',
             onClick: () => { void commitRoute(); },
           }, t('settingsSaveRoute'))),
@@ -1848,8 +1906,8 @@ window.__ModuleLoader__.load({
         h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, paddingTop: 14 } },
           h('button', {
             type: 'button',
-            style: { ...inputStyle, cursor: 'pointer' },
-            disabled: settingsStore.writeUncertain,
+            style: { ...inputStyle, cursor: locked ? 'default' : 'pointer' },
+            disabled: locked,
             onClick: () => {
               editsRef.current = {};
               editVersions.current = {};
@@ -1858,8 +1916,8 @@ window.__ModuleLoader__.load({
             },
           }, t('settingsReset')),
           h('span', { style: hintStyle }, t('settingsResetHint')),
-          h('span', { role: 'status', 'aria-live': 'polite', style: hintStyle }, settingsStore.writeUncertain ? t('settingsUncertain') : status === 'loading' ? t('settingsReloading') : status === 'saving' ? t('settingsSaving') : status === 'failed' ? t('settingsFailed') : Object.keys(edits).length > 0 ? t('settingsUnsaved') : status === 'saved' ? t('settingsSaved') : ''),
-          settingsStore.writeUncertain || settingsStore.error !== undefined ? h('button', {
+          h('span', { role: 'status', 'aria-live': 'polite', style: hintStyle }, locked ? t('settingsUncertain') : status === 'loading' ? t('settingsReloading') : status === 'saving' ? t('settingsSaving') : status === 'failed' ? t('settingsFailed') : Object.keys(edits).length > 0 ? t('settingsUnsaved') : status === 'saved' ? t('settingsSaved') : ''),
+          locked || settingsStore.error !== undefined ? h('button', {
             type: 'button', style: { ...inputStyle, cursor: 'pointer' },
             disabled: status === 'loading' || status === 'saving',
             onClick: () => { void reloadSettings(); },
@@ -1870,17 +1928,11 @@ window.__ModuleLoader__.load({
     /* -------------------------------------------------------------- wiring */
 
     function apply(ctx) {
-      // `locale` is declared in `inject`, so Cordis waits for it instead of
-      // racing the service.
       const locale = ctx.locale;
       if (locale && typeof locale.register === 'function') {
         ctx.effect(() => locale.register(NS, { zh, en }), 'next-say dictionaries');
       }
 
-      // `conversation.input.overlay` renders INSIDE the composer card (the
-      // `.overlayAnchor` child of `[data-composer-card]`), which is what "in the
-      // input box" means here. The entry itself renders no element: it paints
-      // ghost text over the editor and returns null.
       ctx.slots.inject('conversation.input.overlay', () => ctx.slots.register({
         name: 'conversation.input.overlay',
         id: 'next-say',
@@ -1895,7 +1947,6 @@ window.__ModuleLoader__.load({
         locale: NS,
       }, ManualControl));
 
-      // The settings page is root-scoped: it must exist even with no session.
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: 'next-say',
@@ -1905,42 +1956,10 @@ window.__ModuleLoader__.load({
       }, SettingsPage));
     }
 
-    /**
-     * Decide the next history-recall action. Pure, so it is unit-tested.
-     * @param {Array} items history pool ({text}[])
-     * @param {{index:number,text:string}|null} current prior recall
-     * @param {string} draft current draft text
-     * @param {string} key 'ArrowUp' | 'ArrowDown'
-     * @returns {{action:'set',index:number,text:string}|{action:'clear'}|null}
-     */
-    function historyRecallStep(items, current, draft, key) {
-      const list = Array.isArray(items) ? items : [];
-      if (list.length === 0) return null;
-      if (key !== 'ArrowUp' && key !== 'ArrowDown') return null;
-      const recalling = current && typeof current.text === 'string' ? current : null;
-      const text = typeof draft === 'string' ? draft : '';
-      const blank = text.trim() === '';
-      const onRecalled = recalling !== null && text === recalling.text;
-      if (!blank && !onRecalled) return null;
-      if (key === 'ArrowUp') {
-        const nextIndex = blank ? list.length - 1 : Math.max(0, (recalling ? recalling.index : list.length) - 1);
-        const next = list[nextIndex];
-        const value = next && typeof next.text === 'string' ? next.text : '';
-        return value !== '' ? { action: 'set', index: nextIndex, text: value } : null;
-      }
-      if (recalling === null) return null;
-      const nextIndex = recalling.index + 1;
-      if (nextIndex >= list.length) return { action: 'clear' };
-      const next = list[nextIndex];
-      return next && typeof next.text === 'string' ? { action: 'set', index: nextIndex, text: next.text } : null;
-    }
-
     const moduleExports = {
       name: 'next-say',
       inject: ['slots', 'locale'],
       apply,
-      // Exposed so the Host-side tests can exercise the exact shipped logic
-      // rather than a copy of it.
       __internals: {
         NS,
         API,

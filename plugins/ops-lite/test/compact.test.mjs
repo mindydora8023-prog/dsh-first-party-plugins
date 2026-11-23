@@ -235,3 +235,13 @@ test('encodeSourceLine is what the compact renderer actually uses', () => {
   const row = lines.find((line) => line.startsWith('1|'))
   assert.equal(row, `1|${encodeSourceLine(raw)}`)
 })
+
+test('clamped limit prefers value.requestedLimit so output stays compact', () => {
+  const file = goodFile('a.js', { offset: 1, lines: ['alpha', 'beta'], total: 5 })
+  file.input.limit = 99999
+  file.value.requestedOffset = 1
+  file.value.requestedLimit = 2
+  const lines = compactRanges(inputs([file]), aggregate([file]))
+  assert.ok(Array.isArray(lines), 'clamped limit should remain in compact mode')
+  assert.ok(lines.some((line) => line.includes('more lines; nextOffset=3')))
+})

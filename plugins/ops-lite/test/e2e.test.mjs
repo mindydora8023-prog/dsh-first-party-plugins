@@ -411,8 +411,12 @@ test('a line longer than the cap is clipped and marked', () => {
   assert.equal(window.lines.length, 2)
   assert.equal(window.lines[0].text.length, 100)
   assert.equal(window.truncatedInLine.line, 1)
+  assert.equal(window.truncatedInLine.charactersTotal, 500)
   assert.equal(window.truncatedInLine.charactersOmitted, 400)
-  assert.equal(window.complete, true)
+  assert.equal(window.truncatedInLine.bytesTotal, 500)
+  assert.equal(window.truncatedInLine.bytesOmitted, 400)
+  assert.equal(window.nextOffset, 1)
+  assert.equal(window.complete, false)
 })
 
 test('byte accounting matches the host: CRLF counts once, trailing LF adds no line', () => {
@@ -464,7 +468,10 @@ test('a glob reads the matches and names the ones left out', async () => {
     writeFileSync(join(space.root, 'src', 'note.md'), 'docs\n', 'utf8')
     const { definition } = tool(space.ctx, { maxFiles: 1 })
     const value = await definition.execute({ files: [{ path: 'src/**/*.js' }] }, space.exec)
-    assert.equal(value.total, 1)
+    assert.equal(value.total, 2)
+    assert.equal(value.pending, 1)
+    assert.equal(value.nextIndex, 1)
+    assert.equal(value.complete, false)
     assert.match(value.text, /not returned/)
     assert.equal(space.host.observed.filter((entry) => entry.observation.kind === 'present').length, 1)
   } finally {
@@ -563,4 +570,137 @@ test('revisionOf is stable and hex', () => {
   const buffer = Buffer.from('stable body', 'utf8')
   assert.equal(revisionOf(buffer), revisionOf(Buffer.from('stable body', 'utf8')))
   assert.match(revisionOf(buffer), /^[a-f0-9]{64}$/)
+})
+
+test('failed decode, missing literal, and out-of-range offset do not emit fs/observed', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'bin.dat'), Buffer.from([0x61, 0x00, 0x62]))
+    writeFileSync(join(space.root, 'src', 'bad.txt'), Buffer.from([0x61, 0xff, 0x62]))
+    writeFileSync(join(space.root, 'src', 'ok.txt'), 'hello\nworld\n', 'utf8')
+    const { definition } = tool(space.ctx)
+
+    await definition.execute({ files: [{ path: 'src/bin.dat' }] }, space.exec)
+    assert.equal(space.host.observed.length, 0, 'binary file must not be marked observed')
+
+    await definition.execute({ files: [{ path: 'src/bad.txt' }] }, space.exec)
+    assert.equal(space.host.observed.length, 0, 'invalid UTF-8 file must not be marked observed')
+
+    await definition.execute({ files: [{ path: 'src/ok.txt', literal: 'missing' }] }, space.exec)
+    assert.equal(space.host.observed.length, 0, 'missing literal must not mark file observed')
+
+    await definition.execute({ files: [{ path: 'src/ok.txt', offset: 99 }] }, space.exec)
+    assert.equal(space.host.observed.length, 0, 'offset out of range must not mark file observed')
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('single-file and multi-file reads avoid duplicate resolve/stat IPC calls', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'a.js'), 'alpha\n', 'utf8')
+    writeFileSync(join(space.root, 'src', 'b.js'), 'beta\n', 'utf8')
+    let resolveCalls = 0
+    let statCalls = 0
+    const origResolve = space.ctx.fs.resolve
+    const origStat = space.ctx.fs.stat
+    space.ctx.fs.resolve = async (...args) => { resolveCalls += 1; return origResolve(...args) }
+    space.ctx.fs.stat = async (...args) => { statCalls += 1; return origStat(...args) }
+
+    const { definition } = tool(space.ctx)
+    // Single file: expandEntry resolves+stats once to check dir, readOne resolves+stats once (no peekEntry).
+    await definition.execute({ files: [{ path: 'src/a.js' }] }, space.exec)
+    assert.equal(resolveCalls, 2)
+    assert.equal(statCalls, 2)
+
+    // Multi file: peekEntry caches resolve+stat so readOne never repeats them!
+    resolveCalls = 0
+    statCalls = 0
+    await definition.execute({ files: [{ path: 'src/a.js' }, { path: 'src/b.js' }] }, space.exec)
+    // 2 from expandEntry + 2 from peekEntry, 0 extra from readOne.
+    assert.equal(resolveCalls, 4)
+    assert.equal(statCalls, 4)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('over-maxFiles concrete entries keep cap and report truthful total, pending, and complete=false', async () => {
+  const space = workspace()
+  try {
+    const files = []
+    for (let i = 0; i < 5; i += 1) {
+      const rel = `src/f${i}.txt`
+      writeFileSync(join(space.root, rel), `line ${i}\n`, 'utf8')
+      files.push({ path: rel })
+    }
+    const { definition } = tool(space.ctx, { maxFiles: 2 })
+    const value = await definition.execute({ files }, space.exec)
+    assert.equal(value.total, 5)
+    assert.equal(value.nextIndex, 2)
+    assert.equal(value.pending, 3)
+    assert.equal(value.complete, false)
+    assert.equal(space.host.observed.length, 2)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('wave admission caps per-file estimate by maxOutputBytes and uses real spent bytes', async () => {
+  const space = workspace()
+  try {
+    // Each file is 20 KB, maxOutputBytes is 4096, callMaxBytes is 10000.
+    // Without capping estimatedReadCost by maxOutputBytes, file 1 alone would be
+    // estimated at 60 KB and block file 2. With the cap + real wave spend, both fit.
+    const big = `${'x'.repeat(100)}\n`.repeat(200)
+    writeFileSync(join(space.root, 'src', 'a.txt'), big, 'utf8')
+    writeFileSync(join(space.root, 'src', 'b.txt'), 'tiny\n', 'utf8')
+    const { definition } = tool(space.ctx, { maxOutputBytes: 4096, callMaxBytes: 10000 })
+    const value = await definition.execute(
+      { files: [{ path: 'src/a.txt', limit: 2 }, { path: 'src/b.txt' }] },
+      space.exec,
+    )
+    assert.equal(value.pending, 0)
+    assert.equal(value.nextIndex, 2)
+    assert.match(value.text, /tiny/)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('clipped multi-byte line reports accurate characters and bytes in rendered notice', async () => {
+  const space = workspace()
+  try {
+    writeFileSync(join(space.root, 'src', 'wide.txt'), `${'\u4e2d'.repeat(120)}\nok\n`, 'utf8')
+    const { definition } = tool(space.ctx)
+    const value = await definition.execute(
+      { files: [{ path: 'src/wide.txt' }], max_line_length: 80 },
+      space.exec,
+    )
+    assert.equal(value.complete, false)
+    assert.match(value.text, /charactersTotal=120; charactersOmitted=40; bytesTotal=360; bytesOmitted=120/)
+    assert.match(value.text, /nextOffset=1/)
+  } finally {
+    space.cleanup()
+  }
+})
+
+test('config enforces LIMITS ceilings and relational invariants', () => {
+  const config = readConfig({
+    maxOutputBytes: 100 * 1024 * 1024,
+    callMaxBytes: 100 * 1024 * 1024,
+    maxFileBytes: 1024 * 1024 * 1024,
+    textBudget: 10 * 1024 * 1024,
+    maxLimit: 50,
+    defaultLimit: 400,
+    treeMaxDepth: 1,
+    treeDefaultDepth: 5,
+  })
+  assert.equal(config.maxOutputBytes, 50 * 1024)
+  assert.equal(config.callMaxBytes, 200 * 1024)
+  assert.equal(config.maxFileBytes, 32 * 1024 * 1024)
+  assert.equal(config.textBudget, 64 * 1024)
+  assert.equal(config.defaultLimit, 50)
+  assert.equal(config.treeDefaultDepth, 1)
 })

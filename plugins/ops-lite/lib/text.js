@@ -10,14 +10,16 @@
  *
  * Two independent caps apply, and they are reported differently because the
  * recovery differs:
- *   - `maxLineLength` clips ONE oversized line and marks it `truncatedInLine`;
- *     the window's offset stays on that line because advancing would skip the
- *     part that was not shown.
+ *   - `maxLineLength` clips an oversized line and marks it `truncatedInLine`;
+ *     the window's offset stays on the first clipped line because advancing
+ *     would skip the part that was not shown.
  *   - `maxBytes` stops the window early and sets `truncatedByBytes`; the next
  *     offset resumes at the first line that did not fit.
  *
  * ASCII only: see the workspace AGENTS.md encoding rule.
  */
+
+import { Buffer } from 'node:buffer'
 
 /**
  * 1-based physical line that first contains `literal`, or undefined.
@@ -74,19 +76,29 @@ export function buildWindow(body, request) {
     const textEnd = end > start && body.charCodeAt(end - 1) === 13 ? end - 1 : end
     const rawLength = textEnd - start
     const clipped = rawLength > maxLineLength
-    const line = body.slice(start, clipped ? start + maxLineLength : textEnd)
-    const cost = Buffer.byteLength(line, 'utf8') + (lines.length > 0 ? 1 : 0)
+    let clipEnd = clipped ? start + maxLineLength : textEnd
+    if (clipped && clipEnd > start && clipEnd < textEnd) {
+      const code = body.charCodeAt(clipEnd - 1)
+      if (code >= 0xd800 && code <= 0xdbff) clipEnd -= 1
+    }
+    const line = body.slice(start, clipEnd)
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    const cost = lineBytes + (lines.length > 0 ? 1 : 0)
     if (bytes + cost > maxBytes) {
       truncatedByBytes = true
       return
     }
     bytes += cost
     lines.push({ line: lineCount, text: line })
-    if (clipped) {
+    if (clipped && truncatedInLine === undefined) {
+      const omitted = body.slice(clipEnd, textEnd)
+      const bytesOmitted = Buffer.byteLength(omitted, 'utf8')
       truncatedInLine = {
         line: lineCount,
         charactersTotal: rawLength,
-        charactersOmitted: rawLength - maxLineLength,
+        charactersOmitted: textEnd - clipEnd,
+        bytesTotal: lineBytes + bytesOmitted,
+        bytesOmitted,
       }
     }
   }
@@ -107,13 +119,16 @@ export function buildWindow(body, request) {
     }
   }
 
-  // The first line that did not fit is where the next window resumes.
-  const nextOffset = lines.length === 0 ? offset : lines[lines.length - 1].line + 1
+  // Keep `nextOffset` on the first clipped line so advancing does not skip the
+  // missing suffix; otherwise resume at the first line that did not fit.
+  const nextOffset = truncatedInLine !== undefined
+    ? truncatedInLine.line
+    : (lines.length === 0 ? offset : lines[lines.length - 1].line + 1)
   return {
     lines,
     lineCount,
     nextOffset,
-    complete: !truncatedByBytes && nextOffset > lineCount,
+    complete: !truncatedByBytes && truncatedInLine === undefined && nextOffset > lineCount,
     truncatedByBytes,
     truncatedInLine,
   }

@@ -39,7 +39,7 @@ function generate(llm, timeoutMs = 30) {
 test('deadline settles even when prepareCall ignores cancellation', async () => {
   const result = await bounded(generate({ prepareCall: never }));
   assert.equal(result.reason, 'timeout');
-  assert.equal(__internals.predictingIn.size, 0);
+  assert.equal(__internals.inflight.size, 0);
 });
 
 test('deadline settles even when iterator next ignores cancellation', async () => {

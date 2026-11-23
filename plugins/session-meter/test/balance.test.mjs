@@ -163,10 +163,47 @@ test('the mounted route requires a loopback socket and pins its credential desti
     assert.equal(result.headers['cache-control'], 'no-store')
     assert.deepEqual(result.body, { ok: false, reason: 'error' })
   }
-  assert.equal(fetchMock.mock.callCount(), 3)
+  // Short negative-cache backoff prevents hammering the upstream on immediate retries.
+  assert.equal(fetchMock.mock.callCount(), 1)
   for (const { arguments: [url, options] } of fetchMock.mock.calls) {
     assert.equal(url, 'https://api.deepseek.com/user/balance')
     assert.equal(options.redirect, 'error')
     assert.equal(options.headers.authorization, 'Bearer fixture-balance-key')
   }
+})
+
+test('createBalanceReader deduplicates concurrent in-flight fetches and honors negative-cache backoff', async () => {
+  let calls = 0
+  let clock = 1_000_000
+  const gate = Promise.withResolvers()
+  const read = createBalanceReader({
+    keyProvider: () => 'sk-dedup',
+    now: () => clock,
+    errorBackoffMs: 5000,
+    fetchImpl: async () => {
+      calls += 1
+      if (calls === 1) return gate.promise
+      return response({}, { ok: false, status: 503 })
+    },
+  })
+  const p1 = read()
+  const p2 = read()
+  gate.resolve(balanceResponse('42.00'))
+  const [r1, r2] = await Promise.all([p1, p2])
+  assert.equal(calls, 1, 'concurrent callers must share one in-flight request')
+  assert.equal(r1.balances[0].total, '42.00')
+  assert.equal(r2.balances[0].total, '42.00')
+
+  // Expire positive cache and trigger an error; immediate retry hits negative cache.
+  clock += 65_000
+  const err1 = await read()
+  assert.deepEqual(err1, { ok: false, reason: 'http', status: 503 })
+  assert.equal(calls, 2)
+  clock += 1000
+  const err2 = await read()
+  assert.deepEqual(err2, { ok: false, reason: 'http', status: 503 })
+  assert.equal(calls, 2, 'within errorBackoffMs, negative cache must prevent refetch')
+  clock += 5000
+  await read()
+  assert.equal(calls, 3, 'past errorBackoffMs, reader retries upstream')
 })

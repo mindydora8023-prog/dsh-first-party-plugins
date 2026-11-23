@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { clearProxyCache, proxyOf } from '../lib/api.js'
+import { clearProxyCache, parseWindowsProxyServer, proxyOf } from '../lib/api.js'
 import { readConfig } from '../lib/config.js'
 
 const PLUGIN_DIR = 'E:/tmp/github-proxy-test'
@@ -84,3 +84,14 @@ test('${env:NAME} inside proxyUrl is expanded, and a missing variable means unse
   delete process.env.DSH_TEST_PROXY
   assert.equal(proxyOf(configFor({ proxyUrl: '${env:DSH_TEST_PROXY}', proxyFromSystem: false })), '')
 }))
+
+test('parseWindowsProxyServer normalizes hostnames and skips socks entries cleanly', () => {
+  assert.equal(parseWindowsProxyServer('127.0.0.1:7897'), 'http://127.0.0.1:7897')
+  assert.equal(parseWindowsProxyServer('localhost:7897'), 'http://localhost:7897')
+  assert.equal(parseWindowsProxyServer('proxy.corp:8080'), 'http://proxy.corp:8080')
+  assert.equal(parseWindowsProxyServer('http://proxy.corp:8080'), 'http://proxy.corp:8080')
+  assert.equal(parseWindowsProxyServer('http=a.corp:80;https=b.corp:443'), 'http://b.corp:443')
+  assert.equal(parseWindowsProxyServer('socks=127.0.0.1:1080'), '')
+  assert.equal(parseWindowsProxyServer('socks5://127.0.0.1:1080'), '')
+  assert.equal(parseWindowsProxyServer('socks=127.0.0.1:1080;https=proxy.corp:8080'), 'http://proxy.corp:8080')
+})

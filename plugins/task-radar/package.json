@@ -45,7 +45,7 @@
     }
   },
   "scripts": {
-    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/config.js && node --check lib/config-file.js && node --check lib/fetch-handler.js && node --check lib/state-dir.js",
+    "build": "node --check lib/index.js && node --check lib/client.js && node --check lib/locales.js && node --check lib/config.js && node --check lib/config-file.js && node --check lib/fetch-handler.js && node --check lib/toast.js && node --check lib/webhook.js && node --check lib/lifecycle.js && node --check lib/routes.js && node --check lib/state-dir.js && node --check lib/json-store.js && node --check lib/http-utils.js",
     "test": "node --test --test-timeout=20000 test/*.test.mjs",
     "check:icons": "node tools/build-icons.mjs --check"
   },

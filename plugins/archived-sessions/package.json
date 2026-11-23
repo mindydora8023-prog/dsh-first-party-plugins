@@ -36,7 +36,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "build": "node --check lib/index.js && node --check lib/client.js"
+    "build": "node --check lib/index.js && node --check lib/planner.js && node --check lib/transaction.js && node --check lib/recycle.js && node --check lib/routes.js && node --check lib/cleanup.js && node --check lib/reasons.js && node --check lib/client.js && node --check lib/state-dir.js && node --check lib/json-store.js && node --check lib/http-utils.js"
   },
   "license": "MIT",
   "engines": {

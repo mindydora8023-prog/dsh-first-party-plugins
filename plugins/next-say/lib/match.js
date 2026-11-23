@@ -31,11 +31,8 @@ const NORMALIZE_CACHE_LIMIT = 1024;
  * must not break a match. The returned string is only ever used for comparison;
  * the text shown to the user is always the candidate's original bytes.
  */
-export function normalizeForMatch(text) {
-  const key = String(text ?? '');
-  const hit = NORMALIZE_CACHE.get(key);
-  if (hit !== undefined) return hit;
-  const value = key
+function normalizeRaw(key) {
+  return key
     .toLowerCase()
     .replace(NORMALIZE_STRIP, '')
     .replace(/[\u2018\u2019\u201c\u201d]/g, '"')
@@ -46,12 +43,27 @@ export function normalizeForMatch(text) {
     .replace(/\uff1f/g, '?')
     .replace(/\uff01/g, '!')
     .replace(/[\uff01-\uff5e]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+}
+
+export function normalizeForMatch(text) {
+  const key = String(text ?? '');
+  // Short strings (1-2 chars, including per-character cursor walks) must bypass
+  // the cache so they never evict full history entries.
+  if (key.length <= 2) return normalizeRaw(key);
+  const hit = NORMALIZE_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const value = normalizeRaw(key);
   if (NORMALIZE_CACHE.size >= NORMALIZE_CACHE_LIMIT) {
     const oldest = NORMALIZE_CACHE.keys().next().value;
     if (oldest !== undefined) NORMALIZE_CACHE.delete(oldest);
   }
   NORMALIZE_CACHE.set(key, value);
   return value;
+}
+
+/** Diagnostic hook for tests verifying short-string bypass does not thrash the cache. */
+export function normalizeCacheSize() {
+  return NORMALIZE_CACHE.size;
 }
 
 /**
@@ -164,7 +176,7 @@ export function suggestionRemainder(suggestion, draft) {
   let position = 0;
   for (const char of full) {
     if (consumed >= query.length) break;
-    consumed += normalizeForMatch(char).length;
+    consumed += normalizeRaw(char).length;
     position += char.length;
   }
   if (consumed !== query.length) return null;
@@ -217,7 +229,7 @@ export function historyCompletion(history, draft, options = {}) {
     let position = 0;
     for (const char of item.text) {
       if (consumed >= query.length) break;
-      consumed += normalizeForMatch(char).length;
+      consumed += normalizeRaw(char).length;
       position += char.length;
     }
     // Case folding can expand one character (for example U+0130). Matching only

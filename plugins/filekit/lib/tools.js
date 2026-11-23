@@ -1,23 +1,26 @@
 /**
  * Tool definitions for filekit.
  *
- * Four tools, all read-only. Plain-text line windows are NOT here -- that is
- * ops-lite's `ops_read_files`, which does the same job with a structured outcome
- * contract. Keeping both made the model choose between synonyms (see the note on
- * buildTools at the bottom of this file).
- *
+ * Seven read-only document tools:
  *   filekit_read_table  bounded CSV/TSV rows (delimiter + BOM aware)
  *   filekit_read_docx   bounded DOCX body as Markdown (headings, links, tables)
  *   filekit_read_xlsx   bounded XLSX sheets as Markdown tables (dates as ISO)
  *   filekit_read_pptx   bounded PPTX slides as Markdown (text, tables, notes)
  *   filekit_read_pdf    bounded PDF page text
+ *   filekit_outline     headings/sheets/slides/pages without dumping the body
+ *   filekit_search      literal substring search with unit locations
  *
- * Every tool returns a single rendered text body under a bare object envelope so
- * the result reads the same as the host `read` tool.
+ * Every tool neutralizes wrapper tags (`</content>`, `</path>`, `</query>`,
+ * `<type>`) so untrusted document text or paths cannot close the envelope.
+ *
+ * ASCII only: see the workspace AGENTS.md encoding rule.
  */
 
+import { Buffer } from 'node:buffer'
 import { resolvePath, statTarget, readBytes } from './access.js'
 import { isCredentialPath, credentialDenied } from './guard.js'
+import { neutralizeWrapperTags } from './escape.js'
+import { truncateUtf8 } from './ooxml.js'
 import {
   decodeTable,
   detectDelimiter,
@@ -46,6 +49,17 @@ function positiveInt(value, fallback, min, max) {
 
 function bool(value, fallback) {
   return typeof value === 'boolean' ? value : fallback
+}
+
+/** Wrap a tool output envelope while neutralizing wrapper tags in untrusted text. */
+function wrapEnvelope(displayPath, type, content, query = undefined) {
+  const safePath = neutralizeWrapperTags(displayPath)
+  const safeContent = neutralizeWrapperTags(content)
+  if (query !== undefined) {
+    const safeQuery = neutralizeWrapperTags(query)
+    return `<path>${safePath}</path>\n<type>${type}</type>\n<query>${safeQuery}</query>\n<content>\n${safeContent}\n</content>`
+  }
+  return `<path>${safePath}</path>\n<type>${type}</type>\n<content>\n${safeContent}\n</content>`
 }
 
 /** Resolve + fence + stat one path, returning everything later steps need. */
@@ -102,7 +116,7 @@ function buildTableTool(config, ctx) {
       })
       const note = `(delimiter=${JSON.stringify(delimiter === '\t' ? '\\t' : delimiter)}, encoding=${encoding}${parsed.truncated ? ', scan stopped at the row cap' : ''})`
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>table</type>\n<content>\n${table.text}\n\n${note}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, 'table', `${table.text}\n\n${note}`),
         returned: table.returned,
         totalDataRows: table.totalDataRows,
       }
@@ -128,10 +142,16 @@ function buildDocxTool(config, ctx) {
       const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
       const offset = positiveInt(args?.offset, 1, 1, Number.MAX_SAFE_INTEGER)
       const limit = positiveInt(args?.limit, config.docDefaultLimit, 1, config.docMaxLimit)
-      const doc = readDocx(buffer, { offset, limit, maxCellLength: config.maxCellLength, maxBytes: config.maxOutputBytes })
+      const doc = readDocx(buffer, {
+        offset,
+        limit,
+        maxCellLength: config.maxCellLength,
+        maxBytes: config.maxOutputBytes,
+        scanMaxBytes: config.scanMaxBytes,
+      })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>docx</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, 'docx', `${doc.text}${warn}`),
         returned: doc.returned,
         totalBlocks: doc.totalBlocks,
       }
@@ -163,8 +183,10 @@ function buildXlsxTool(config, ctx) {
       const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
       const offset = positiveInt(args?.offset, 1, 1, Number.MAX_SAFE_INTEGER)
       const limit = positiveInt(args?.limit, config.docDefaultLimit, 1, config.docMaxLimit)
+      // Pass string verbatim so readXlsx matches an exact sheet name (e.g. "2")
+      // before falling back to a 1-based sheet index.
       const sheetArg = typeof args?.sheet === 'string' && args.sheet.trim() !== ''
-        ? (/^\d+$/.test(args.sheet.trim()) ? Number(args.sheet.trim()) : args.sheet.trim())
+        ? args.sheet.trim()
         : undefined
       const doc = readXlsx(buffer, {
         offset,
@@ -173,10 +195,11 @@ function buildXlsxTool(config, ctx) {
         hasHeader: bool(args?.has_header, true),
         maxCellLength: config.maxCellLength,
         maxBytes: config.maxOutputBytes,
+        scanMaxBytes: config.scanMaxBytes,
       })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>xlsx</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, 'xlsx', `${doc.text}${warn}`),
         sheet: doc.sheetName,
         sheets: doc.sheets,
         returned: doc.returned,
@@ -205,10 +228,16 @@ function buildPptxTool(config, ctx) {
       const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
       const offset = positiveInt(args?.offset, 1, 1, Number.MAX_SAFE_INTEGER)
       const limit = positiveInt(args?.limit, config.pdfDefaultPages, 1, config.pdfMaxPages)
-      const doc = readPptx(buffer, { offset, limit, maxCellLength: config.maxCellLength, maxBytes: config.maxOutputBytes })
+      const doc = readPptx(buffer, {
+        offset,
+        limit,
+        maxCellLength: config.maxCellLength,
+        maxBytes: config.maxOutputBytes,
+        scanMaxBytes: config.scanMaxBytes,
+      })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>pptx</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, 'pptx', `${doc.text}${warn}`),
         returned: doc.returned,
         slideCount: doc.slideCount,
       }
@@ -235,26 +264,43 @@ function buildPdfTool(config, ctx) {
       const buffer = await readBytes(ctx, exec, resolved, info, config.maxFileBytes)
       const offset = positiveInt(args?.offset, 1, 1, Number.MAX_SAFE_INTEGER)
       const limit = positiveInt(args?.limit, config.pdfDefaultPages, 1, config.pdfMaxPages)
-      const doc = extractPdfText(buffer, { offset, limit })
+      const doc = extractPdfText(buffer, { offset, limit, maxStreamBytes: config.scanMaxBytes })
       const parts = []
       let bytes = 0
       let lastPage = offset - 1
+      let capped = false
       for (const page of doc.pages) {
         const chunk = `--- page ${page.page} ---\n${page.text.trim() === '' ? '(no extractable text)' : page.text.trim()}`
         const size = Buffer.byteLength(chunk, 'utf8') + 2
-        if (bytes + size > config.maxOutputBytes) break
+        if (bytes + size > config.maxOutputBytes) {
+          if (parts.length === 0) {
+            // Never return 0 pages when a page exists (prevents infinite pagination loops).
+            const notice = '\n... (page truncated to fit output cap)'
+            const budget = Math.max(64, config.maxOutputBytes - Buffer.byteLength(notice, 'utf8') - 16)
+            parts.push(`${truncateUtf8(chunk, budget)}${notice}`)
+            lastPage = page.page
+          }
+          capped = true
+          break
+        }
         bytes += size
         parts.push(chunk)
         lastPage = page.page
       }
       const endPage = Math.min(offset + limit - 1, doc.pageCount)
       let footer
-      if (lastPage < endPage) footer = `(Output capped. Showing pages ${offset}-${lastPage} of ${doc.pageCount}. Use offset=${lastPage + 1} to continue.)`
-      else if (endPage < doc.pageCount) footer = `(Showing pages ${offset}-${endPage} of ${doc.pageCount}. Use offset=${endPage + 1} to continue.)`
-      else footer = `(End of document - ${doc.pageCount} pages)`
+      if (capped || lastPage < endPage) {
+        footer = lastPage < doc.pageCount
+          ? `(Output capped. Showing pages ${offset}-${lastPage} of ${doc.pageCount}. Use offset=${lastPage + 1} to continue.)`
+          : `(Output capped. Showing pages ${offset}-${lastPage} of ${doc.pageCount}.)`
+      } else if (endPage < doc.pageCount) {
+        footer = `(Showing pages ${offset}-${endPage} of ${doc.pageCount}. Use offset=${endPage + 1} to continue.)`
+      } else {
+        footer = `(End of document - ${doc.pageCount} pages)`
+      }
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>pdf</type>\n<content>\n${parts.join('\n\n')}\n\n${footer}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, 'pdf', `${parts.join('\n\n')}\n\n${footer}${warn}`),
         pageCount: doc.pageCount,
         pagesReturned: parts.length,
       }
@@ -299,10 +345,11 @@ function buildOutlineTool(config, ctx) {
         maxEntries: limit,
         maxBytes: config.maxOutputBytes,
         maxPdfPages: config.pdfMaxPages,
+        scanMaxBytes: config.scanMaxBytes,
       })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>outline:${format}</type>\n<content>\n${doc.text}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, `outline:${format}`, `${doc.text}${warn}`),
         entryCount: doc.entryCount,
         totalEntries: doc.totalEntries,
         truncated: doc.truncated,
@@ -320,7 +367,7 @@ function buildSearchTool(config, ctx) {
       path: { type: 'string', required: true, description: 'Path to a .docx, .xlsx, .pptx or .pdf file.' },
       query: { type: 'string', required: true, description: 'Text to find (literal substring).' },
       ignore_case: { type: 'boolean', description: 'Case-insensitive match. Default true.' },
-      limit: { type: 'integer', description: `Maximum matches to return. Default 50.` },
+      limit: { type: 'integer', description: 'Maximum matches to return. Default 50.' },
     },
     output: textOutput(),
     isConcurrencySafe: () => true,
@@ -342,10 +389,11 @@ function buildSearchTool(config, ctx) {
         ignoreCase,
         maxBytes: config.maxOutputBytes,
         maxPdfPages: config.pdfMaxPages,
+        scanMaxBytes: config.scanMaxBytes,
       })
       const warn = doc.warnings.length > 0 ? `\n(warnings: ${doc.warnings.join('; ')})` : ''
       return {
-        text: `<path>${resolved.displayPath}</path>\n<type>search:${format}</type>\n<query>${query}</query>\n<content>\n${doc.text}${warn}\n</content>`,
+        text: wrapEnvelope(resolved.displayPath, `search:${format}`, `${doc.text}${warn}`, query),
         hits: doc.hits,
         scanned: doc.scanned,
         truncated: doc.truncated,
@@ -354,20 +402,7 @@ function buildSearchTool(config, ctx) {
   }
 }
 
-/**
- * Build all tool definitions for the resolved config.
- *
- * `filekit_read` was removed on 2026-10-26: it read UTF-8 line windows from 1..N
- * files, which is exactly what ops-lite's `ops_read_files` does -- with a
- * strictly better contract (structured outcome carrying effectState/retry/
- * nextAction, escaped-byte budgets, a compact receipt, and two independent
- * completeness levels). Two tools that both mean "read several files" made the
- * model choose between synonyms with no basis for the choice, and each carried
- * its own prompt paragraph recommending itself.
- *
- * The document readers stay here: CSV/TSV/DOCX/XLSX/PDF parsing is filekit's
- * reason to exist, and ops-lite deliberately does not do it.
- */
+/** Build all tool definitions for the resolved config. */
 export function buildTools(config, ctx) {
   return [
     buildTableTool(config, ctx),
