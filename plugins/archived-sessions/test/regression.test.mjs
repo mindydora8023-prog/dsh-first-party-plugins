@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { Readable } from 'node:stream'
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile, utimes } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -51,7 +51,7 @@ function makeRouteCaller(handler) {
 }
 
 test('recycle bin handles spaces, @, non-ASCII, and colon segments without rejecting valid paths', async (t) => {
-  const base = await mkdtemp(join(tmpdir(), 'dsh-recycle-unicode-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'dsh-recycle-unicode-')))
   t.after(() => rm(base, { recursive: true, force: true }))
 
   const projectName = 'team @ \u9879\u76ee workspace'
@@ -123,7 +123,7 @@ test('recycle bin handles spaces, @, non-ASCII, and colon segments without rejec
 })
 
 test('recyclePurge route validates days explicitly, allows 0, and honors baseConfig.recycleDays', async (t) => {
-  const base = await mkdtemp(join(tmpdir(), 'dsh-recycle-route-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'dsh-recycle-route-')))
   t.after(() => rm(base, { recursive: true, force: true }))
   const root = join(base, 'sessions')
   const recycleRoot = join(base, 'sessions-recycle')
