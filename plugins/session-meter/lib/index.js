@@ -11,10 +11,12 @@
 import { createCatalogStore, numberFromEnv, statusFilePath } from './catalog-store.js';
 import {
   BALANCE_PATH,
+  REPORT_PATH,
   ROUTE,
   createBalanceHandler,
   createBalanceReader,
   createPriceHandler,
+  handleSpendReport,
 } from './routes.js';
 
 export { statusFilePath, createBalanceReader };
@@ -41,11 +43,15 @@ export function apply(ctx) {
   const balanceHandler = createBalanceHandler(readBalance);
 
   const attachRoutes = (server) => {
-    // Register balance BEFORE prices so tests capturing the last registered
+    // Register prices last so tests capturing the last registered
     // route still observe `/session-meter/prices`.
     ctx.effect(
       () => server.register({ kind: 'exact', path: BALANCE_PATH, handler: balanceHandler }),
       'session-meter balance route',
+    );
+    ctx.effect(
+      () => server.register({ kind: 'exact', path: REPORT_PATH, handler: handleSpendReport }),
+      'session-meter report route',
     );
     ctx.effect(() => {
       const dispose = server.register({ kind: 'exact', path: ROUTE, handler: priceHandler });

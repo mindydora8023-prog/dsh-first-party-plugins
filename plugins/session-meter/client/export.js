@@ -42,3 +42,19 @@ function exportBreakdown(breakdown, format) {
 		rows: shaped,
 	}, null, 2);
 }
+
+function downloadSpendReport(ledger, options, format, language) {
+	const report = createSpendReport(ledger, options);
+	const content = serializeSpendReport(report, format, language);
+	const link = document.createElement("a");
+	const href = URL.createObjectURL(new Blob([content], { type: REPORT_FORMATS[format] }));
+	try {
+		link.href = href;
+		link.download = spendReportFilename(report, format);
+		document.body.appendChild(link);
+		link.click();
+	} finally {
+		link.remove();
+		setTimeout(() => URL.revokeObjectURL(href), 1000);
+	}
+}

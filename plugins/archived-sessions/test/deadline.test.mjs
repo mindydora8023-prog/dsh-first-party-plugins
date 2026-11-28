@@ -44,7 +44,15 @@ function stallingContext() {
   }
 }
 
-test('withDeadline rejects with status 504 and an unknown effect', async () => {
+function keepFixtureAlive(t) {
+  // An unsettled Promise does not hold the event loop open. A real HTTP
+  // connection does, but the in-memory fixture has no socket.
+  const keepAlive = setTimeout(() => {}, 5000)
+  t.after(() => clearTimeout(keepAlive))
+}
+
+test('withDeadline rejects with status 504 and an unknown effect', { timeout: 5000 }, async (t) => {
+  keepFixtureAlive(t)
   const stalled = withDeadline(new Promise(() => {}), 20)
   await assert.rejects(stalled, (error) => {
     assert.equal(error.status, 504)
@@ -63,9 +71,9 @@ test('the timeout message tells the caller to re-inspect, not to retry', () => {
   assert.doesNotMatch(message, /^\s*\S*\s*(nothing|no changes)/i)
 })
 
-test('a stalled delete surfaces the deadline instead of hanging', async () => {
+test('a stalled delete surfaces the deadline instead of hanging', { timeout: 5000 }, async (t) => {
+  keepFixtureAlive(t)
   const ctx = stallingContext()
-  const started = Date.now()
   await assert.rejects(
     deleteArchived(ctx, 'session-a', { timeoutMs: 25 }),
     (error) => {
@@ -75,12 +83,10 @@ test('a stalled delete surfaces the deadline instead of hanging', async () => {
       return true
     },
   )
-  const elapsed = Date.now() - started
-  // Generous upper bound: this asserts "bounded", not "fast".
-  assert.ok(elapsed < 5000, `the delete must be bounded, took ${elapsed}ms`)
 })
 
-test('a stalled orphan cleanup is bounded the same way', async () => {
+test('a stalled orphan cleanup is bounded the same way', { timeout: 5000 }, async (t) => {
+  keepFixtureAlive(t)
   const ctx = stallingContext()
   await assert.rejects(deleteOrphans(ctx, ['session-a'], { timeoutMs: 25 }), (error) => {
     assert.equal(error.status, 504)

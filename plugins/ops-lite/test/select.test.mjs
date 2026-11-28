@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import { expandEntry, hasGlob, segmentMatch, splitPattern } from '../lib/select.js'
 import { lineOfLiteral } from '../lib/text.js'
@@ -109,10 +109,10 @@ test('splitPattern preserves POSIX absolute, UNC, and Windows drive roots', () =
   assert.deepEqual(splitPattern('/etc/nginx/*.conf'), { base: '/etc/nginx', segments: ['*.conf'] })
   assert.deepEqual(splitPattern('/*.conf'), { base: '/', segments: ['*.conf'] })
   const unc = splitPattern('\\\\server\\share\\dir\\*.js')
-  assert.equal(unc.base, `${join('\\\\server\\share', 'dir')}`)
+  assert.equal(unc.base, sep + sep + ['server', 'share', 'dir'].join(sep))
   assert.deepEqual(unc.segments, ['*.js'])
   const driveRoot = splitPattern('C:\\*.js')
-  assert.equal(driveRoot.base, `C:${process.platform === 'win32' ? '\\' : '/'}`)
+  assert.equal(driveRoot.base, 'C:' + sep)
   assert.deepEqual(driveRoot.segments, ['*.js'])
 })
 

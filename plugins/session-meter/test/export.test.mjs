@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createSpendReport } from '../lib/report.js'
 
 const REACT_STUB = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
@@ -98,11 +99,11 @@ test('requestCosts skips empty usage and flags unpriced', () => {
 })
 
 test('localDateKey yields a stable YYYY-MM-DD', () => {
-  const ms = Date.UTC(2026, 10, 22, 4, 0, 0)
+  const ms = new Date(2026, 10, 22, 12).getTime()
   const key = I.localDateKey(ms)
   assert.match(key, /^\d{4}-\d{2}-\d{2}$/)
   assert.equal(I.localDateKey(ms), key, 'same instant, same key')
-  assert.match(key, /^2026-11-2[12]$/)
+  assert.equal(key, '2026-11-22')
 })
 
 function inputRequest(turn, startedAt, inputTokens) {
@@ -174,14 +175,88 @@ test('dayTotal ignores the undated lifetime sums in legacy storage', () => {
   assert.equal(I.dayTotal(ledger, '2026-11-23'), 1)
 })
 
-test('updateDayLedger caps per-session stored request keys while keeping dayTotal exact', () => {
+test('replaying a long trajectory keeps the rolled-up cost exact', () => {
   const day = '2026-11-23'
   const entries = new Map()
   for (let i = 0; i < 650; i += 1) {
     entries.set(`req-${i}`, 0.01)
   }
-  const ledger = I.updateDayLedger(undefined, 'long-session', new Map([[day, entries]]))
-  const storedKeys = Object.keys(ledger.days[day]['long-session'])
-  assert.ok(storedKeys.length <= 500, `stored keys must be bounded (got ${storedKeys.length})`)
-  assert.ok(Math.abs(I.dayTotal(ledger, day) - 6.5) < 1e-9, 'dayTotal remains exact across rolled overflow')
+  const dated = new Map([[day, entries]])
+  const ledger = I.updateDayLedger(undefined, 'long-session', dated)
+  assert.equal(I.updateDayLedger(ledger, 'long-session', dated), ledger)
+  assert.ok(Math.abs(I.dayTotal(ledger, day) - 6.5) < 1e-9)
+})
+
+test('a v2 overflow keeps its cost and can be replaced by a matching full replay', () => {
+  const day = '2026-11-23'
+  const ledger = { version: 2, days: { [day]: { session: { __overflow: 1, latest: 2 } } } }
+  const partial = new Map([[day, new Map([['old', 0.5], ['latest', 2]])]])
+  assert.equal(I.dayTotal(I.updateDayLedger(ledger, 'session', partial), day), 3)
+  const full = new Map([[day, new Map([['earliest', 0.5], ['old', 0.5], ['latest', 2]])]])
+  const updated = I.updateDayLedger(ledger, 'session', full)
+  assert.equal(updated.version, 3)
+  assert.equal(I.dayTotal(updated, day), 3)
+  assert.deepEqual(Object.keys(updated.days[day].session), ['latest', 'earliest', 'old'])
+  assert.equal(I.updateDayLedger(updated, 'session', full), updated)
+})
+
+test('month-end snapshots follow browser local time and keep the originally recorded date', (t) => {
+  const oldZone = process.env.TZ
+  t.after(() => {
+    if (oldZone === undefined) delete process.env.TZ
+    else process.env.TZ = oldZone
+  })
+  const at = Date.parse('2026-11-30T16:01:00Z')
+  const priced = (inputTokens) => I.costBreakdown({
+    requests: [inputRequest(1, at, inputTokens)], rateAt: FLAT_RATE,
+  }).datedCosts
+
+  process.env.TZ = 'UTC'
+  const first = I.updateDayLedger(undefined, 'session', priced(1_000_000))
+  assert.equal(I.localDateKey(at), '2026-11-30')
+  process.env.TZ = 'Asia/Shanghai'
+  const shanghai = I.updateDayLedger(undefined, 'session', priced(1_000_000))
+  assert.equal(I.localDateKey(at), '2026-12-01')
+  assert.equal(createSpendReport(shanghai, { month: '2026-12' }).totals.costCny, 1)
+  assert.equal(createSpendReport(first, { month: '2026-11' }).totals.costCny, 1)
+  const reloaded = I.updateDayLedger(JSON.parse(JSON.stringify(first)), 'session', priced(2_000_000))
+  assert.equal(createSpendReport(reloaded, { month: '2026-11' }).totals.costCny, 2)
+  assert.equal(createSpendReport(reloaded, { month: '2026-12' }).totals.costCny, 0)
+})
+
+test('the shipped report buttons download HTML, JSON and CSV for the local month', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date(2026, 10, 23, 12) })
+  const downloaded = []
+  const blobs = []
+  const revoked = []
+  t.mock.method(URL, 'createObjectURL', (blob) => {
+    blobs.push(blob)
+    return 'blob:fixture/' + blobs.length
+  })
+  t.mock.method(URL, 'revokeObjectURL', (href) => revoked.push(href))
+  const previousDocument = globalThis.document
+  globalThis.document = {
+    body: { appendChild() {} },
+    createElement(tag) {
+      assert.equal(tag, 'a')
+      return {
+        click() { downloaded.push({ filename: this.download, href: this.href }) },
+        remove() {},
+      }
+    },
+  }
+  t.after(() => { globalThis.document = previousDocument })
+  const ledger = { version: 2, days: { '2026-11-23': { session: { request: 1.5 } } } }
+  const controls = I.SpendReportControls({ t: (key) => I.en[key], ledger })
+  for (const child of controls.children.flatMap((node) => node.children ?? [])) {
+    if (child.type === 'button') child.props.onClick()
+  }
+  assert.deepEqual(downloaded.map((file) => file.filename), [
+    'session-meter-2026-11.html', 'session-meter-2026-11.json', 'session-meter-2026-11.csv',
+  ])
+  assert.match(await blobs[0].text(), /<svg/)
+  assert.equal(JSON.parse(await blobs[1].text()).totals.costCny, 1.5)
+  assert.match(await blobs[2].text(), /total,2026-11-01,2026-11-30,/)
+  t.mock.timers.tick(1000)
+  assert.deepEqual(revoked, downloaded.map((file) => file.href))
 })

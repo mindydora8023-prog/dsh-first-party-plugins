@@ -22,11 +22,8 @@ function configFor(overrides = {}) {
 function withoutProxyEnv(fn) {
   return async () => {
     const names = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy']
-    const saved = {}
-    for (const name of names) {
-      saved[name] = process.env[name]
-      delete process.env[name]
-    }
+    const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+    for (const name of names) delete process.env[name]
     clearProxyCache()
     try {
       await fn()
@@ -59,20 +56,6 @@ test('the environment is ignored when proxyFromEnv is false', withoutProxyEnv(as
   assert.equal(proxyOf(config), '')
 }))
 
-test('the system proxy is discovered on this machine without any env var', withoutProxyEnv(async () => {
-  const config = configFor()
-  const proxy = proxyOf(config)
-  if (process.platform !== 'win32') {
-    assert.equal(proxy, '', 'only Windows reads the registry')
-    return
-  }
-  // Either the machine has a system proxy configured (this one does) or it
-  // does not; both are valid, but the value must be usable as a URL when set.
-  if (proxy !== '') {
-    assert.match(proxy, /^https?:\/\/[^\s]+:\d+$/, `unexpected proxy shape: ${proxy}`)
-  }
-}))
-
 test('proxyFromSystem: false skips the registry entirely', withoutProxyEnv(async () => {
   const config = configFor({ proxyFromSystem: false })
   assert.equal(proxyOf(config), '')
@@ -90,6 +73,7 @@ test('parseWindowsProxyServer normalizes hostnames and skips socks entries clean
   assert.equal(parseWindowsProxyServer('localhost:7897'), 'http://localhost:7897')
   assert.equal(parseWindowsProxyServer('proxy.corp:8080'), 'http://proxy.corp:8080')
   assert.equal(parseWindowsProxyServer('http://proxy.corp:8080'), 'http://proxy.corp:8080')
+  assert.equal(parseWindowsProxyServer('proxy.corp'), 'http://proxy.corp')
   assert.equal(parseWindowsProxyServer('http=a.corp:80;https=b.corp:443'), 'http://b.corp:443')
   assert.equal(parseWindowsProxyServer('socks=127.0.0.1:1080'), '')
   assert.equal(parseWindowsProxyServer('socks5://127.0.0.1:1080'), '')

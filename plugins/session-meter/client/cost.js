@@ -316,6 +316,22 @@ function costBreakdown(input) {
 		addInto(row.usage, entry.usage);
 		addInto(charged, entry.usage);
 		if (estimated === true || entry.own !== true) row.estimated = true;
+		const recordDated = (costCny, cacheSavedCny) => {
+			if (requestId === undefined || entry.own !== true) return;
+			const date = localDateKey(entry.at);
+			let day = datedCosts.get(date);
+			if (day === undefined) {
+				day = new Map();
+				datedCosts.set(date, day);
+			}
+			day.set(requestId, {
+				provider: entry.provider ?? "",
+				model: entry.model ?? "",
+				...entry.usage,
+				costCny,
+				cacheSavedCny,
+			});
+		};
 		const at = entry.at !== undefined ? entry.at : anchorAt;
 		if (at === undefined) {
 			const peak = lookup(entry.model, UNKNOWN_PEAK_AT);
@@ -343,6 +359,7 @@ function costBreakdown(input) {
 		const priced = lookup(entry.model, at);
 		if (priced === undefined) {
 			unpricedTokens += totalBilledTokens(entry.usage);
+			recordDated(null, null);
 			return;
 		}
 		const rowCost = costOf(entry.usage, priced.rate);
@@ -354,15 +371,7 @@ function costBreakdown(input) {
 		row.saved += rowSaved;
 		cost += rowCost;
 		savedTotal += rowSaved;
-		if (requestId !== undefined && entry.own === true && Number.isFinite(rowCost)) {
-			const date = localDateKey(at);
-			let day = datedCosts.get(date);
-			if (day === undefined) {
-				day = new Map();
-				datedCosts.set(date, day);
-			}
-			day.set(requestId, rowCost);
-		}
+		if (Number.isFinite(rowCost)) recordDated(rowCost, rowSaved);
 	};
 
 	for (const [requestId, entry] of entries) charge(entry, false, requestId);

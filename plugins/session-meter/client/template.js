@@ -26,6 +26,8 @@ window.__ModuleLoader__.load({
 
 		/*__MODEL_NAMES__*/
 
+		/*__REPORT__*/
+
 		/*__PRICING__*/
 
 		/*__LIVE_PRICES__*/
@@ -110,6 +112,7 @@ window.__ModuleLoader__.load({
 			updateDayLedger,
 			dayTotal,
 			localDateKey,
+			SpendReportControls,
 			SessionMeter,
 		};
 		return module.exports;

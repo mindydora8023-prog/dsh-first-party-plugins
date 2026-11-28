@@ -62,9 +62,12 @@ test('declared oversized bodies are rejected before data is buffered', async () 
   closeAndCheck(req);
 });
 
-test('a stalled body has a finite deadline and releases listeners', async () => {
+test('a stalled body has a finite deadline and releases listeners', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const req = new Request();
-  await assert.rejects(readBody(req, 100, 10), { status: 408, reason: 'request-timeout' });
+  const rejection = assert.rejects(readBody(req, 100, 10), { status: 408, reason: 'request-timeout' });
+  t.mock.timers.tick(10);
+  await rejection;
   assert.equal(req.paused, true);
   assert.equal(req.listenerCount('data'), 0);
   assert.equal(req.listenerCount('end'), 0);
@@ -133,6 +136,7 @@ test('malformed JSON returns bad-json and HEAD advertises content length without
 
 async function serverHarness(t, handler) {
   const server = createServer(handler);
+  server.on('checkContinue', handler);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
@@ -143,23 +147,30 @@ async function serverHarness(t, handler) {
   return server.address().port;
 }
 
-test('real HTTP oversized upload returns JSON instead of resetting the connection', { timeout: 5000 }, async (t) => {
+test('real HTTP returns 413 for oversized declared and streamed uploads', { timeout: 5000 }, async (t) => {
   const h = handlerHarness();
   const port = await serverHarness(t, h.handler);
-  for (const headers of [{ 'content-length': String(REQUEST_BODY_LIMIT + 1) }, { 'transfer-encoding': 'chunked' }]) {
+  const cases = [
+    // The server can reject this from the headers. Sending the body anyway
+    // races the response against a TCP reset when the server closes the socket.
+    { headers: { 'content-length': String(REQUEST_BODY_LIMIT + 1), expect: '100-continue' } },
+    { headers: { 'transfer-encoding': 'chunked' }, body: Buffer.alloc(REQUEST_BODY_LIMIT + 1) },
+  ];
+  for (const { headers, body } of cases) {
     const result = await new Promise((resolve, reject) => {
       const req = httpRequest({ hostname: '127.0.0.1', port, path: '/api/task-radar/config', method: 'POST', headers }, (res) => {
         const chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('error', reject);
-        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks)) }));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
       });
       req.on('error', reject);
+      req.on('continue', () => req.destroy(new Error('oversized upload received 100 Continue')));
       req.setTimeout(3000, () => req.destroy(new Error('fixture request timeout')));
-      req.end(Buffer.alloc(REQUEST_BODY_LIMIT + 1));
+      req.end(body);
     });
     assert.equal(result.status, 413);
-    assert.equal(result.body.reason, 'body-too-large');
+    assert.equal(JSON.parse(result.body).reason, 'body-too-large');
   }
   assert.deepEqual(h.saved, []);
 });

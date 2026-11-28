@@ -131,7 +131,66 @@ const style = {
 		fontSize: "11px",
 		cursor: "pointer",
 	},
+	reportControls: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: "4px 8px",
+		marginTop: "4px",
+	},
+	reportInput: {
+		border: "1px solid var(--dsw-alias-border-l3)",
+		borderRadius: "var(--dsw-radius-sm, 6px)",
+		background: "var(--dsw-alias-bg-layer-2)",
+		color: "inherit",
+		font: "inherit",
+	},
 };
+
+function SpendReportControls({ t, ledger }) {
+	const [period, setPeriod] = React.useState("month");
+	const [month, setMonth] = React.useState("");
+	const [from, setFrom] = React.useState("");
+	const [to, setTo] = React.useState("");
+	const [error, setError] = React.useState(false);
+	const tReport = (key) => textKey(t, key);
+	const today = localDateKey(Date.now());
+	const selectedMonth = month || today.slice(0, 7);
+	const download = (format) => {
+		try {
+			downloadSpendReport(loadLedger(ledger), { period, today, month: selectedMonth, from, to }, format, tReport("reportLanguage"));
+			setError(false);
+		} catch {
+			setError(true);
+		}
+	};
+	const dateField = (type, label, value, onChange) => h("input", {
+		type, value, style: style.reportInput, "aria-label": tReport(label), onChange: (event) => onChange(event.target.value),
+	});
+
+	return h("div", { style: style.panelLine },
+		h("strong", null, tReport("reportTitle")),
+		h("div", { style: style.reportControls },
+			h("select", {
+				value: period, style: style.reportInput, "aria-label": tReport("reportPeriod"),
+				onChange: (event) => { setPeriod(event.target.value); setError(false); },
+			},
+			h("option", { value: "month" }, tReport("reportMonth")),
+			h("option", { value: "last30" }, tReport("reportLast30")),
+			h("option", { value: "all" }, tReport("reportAll")),
+			h("option", { value: "custom" }, tReport("reportCustom"))),
+			period === "month" && dateField("month", "reportMonth", selectedMonth, setMonth),
+			period === "custom" && dateField("date", "reportFrom", from, setFrom),
+			period === "custom" && dateField("date", "reportTo", to, setTo),
+		),
+		h("div", { style: style.reportControls },
+			["html", "json", "csv"].map((format) => h("button", {
+				key: format, type: "button", style: style.exportButton, onClick: () => download(format),
+				"aria-label": tReport("reportTitle") + " (" + format.toUpperCase() + ")",
+			}, format.toUpperCase())),
+		),
+		error && h("span", { role: "alert" }, tReport("reportError")),
+	);
+}
 
 function modelLines(row, t) {
 	const label = row.model || textKey(t, "unknown");
@@ -328,7 +387,7 @@ function SessionMeter(props) {
 	const costKey = hasUnpricedUsage && !allUnpriced ? "pricedSubtotal" : "spend";
 	const costLabel = textKey(t, costKey) + " " + (allUnpriced ? textKey(t, "noPrice") : fmtMoney(breakdown.cost));
 	const showCost = tokens > 0;
-	const showPill = showPeriod || showCost;
+	const showPill = showPeriod || showCost || Object.keys(ledger.days).length > 0;
 	const soon = showPeriod && flip !== undefined && flip - now <= 60 * MINUTE_MS;
 	const soonLabel = soon ? fmtSpan(flip - now, t) : undefined;
 	countdownRef.current = soon;
@@ -604,6 +663,7 @@ function SessionMeter(props) {
 				soonLabel !== undefined && h("span", { style: style.soon }, soonLabel),
 				showPeriod && showCost && tokens > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
 				showCost && h("span", { style: style.label }, costLabel),
+				!showPeriod && !showCost && h("span", { style: style.label }, textKey(t, "reportTitle")),
 				saved > 0 && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
 				saved > 0 && h("span", { style: style.label }, textKey(t, "saved") + " " + fmtMoney(saved)),
 				showFill && h("span", { style: style.sep, "aria-hidden": true }, "\u00b7"),
@@ -633,6 +693,7 @@ function SessionMeter(props) {
 				" ",
 				h("button", { type: "button", style: style.exportButton, onClick: () => copyExport("json"), title: "Copy as JSON" }, "JSON"),
 			),
+			h(SpendReportControls, { t, ledger }),
 		),
 	);
 }

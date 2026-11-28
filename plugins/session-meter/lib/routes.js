@@ -8,13 +8,16 @@
  */
 import { createHash } from 'node:crypto';
 
-import { isLoopbackAddress, sendJson } from './http-utils.js';
+import { isLoopbackAddress, readBoundedJson, sendJson } from './http-utils.js';
 import { classifyNames, selectModels } from './prices.js';
+import { createSpendReport, REPORT_FORMATS, serializeSpendReport, spendReportFilename } from './report.js';
 
 /** Route the browser half reads for live catalog prices. */
 export const ROUTE = '/session-meter/prices';
 /** Route the browser half reads for the account balance (read-only, key-gated). */
 export const BALANCE_PATH = '/session-meter/balance';
+export const REPORT_PATH = '/session-meter/report';
+const REPORT_BODY_LIMIT = 8 * 1024 * 1024;
 /** The only endpoint that may receive the balance credential. */
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 /** Short cache so opening the panel repeatedly does not hammer the endpoint. */
@@ -127,6 +130,59 @@ function isAllowedOrigin(req) {
 
 function wantsCatalog(names) {
   return names.some((name) => !name.toLowerCase().includes('deepseek'));
+}
+
+/** Render a supplied ledger for local clients without storing it. */
+export async function handleSpendReport(req, res) {
+  const method = req.method;
+  if (method !== 'POST') {
+    sendJson(res, 405, { ok: false, reason: 'method-not-allowed' }, { method, headers: { allow: 'POST' } });
+    return;
+  }
+  const origin = req.headers?.origin;
+  const ownOrigin = (req.socket?.encrypted ? 'https://' : 'http://') + req.headers?.host;
+  if (!isLoopbackAddress(req.socket?.remoteAddress) || (origin !== undefined && origin !== ownOrigin)) {
+    sendJson(res, 403, { ok: false, reason: 'forbidden' });
+    return;
+  }
+  if (!/^application\/json(?:\s*;|$)/i.test(req.headers?.['content-type'] ?? '')) {
+    sendJson(res, 415, { ok: false, reason: 'expected-json' });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readBoundedJson(req, { maxBytes: REPORT_BODY_LIMIT });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { ok: false, reason: 'invalid-body' });
+    return;
+  }
+  const { format, ledger, options, language } = payload ?? {};
+  if (typeof format !== 'string' || !Object.hasOwn(REPORT_FORMATS, format)
+    || (ledger?.version !== 2 && ledger?.version !== 3)
+    || !ledger.days || typeof ledger.days !== 'object' || Array.isArray(ledger.days)
+    || !options || typeof options !== 'object' || Array.isArray(options)) {
+    sendJson(res, 400, { ok: false, reason: 'invalid-report' });
+    return;
+  }
+
+  let report;
+  try {
+    report = createSpendReport(ledger, options);
+  } catch {
+    sendJson(res, 400, { ok: false, reason: 'invalid-range' });
+    return;
+  }
+  if (res.writableEnded || res.destroyed) return;
+  const content = serializeSpendReport(report, format, language);
+  res.writeHead(200, {
+    'content-type': REPORT_FORMATS[format],
+    'content-disposition': 'attachment; filename="' + spendReportFilename(report, format) + '"',
+    'content-length': Buffer.byteLength(content, 'utf8'),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(content);
 }
 
 /** Build the `/session-meter/prices` HTTP handler. */

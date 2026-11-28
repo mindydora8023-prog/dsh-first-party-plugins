@@ -1,16 +1,17 @@
 /**
  * Daily spend ledger mirrored in memory and persisted best-effort in
- * `localStorage` with bounded days, sessions, and per-session request keys.
+ * localStorage with bounded days, sessions, and serialized size.
  *
  * Pure ASCII only.
  */
 
 const LEDGER_STORAGE_KEY = "dsh-session-meter-ledger";
-const LEDGER_VERSION = 2;
+const LEDGER_VERSION = 3;
 const LEDGER_MAX_DAYS = 60;
 const LEDGER_MAX_SESSIONS = 200;
-const LEDGER_MAX_REQUESTS_PER_SESSION = 500;
-const LEDGER_OVERFLOW_KEY = "__overflow";
+const LEGACY_OVERFLOW = "__overflow";
+// Leave room for the host's own data in the origin's localStorage quota.
+const LEDGER_MAX_CHARS = 2_000_000;
 
 /** In-memory mirror avoiding redundant JSON.parse/stringify on idle renders. */
 let mirroredLedger = null;
@@ -22,33 +23,81 @@ function localDateKey(ms) {
 }
 
 function normalizeLedger(ledger) {
-	if (ledger?.version === LEDGER_VERSION && ledger.days && typeof ledger.days === "object") return ledger;
+	if (ledger?.days && typeof ledger.days === "object" && !Array.isArray(ledger.days)) {
+		if (ledger.version === LEDGER_VERSION) return ledger;
+		if (ledger.version === 2) return { version: LEDGER_VERSION, days: ledger.days };
+	}
 	return { version: LEDGER_VERSION, days: {} };
 }
 
-/**
- * Bound per-session request tracking so a marathon session never bloats
- * `localStorage` unboundedly; evicted request costs are rolled into
- * `__overflow` so `dayTotal` remains exact.
- */
-function capSessionRequests(record) {
-	const keys = Object.keys(record);
-	if (keys.length <= LEDGER_MAX_REQUESTS_PER_SESSION) return record;
-	const overflowBase = Number.isFinite(record[LEDGER_OVERFLOW_KEY]) ? record[LEDGER_OVERFLOW_KEY] : 0;
-	const regular = keys.filter((k) => k !== LEDGER_OVERFLOW_KEY);
-	const keepCount = LEDGER_MAX_REQUESTS_PER_SESSION - 1;
-	const dropCount = Math.max(0, regular.length - keepCount);
-	let overflow = overflowBase;
-	for (let i = 0; i < dropCount; i += 1) {
-		const value = record[regular[i]];
-		if (Number.isFinite(value)) overflow += value;
+function sameLedgerRecord(before, after) {
+	if (before === after) return true;
+	if (!before || !after || typeof before !== "object" || typeof after !== "object") return false;
+	return Object.keys(after).every((key) => before[key] === after[key]);
+}
+
+function ledgerCost(record) {
+	return Number.isFinite(record) ? record : record?.costCny;
+}
+
+function preserveRecordedDates(days, sessionId, datedCosts) {
+	const dateByRequest = new Map();
+	for (const [date, sessions] of Object.entries(days)) {
+		if (!sessions || !Object.hasOwn(sessions, sessionId)) continue;
+		for (const id of Object.keys(sessions[sessionId] ?? {})) dateByRequest.set(id, date);
 	}
-	const trimmed = {};
-	if (overflow > 0) trimmed[LEDGER_OVERFLOW_KEY] = overflow;
-	for (let i = dropCount; i < regular.length; i += 1) {
-		trimmed[regular[i]] = record[regular[i]];
+	if (dateByRequest.size === 0) return datedCosts;
+	const byDate = new Map();
+	for (const [date, costs] of datedCosts) {
+		for (const [id, cost] of costs) {
+			const recorded = dateByRequest.get(id) ?? date;
+			if (!byDate.has(recorded)) byDate.set(recorded, new Map());
+			byDate.get(recorded).set(id, cost);
+		}
 	}
-	return trimmed;
+	return byDate;
+}
+
+function mergeLedgerSession(previous, costs) {
+	const next = { ...previous };
+	let changed = false;
+	if (Number.isFinite(previous[LEGACY_OVERFLOW])) {
+		// V2 collapsed the oldest entries without their IDs. Rehydrate them
+		// only when this snapshot's prefix reconciles with the stored amount.
+		const snapshot = [...costs];
+		const firstKnown = snapshot.findIndex(([id]) => Object.hasOwn(previous, id));
+		if (firstKnown < 0) return previous;
+		const prefix = snapshot.slice(0, firstKnown).map(([, record]) => ledgerCost(record));
+		const total = prefix.reduce((sum, cost) => sum + cost, 0);
+		if (prefix.length > 0 && prefix.every(Number.isFinite)
+			&& Math.abs(total - previous[LEGACY_OVERFLOW]) < 1e-9) {
+			delete next[LEGACY_OVERFLOW];
+			changed = true;
+		} else {
+			costs = snapshot.slice(firstKnown);
+		}
+	}
+	for (const [id, record] of costs) {
+		const prior = Object.hasOwn(previous, id) ? previous[id] : undefined;
+		if (record?.costCny === null && Number.isFinite(ledgerCost(prior))) continue;
+		if (sameLedgerRecord(prior, record)) continue;
+		Object.defineProperty(next, id, { value: record, enumerable: true, configurable: true, writable: true });
+		changed = true;
+	}
+	return changed ? next : previous;
+}
+
+function limitLedgerSize(ledger) {
+	const days = Object.entries(ledger.days).sort(([a], [b]) => a.localeCompare(b));
+	let size = JSON.stringify({ ...ledger, days: {} }).length;
+	let start = days.length;
+	while (start > 0) {
+		const nextSize = size + JSON.stringify(days[start - 1]).length;
+		if (nextSize > LEDGER_MAX_CHARS) break;
+		size = nextSize;
+		start -= 1;
+	}
+	return start === 0 ? ledger : { ...ledger, days: Object.fromEntries(days.slice(start)) };
 }
 
 /** Upsert dated estimates by session and request, keeping requests already seen. */
@@ -56,6 +105,7 @@ function updateDayLedger(ledger, sessionId, datedCosts) {
 	ledger = normalizeLedger(ledger);
 	if (typeof sessionId !== "string" || sessionId === "" || !(datedCosts instanceof Map) || datedCosts.size === 0) return ledger;
 	const days = { ...ledger.days };
+	datedCosts = preserveRecordedDates(days, sessionId, datedCosts);
 	const retainedDates = [...new Set([...Object.keys(days), ...datedCosts.keys()])].sort().slice(-LEDGER_MAX_DAYS);
 	let changed = false;
 	for (const date of retainedDates) {
@@ -63,8 +113,8 @@ function updateDayLedger(ledger, sessionId, datedCosts) {
 		if (costs === undefined) continue;
 		const sessions = days[date] ?? {};
 		const previous = (Object.hasOwn(sessions, sessionId) ? sessions[sessionId] : undefined) ?? {};
-		if ([...costs].every(([requestId, cost]) => previous[requestId] === cost)) continue;
-		const nextSession = capSessionRequests({ ...previous, ...Object.fromEntries(costs) });
+		const nextSession = mergeLedgerSession(previous, costs);
+		if (previous === nextSession) continue;
 		const merged = { ...sessions, [sessionId]: nextSession };
 		const ids = Object.keys(merged);
 		for (const id of ids.slice(0, Math.max(0, ids.length - LEDGER_MAX_SESSIONS))) delete merged[id];
@@ -72,7 +122,7 @@ function updateDayLedger(ledger, sessionId, datedCosts) {
 		changed = true;
 	}
 	if (!changed) return ledger;
-	return { version: LEDGER_VERSION, days: Object.fromEntries(retainedDates.map((date) => [date, days[date]])) };
+	return limitLedgerSize({ version: LEDGER_VERSION, days: Object.fromEntries(retainedDates.map((date) => [date, days[date]])) });
 }
 
 /** One day's summed cost from the ledger. */
@@ -80,7 +130,10 @@ function dayTotal(ledger, date) {
 	const sessions = normalizeLedger(ledger).days[date];
 	let total = 0;
 	for (const requests of Object.values(sessions ?? {})) {
-		for (const cost of Object.values(requests ?? {})) if (Number.isFinite(cost)) total += cost;
+		for (const record of Object.values(requests ?? {})) {
+			const cost = ledgerCost(record);
+			if (Number.isFinite(cost)) total += cost;
+		}
 	}
 	return total;
 }
@@ -98,7 +151,7 @@ function loadLedger(fallback) {
 			}
 		}
 	} catch { /* storage is best-effort */ }
-	if (mirroredLedger !== null && fallback === undefined) return mirroredLedger;
+	if (mirroredLedger !== null) return mirroredLedger;
 	return normalizeLedger(fallback);
 }
 

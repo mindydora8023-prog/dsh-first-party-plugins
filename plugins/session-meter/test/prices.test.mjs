@@ -221,7 +221,7 @@ test('the classifier tolerates a missing or malformed request list', () => {
 	});
 });
 
-test('verifiedFallback stays O(1) on a 12,000-model catalog', () => {
+test('verifiedFallback uses the index without enumerating a 12,000-model catalog', (t) => {
 	const providers = {};
 	for (let p = 0; p < 12; p += 1) {
 		const models = {};
@@ -234,10 +234,15 @@ test('verifiedFallback stays O(1) on a 12,000-model catalog', () => {
 	const catalog = buildCatalog(providers, FX);
 	const queries = Array.from({ length: 100 }, (_, i) => `relay/unknown-family-${i}-variant`);
 	queries.push('relay/muse-wonder-1-0-contributor');
-	const started = performance.now();
+	for (const method of ['keys', 'entries', 'values']) {
+		const original = Object[method];
+		t.mock.method(Object, method, (value) => {
+			assert.notEqual(value, catalog, 'verified fallback must use the prebuilt index');
+			return original(value);
+		});
+	}
 	const hits = selectModels(catalog, queries);
-	const elapsedMs = performance.now() - started;
 	assert.equal(hits['relay/muse-wonder-1-0-contributor'].input, 21.6);
-	assert.ok(elapsedMs < 200, `100 fallback misses + 1 hit must stay fast via O(1) index (took ${elapsedMs.toFixed(1)}ms)`);
+	assert.deepEqual(Object.keys(hits), ['relay/muse-wonder-1-0-contributor']);
 });
 

@@ -4,8 +4,8 @@
  *
  * WHY. Copies under `lib/` (such as `define.js`, `state-dir.js`,
  * `credential-guard.js`, `fs-access.js`, `escape.js`, `json-store.js`,
- * `http-utils.js`) are generated from the workspace `shared/` directory by
- * `node tools/sync-shared-code.mjs`. A `link:` plugin cannot reliably import
+ * `http-utils.js`) are copied from the workspace `plugins/shared/` directory.
+ * A `link:` plugin cannot reliably import
  * from the workspace root, so each plugin carries its own copy and this test
  * guarantees zero drift.
  *
@@ -21,6 +21,7 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WORKSPACE_ROOT = resolve(PLUGIN_ROOT, '..');
 const SHARED_DIR = join(WORKSPACE_ROOT, 'shared');
 const LIB_DIR = join(PLUGIN_ROOT, 'lib');
+const monorepo = existsSync(join(WORKSPACE_ROOT, '..', 'tools', 'test.mjs'));
 
 const SHARED_FILES = [
   'define.js',
@@ -47,17 +48,16 @@ test('plugin ships at least one shared module when shared-sync guard is installe
 for (const [sourceRel, copyRel] of pairs) {
   test(`${copyRel} matches ${sourceRel}`, (t) => {
     const sourcePath = join(WORKSPACE_ROOT, sourceRel);
-    if (!existsSync(SHARED_DIR) || !existsSync(sourcePath)) {
+    if (!monorepo && !existsSync(SHARED_DIR)) {
       t.skip('workspace shared/ is not present (standalone checkout)');
       return;
     }
-    const source = readFileSync(sourcePath, 'utf8');
-    const copy = readFileSync(join(PLUGIN_ROOT, copyRel), 'utf8');
-    assert.equal(
-      copy,
-      source,
-      `${copyRel} has drifted from ${sourceRel}. Do not hand-edit the copy: ` +
-        'run `node tools/sync-shared-code.mjs` in the workspace root to regenerate it.',
+    assert.ok(existsSync(sourcePath), `missing plugins/${sourceRel}`);
+    const source = readFileSync(sourcePath);
+    const copy = readFileSync(join(PLUGIN_ROOT, copyRel));
+    assert.ok(
+      copy.equals(source),
+      `${copyRel} has drifted from plugins/${sourceRel}. Copy the canonical file to regenerate it.`,
     );
   });
 }

@@ -40,6 +40,7 @@ function withFixture(work) {
       'client/export.js',
       'client/ui.js',
       'lib/model-names.js',
+      'lib/report.js',
     ]) {
       copyFileSync(join(ROOT, file), join(root, file));
     }

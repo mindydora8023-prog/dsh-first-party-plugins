@@ -10,6 +10,7 @@
   "blocks": [
     { "marker": "/*__LOCALES__*/", "source": "lib/locales.js" },
     { "marker": "/*__MODEL_NAMES__*/", "source": "lib/model-names.js" },
+    { "marker": "/*__REPORT__*/", "source": "lib/report.js" },
     { "marker": "/*__PRICING__*/", "source": "client/pricing.js" },
     { "marker": "/*__LIVE_PRICES__*/", "source": "client/live-prices.js" },
     { "marker": "/*__COST__*/", "source": "client/cost.js" },

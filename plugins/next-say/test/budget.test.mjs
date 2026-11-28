@@ -9,6 +9,10 @@ import { __internals } from '../lib/index.js';
 
 const { createHandler } = __internals;
 
+test.beforeEach((t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-30T23:59:59.999Z') });
+});
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
