@@ -1,10 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { discoverPlugins, root } from './plugins.mjs';
 const problems = [];
-const pluginRoot = path.join(root, 'plugins');
-const names = fs.readdirSync(pluginRoot).filter((name) => fs.existsSync(path.join(pluginRoot, name, 'package.json'))).sort();
+const plugins = discoverPlugins();
 const normal = (p) => p.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
 function covered(files, rel) {
   // npm always includes the manifest, regardless of its files allow-list.
@@ -24,9 +22,7 @@ function walk(dir, callback) {
     else callback(file);
   }
 }
-for (const name of names) {
-  const dir = path.join(pluginRoot, name);
-  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+for (const { id: name, directory: dir, manifest: pkg } of plugins) {
   const required = ['README.md', 'LICENSE', pkg.dsh?.bundle?.patch];
   if (fs.existsSync(path.join(dir, 'THIRD_PARTY_NOTICES.md'))) required.push('THIRD_PARTY_NOTICES.md');
   function pathsOf(value) {
@@ -56,4 +52,4 @@ walk(root, (file) => {
   }
 });
 if (problems.length) { console.error(problems.join('\n')); process.exitCode = 1; }
-else console.log('PASS: ' + names.length + ' plugin manifests, entrypoints, license files and release text checks');
+else console.log('PASS: ' + plugins.length + ' plugin manifests, entrypoints, license files and release text checks');

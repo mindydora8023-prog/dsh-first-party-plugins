@@ -1,17 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-const base = fileURLToPath(new URL('../plugins/', import.meta.url));
-const plugins = readdirSync(base).filter((name) => existsSync(join(base, name, 'package.json'))).sort();
+import { discoverPlugins, root } from './plugins.mjs';
+const suites = [...discoverPlugins(), { id: 'tools', directory: join(root, 'tools') }];
 let failed = false;
 const totals = { tests: 0, pass: 0, fail: 0, cancelled: 0, skipped: 0 };
-for (const plugin of plugins) {
-  const cwd = join(base, plugin);
+for (const { id: plugin, directory: cwd, manifest: pkg } of suites) {
   const testDir = join(cwd, 'test');
   const files = existsSync(testDir) ? readdirSync(testDir).filter((name) => name.endsWith('.test.mjs')).sort().map((name) => 'test/' + name) : [];
   if (files.length === 0) {
-    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+    if (!pkg) continue;
     const entries = [...new Set([pkg.main, typeof pkg.exports?.['.'] === 'string' ? pkg.exports['.'] : null, typeof pkg.exports?.['./client'] === 'string' ? pkg.exports['./client'] : null].filter(Boolean))];
     for (const entry of entries) {
       const check = spawnSync(process.execPath, ['--check', entry], {cwd, encoding: 'utf8', timeout: 10000});

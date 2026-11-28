@@ -1,5 +1,7 @@
 # DSH 自开发插件
 
+[English](README.en.md)
+
 面向 DeepSeek Harness 的八款插件。工作区开发的功能与改编模块一并开源；涉及上游代码和配色的部分保留原署名及 MIT 许可，不宣称全仓零第三方代码。
 
 | 插件 | 版本 | 功能 | 来源记录 |
@@ -18,6 +20,26 @@
 ## 安装
 
 需要 Node.js 22 或以上和 DeepSeek Harness。task-radar 需要 DSH 0.2.2-rc.3 或更新的兼容 0.2.x 版本。各包的宿主版本要求见其清单与说明。升级或重载前先检查正在运行的会话，安排好操作时机。
+
+### 用 CLI 安装
+
+下载或克隆本仓库后，在仓库根目录运行以下命令。将 `/path/to/profile` 换成现有的 DSH profile 目录，或直接指定它的 `package.json`。Windows 路径同样可以用引号括起来。
+
+```sh
+npm run install-plugins -- --list
+npm run install-plugins -- --profile "/path/to/profile" --plugins filekit,next-say --dry-run
+npm run install-plugins -- --profile "/path/to/profile" --plugins filekit,next-say
+npm run install-plugins -- --profile "/path/to/profile" --all
+npm run install-plugins -- --profile "/path/to/profile" --uninstall filekit,next-say
+```
+
+也可以直接运行 `npm run install-plugins`，按提示填写路径，输入编号勾选或取消插件，再按 Enter 确认。安装默认写入指向本地源码的绝对 `link:` 路径，也可以显式传入 `--link`。使用链接期间，请将仓库留在原位置。
+
+每次写入前，CLI 会在 profile 旁保存 `package.json.bak.<时间戳>` 并打印路径。把实际备份路径传给 `npm run install-plugins -- --rollback "/path/to/profile/package.json.bak.<时间戳>"` 就能恢复当时的完整配置。预览和重复执行已生效的操作都不会生成备份。
+
+写入配置前先关闭宿主。安装、卸载或回滚后，在 profile 目录用 DSH 配套包管理器同步依赖，再重启宿主、刷新页面。
+
+### 手动安装
 
 下载或克隆本仓库，选取需要的插件。在 DSH 插件管理中使用本地包安装入口；或者关闭宿主后，合并目标 profile 的配置。以下仅以两个插件示例，请替换绝对路径并保留原配置：
 
@@ -50,9 +72,22 @@ npm run check
 
 工具插件保留可选真实宿主比较测试：未设置 `DSH_HOST_CHECKOUT` 且没有兼容宿主检出时，相关用例明确显示跳过。可将变量设为含 node_modules/@deepseek-ai 的兼容检出根目录；宿主代码不随本仓库分发。纯函数、协议、替身与共享一致性用例仍会实际执行。
 
-next-say 的客户端模板与词典生成工具随源码提供，需要 Python 3。其词典与客户端同步检查在 CI 单独执行；filekit 的最简 OOXML 测试样例、task-radar 的 SVG/PNG 图标由随包 Node.js 生成器构建，CI 验证生成物一致性。
+task-radar 的安装版集成测试也可选。将 `DSH_INSTALL_DIR` 指向已安装的 `@deepseek-ai/dsh` 包目录即可运行。
+
+next-say 的词典和客户端、filekit 的 OOXML 测试样例、task-radar 的 SVG/PNG 图标均可用仓库里的 Node.js 工具重建。CI 会检查生成物与源码是否一致。
 
 GitHub Actions 覆盖 Windows/Linux 与 Node.js 22/24。远端运行结果见 [Actions](https://github.com/mindydora8023-prog/dsh-first-party-plugins/actions)。
+
+## 发布包
+
+推送 `v*` tag 后，GitHub Actions 会跑完同一套测试矩阵，再发布八个插件的 `.tgz` 包、`SHA256SUMS.txt` 和 `manifest.json`。清单包含每个插件的版本、文件名、大小和 SHA-256。
+
+```sh
+node tools/pack-release.mjs
+node tools/pack-release.mjs --check
+```
+
+第一条命令把发布文件写入 `dist/releases/`，第二条命令重新打包并核对本地发布文件。
 
 ## 使用行为
 

@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test": "node tools/test.mjs",
-    "check": "node tools/check-release.mjs"
+    "check": "node tools/check-release.mjs",
+    "install-plugins": "node tools/install-plugins.mjs"
   }
 }
